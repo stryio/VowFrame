@@ -1,0 +1,25 @@
+{
+  "api_key": "sk-xxxx-在88API控制台的API令牌页面创建",
+  "base_url": "https://api.88api.ai",
+  "default_model": "gpt-image-2",
+  "output_dir": "outputs/images",
+  "timeout": 600,
+  "models": {
+    "gpt-image-2": "OpenAI，按张计费，1K/2K/4K，参考图≤4，每次1张",
+    "gpt-image-2.5-flare": "OpenAI，按张计费，1K/2K/4K，参考图≤10，每次1张",
+    "gpt-image-2.5-sunburst": "OpenAI，按张计费，1K/2K/4K，参考图≤10，每次1张",
+    "az-gpt-image-2": "OpenAI 完整参数，按token，透明背景/多张(≤10)/输出格式",
+    "az-gpt-image-2.5-flare": "同上，quality 另支持 xhigh/max",
+    "az-gpt-image-2.5-sunburst": "同上，quality 另支持 xhigh/max",
+    "gemini-3.1-flash-image": "Gemini，按次，1K/2K/4K，参考图≤14",
+    "gemini-nano-banana-2.1": "Gemini，按次，1K/2K/4K，参考图≤6",
+    "gemini-3-pro-image": "Gemini，按次，1K/2K/4K，参考图≤14",
+    "grok-imagine-image": "Grok，按张，1K/2K，参考图≤3，n≤10",
+    "grok-imagine-image-2.0": "Grok，按张，1K/2K，quality low/medium/auto",
+    "grok-imagine-image-quality": "Grok 高质量（=grok-imagine-edit）",
+    "midjourney-v8.2": "Midjourney，每次4张，不支持参考图，旗标写在 prompt",
+    "midjourney-v8.2-fast": "Midjourney Fast",
+    "midjourney-v8.2-turbo": "Midjourney Turbo",
+    "doubao-seedream-5-0-pro": "Seedream，按张，1K/2K，n≤4，参考图须公网URL(本地仅1张)"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "generator": "88api",
+  "api_key": "sk-...",
+  "base_url": "https://api.88api.ai",
+  "model": "gpt-image-2",
+  "timeout": 600,
+  "aspect_ratio": "3:4",
+  "resolution": "2K"
+}

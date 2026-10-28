@@ -1,0 +1,13 @@
+# 88API 图片生成 skill 的密钥配置
+.claude/skills/image-gen/config.json
+# 生成的图片
+outputs/
+data/
+backend/.venv/
+__pycache__/
+.pytest_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+backend/config.local.json
