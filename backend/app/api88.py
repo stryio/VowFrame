@@ -5,7 +5,6 @@ import binascii
 import json
 import logging
 import math
-import mimetypes
 import re
 import socket
 import time
@@ -15,10 +14,12 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 import httpx
+from PIL import Image
 
 from .config import Config
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
 from .models import get_model
+from .storage import outgoing_image
 
 logger = logging.getLogger(__name__)
 
@@ -174,9 +175,10 @@ class Api88Generator(ImageGenerator):
         family = model_definition.family
         # Read every input before opening a connection, preserving bride-first
         # ordering supplied by the task's immutable reference-image snapshot.
+        # Photos leave without their metadata (GPS, capture time, device).
         try:
-            references = [(path.name, path.read_bytes(), mimetypes.guess_type(path.name)[0] or 'image/png') for path in images]
-        except OSError:
+            references = [outgoing_image(path) for path in images]
+        except (OSError, ValueError, Image.DecompressionBombError):
             raise GeneratorError(OutcomeKind.NOT_SENT, '无法读取参考照片，请检查文件后重试') from None
         if not references:
             raise GeneratorError(OutcomeKind.REJECTED, '请先上传参考照片')

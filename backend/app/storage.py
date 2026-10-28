@@ -1,7 +1,10 @@
 """Confined asset paths and durable, atomic image writes."""
 
+import io
 import os
 from pathlib import Path
+
+from PIL import Image, ImageOps
 
 from .config import Config
 from .db import new_id
@@ -21,6 +24,27 @@ def image_format(content: bytes) -> tuple[str, str]:
     if content.startswith((bytes.fromhex('49492a00'), bytes.fromhex('4d4d002a'))):
         return '.tiff', 'image/tiff'
     raise ValueError('无法识别图片格式，请上传 PNG、JPEG、GIF、WebP、BMP 或 TIFF 图片')
+
+
+
+def outgoing_image(path: Path) -> tuple[str, bytes, str]:
+    """(file name, bytes, MIME type) of a photo about to leave this machine.
+
+    Phone photos carry EXIF/XMP metadata such as GPS position, capture time and device model. Re-encoding keeps
+    only the pixels and the colour profile; the EXIF orientation is applied first so the picture stays upright.
+    """
+    with Image.open(path) as source:
+        image = ImageOps.exif_transpose(source)
+        is_jpeg = source.format == 'JPEG'
+    icc_profile = image.info.get('icc_profile')
+    output = io.BytesIO()
+    if is_jpeg:
+        image.save(output, 'JPEG', quality=95, subsampling=0, icc_profile=icc_profile)
+        return path.stem + '.jpg', output.getvalue(), 'image/jpeg'
+    if image.mode not in ('1', 'L', 'LA', 'I', 'I;16', 'P', 'RGB', 'RGBA'):
+        image = image.convert('RGBA' if 'A' in image.getbands() else 'RGB')
+    image.save(output, 'PNG', icc_profile=icc_profile)
+    return path.stem + '.png', output.getvalue(), 'image/png'
 
 
 def asset_path(config: Config, stored_path: str) -> Path:

@@ -2,6 +2,7 @@
 
 import ast
 import base64
+import io
 import json
 import logging
 import socket
@@ -14,6 +15,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from app.api88 import (
@@ -23,6 +25,7 @@ from app.api88 import (
 from app.config import Config, load_config
 from app.generator import GeneratorError, MockGenerator, OutcomeKind
 from app.main import create_app
+from app.storage import outgoing_image
 from conftest import PNG, create_project, preview_batch, wait_batch
 
 TEST_KEY = 'sk-unit-test-secret-never-log'
@@ -38,8 +41,13 @@ def config(tmp_path):
 def images(tmp_path):
     bride, groom = tmp_path / 'bride.png', tmp_path / 'groom.jpg'
     bride.write_bytes(PNG)
-    groom.write_bytes(b'\xff\xd8groom-reference')
+    Image.new('RGB', (4, 6), 'navy').save(groom, 'JPEG')
     return [bride, groom]
+
+
+def sent(path):
+    """Bytes the generator should upload for a reference photo."""
+    return outgoing_image(path)[1]
 
 
 def image_response():
@@ -71,8 +79,8 @@ def test_openai_multipart_and_b64_response(config, images, model):
         fields = {name: value.decode() for name, filename, _, value in parts if filename is None}
         assert fields == {'model': model, 'prompt': PROMPT, 'size': '1536x2048', 'n': '1'}
         assert [part for part in parts if part[1] is not None] == [
-            ('image[]', 'bride.png', 'image/png', images[0].read_bytes()),
-            ('image[]', 'groom.jpg', 'image/jpeg', images[1].read_bytes()),
+            ('image[]', 'bride.png', 'image/png', sent(images[0])),
+            ('image[]', 'groom.jpg', 'image/jpeg', sent(images[1])),
         ]
         return image_response()
 
@@ -102,8 +110,8 @@ def test_gemini_json_and_inline_markdown_response(config, images, model):
         assert json.loads(request.content) == {
             'model': model,
             'messages': [{'role': 'user', 'content': [
-                {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{base64.b64encode(images[0].read_bytes()).decode()}'}},
-                {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{base64.b64encode(images[1].read_bytes()).decode()}'}},
+                {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{base64.b64encode(sent(images[0])).decode()}'}},
+                {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{base64.b64encode(sent(images[1])).decode()}'}},
                 {'type': 'text', 'text': PROMPT},
             ]}],
             'extra_body': {'google': {'image_config': {'aspect_ratio': '3:4', 'image_size': '2K'}}},
@@ -514,3 +522,20 @@ def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected,
         if failure in (502, 504):
             assert task['error_message'] == '模型服务响应超时，结果无法确认，可能已经扣费。重新生成可能产生额外费用'
     assert len(calls) == calls_expected
+
+
+def test_reference_photos_leave_without_metadata_and_upright(tmp_path):
+    photo = tmp_path / 'phone.jpg'
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Orientation: rotate 90° clockwise to display
+    exif[0x0110] = 'Phone Model X'
+    exif.get_ifd(0x8825)[2] = (31.0, 14.0, 0.0)  # GPS latitude
+    Image.new('RGB', (40, 30), 'white').save(photo, 'JPEG', exif=exif, xmp=b'<x:xmpmeta>secret</x:xmpmeta>')
+    assert b'Phone Model X' in photo.read_bytes()
+
+    name, content, mime = outgoing_image(photo)
+    assert (name, mime) == ('phone.jpg', 'image/jpeg')
+    assert b'Phone Model X' not in content and b'secret' not in content and b'Exif' not in content
+    with Image.open(io.BytesIO(content)) as cleaned:
+        assert cleaned.size == (30, 40)  # orientation applied to the pixels
+        assert not cleaned.getexif()
