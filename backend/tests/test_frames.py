@@ -87,7 +87,7 @@ def test_slot_actions_keep_the_source_frame_even_after_the_setting_changes(app_f
         assert boost.status_code == 201, boost.text
         wait_batch(client, boost.json()['id'])
         shot = client.post(f"/api/slots/{landscape['target_slot_id']}/change-shot",
-                           json={'client_request_id': 'shot', 'shot_size': 'medium'})
+                           json={'client_request_id': 'shot', 'shot_size': 'half'})
         assert shot.status_code == 201, shot.text
         wait_batch(client, shot.json()['id'])
         assert generator.aspect_ratios[-2:] == ['4:3', '4:3']

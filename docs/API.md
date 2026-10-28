@@ -88,7 +88,7 @@
 - `latest_task`：以该位置为目标、创建时间最新且未被其他任务替代的任务。
 - `pose_id`：旧版固定动作的编号；AI 导演写的瞬间为 null。
 - `pose_name`：相册中显示的动作名称。AI 导演写的瞬间为其 `title`，旧版固定动作为动作名；样片为 null。均取自生成当前版本的任务（无版本时取最新任务）。
-- `shot_size`：`"wide" | "full" | "medium" | "close" | "extreme_close" | "detail" | "three_quarter" | "half" | null`，同样取自对应任务；旧版固定动作与样片为 null。`detail`（局部特写）、`three_quarter`（七分身）、`half`（半身）是停用的旧景别，只会出现在旧作品上。
+- `shot_size`：`"full" | "three_quarter" | "half" | "close" | "wide" | "medium" | "extreme_close" | "detail" | null`，同样取自对应任务；旧版固定动作与样片为 null。`wide`（远景）、`medium`（中景）、`extreme_close`（特写）、`detail`（局部特写）是 V3.4～V3.11 的停用景别，只会出现在旧作品上。
 - `batch_id`：创建该位置的批次。
 - `is_stale`（由后端计算）：当前版本是用旧照片生成的，即生成它的任务的参考人物照片 ≠ 项目当前的人物照片。没有当前版本时为 false。
 
@@ -177,7 +177,7 @@ ProjectSummary 加上：
   "style_id": "korean_minimal",
   "pose_id": null,
   "moment_title": "海边踏浪回眸" | null,
-  "moment_shot_size": "wide" | "full" | "medium" | "close" | "extreme_close" | "detail" | "three_quarter" | "half" | null,
+  "moment_shot_size": "full" | "three_quarter" | "half" | "close" | "wide" | "medium" | "extreme_close" | "detail" | null,
   "prompt": "…",
   "error_code": "rejected",
   "error_message": "内容审核未通过，请调整照片后重试",
@@ -224,7 +224,7 @@ ProjectSummary 加上：
 ```
 
 - `title`：2～12 个汉字，相册中显示的动作名称。
-- `shot_size`：`wide`（远景）、`full`（全景）、`medium`（中景）、`close`（近景）、`extreme_close`（特写）。尚未拍摄的旧方案中的 `three_quarter`、`half` 读取时改为 `medium`，`detail` 改为 `close`。
+- `shot_size`：`full`（全身）、`three_quarter`（七分身）、`half`（半身）、`close`（近景）。尚未拍摄的旧方案中的停用景别读取时改为最接近的一档：`wide`→`full`，`medium`→`three_quarter`，`extreme_close`、`detail`→`close`。
 - `orientation`：`portrait`（竖版）或 `landscape`（横版），由导演决定、用户可在方案预览中切换。具体比例见 `Settings.portrait_ratio`。在画幅功能之前保存的方案没有这个字段，读取时按 `portrait` 处理（当时所有照片都是竖版）。
 - `text`：「镜头：」之后的正文，不含该前缀，以「。」结尾，最多 220 个字。
 
@@ -327,7 +327,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/batches/{id}/cancel` | — | `Batch`（`waiting`/`held` → `cancelled`） |
 | POST | `/api/slots/{id}/regenerate` | `{"client_request_id": string, "mode": "same" \| "identity_boost", "model"?: string}` | `Batch`（201，`batch_type = "regenerate"`） |
 | POST | `/api/slots/{id}/change-pose` | `{"client_request_id": string, "model"?: string}` | `Batch`（201）；仅 `kind = "photo"` |
-| POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "wide" \| "full" \| "medium" \| "close" \| "extreme_close", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；旧景别 `detail`、`three_quarter`、`half` 不能作为目标（422） |
+| POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "full" \| "three_quarter" \| "half" \| "close", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；停用景别 `wide`、`medium`、`extreme_close`、`detail` 不能作为目标（422） |
 | POST | `/api/slots/batch-action` | `{"client_request_id": string, "slot_ids": string[], "action": "same" \| "identity_boost" \| "change_pose" \| "change_shot" \| "face_swap", "shot_size"?: string, "model"?: string}` | `Batch`（201），一个批次内每个位置一个任务；`action = "change_shot"` 时必须提供 `shot_size`；`action = "face_swap"` 时忽略 `model` |
 | POST | `/api/slots/{id}/face-swap` | `{"client_request_id": string}` | `Batch`（201，`batch_type = "regenerate"`）；样片与相册作品均可 |
 | GET | `/api/slots/{id}/versions` | — | `VersionDetail[]`，按 `version_number` 倒序 |

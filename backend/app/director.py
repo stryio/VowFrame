@@ -17,13 +17,12 @@ from .prompts import DETAIL_SHOT
 
 logger = logging.getLogger(__name__)
 
-# The standard five-step shot ladder. Older works may still carry the retired studio labels
-# three_quarter / half and faceless detail shots; they are read and shown but never written for new shots.
-SHOT_SIZES = ('wide', 'full', 'medium', 'close', 'extreme_close')
-SHOT_NAMES = {'wide': '远景', 'full': '全景', 'medium': '中景', 'close': '近景', 'extreme_close': '特写',
-              DETAIL_SHOT: '局部特写', 'three_quarter': '七分身', 'half': '半身'}
-SHOT_MEANINGS = ('wide 远景（人物很小，环境为主），full 全景（全身入画），medium 中景（膝盖或腰部以上），'
-                 'close 近景（胸口以上），extreme_close 特写（只拍面部）')
+# The four studio framings. Works from V3.4–V3.11 may still carry wide / medium / extreme_close / detail;
+# they are read and shown but never written for new shots.
+SHOT_SIZES = ('full', 'three_quarter', 'half', 'close')
+SHOT_NAMES = {'full': '全身', 'three_quarter': '七分身', 'half': '半身', 'close': '近景',
+              'wide': '远景', 'medium': '中景', 'extreme_close': '特写', DETAIL_SHOT: '局部特写'}
+SHOT_MEANINGS = 'full 全身，three_quarter 七分身，half 半身，close 近景'
 FORBIDDEN_WORDS = (
     '眼睛', '眼型', '眼神清澈', '双眼皮', '单眼皮', '丹凤', '杏眼', '桃花眼', '睫毛', '眉毛', '眉形',
     '鼻子', '鼻梁', '鼻型', '嘴唇', '唇形', '红唇', '脸型', '瓜子脸', '鹅蛋脸', '圆脸', '尖下巴',
@@ -35,7 +34,7 @@ SYSTEM_PROMPT = '''你是一位资深的婚纱摄影师兼导演，为一对新�
 
 每张照片写成一段「镜头」，依次交代：
 1. 机位与焦段：机位的高低和角度，用什么焦段（例如 35mm 交代环境，85mm 压缩背景、浅景深）。
-2. 构图：景别（远景、全景、中景、近景或特写），竖版还是横版，两人在画面里的位置和大小，留白在哪里，有没有前景。以竖版为主；交代环境的远景、需要横向延展的画面（例如海平面、天际线、长廊）适合横版。
+2. 构图：竖版还是横版，两人在画面里的位置和大小，留白在哪里，有没有前景。以竖版为主；交代环境的远景、需要横向延展的画面（例如海平面、天际线、长廊）适合横版。
 3. 人与场景：使用哪个场景（有多个场景变体时选一个），写清背景、两人所在的位置和与哪个场景元素发生关系。
 4. 光：这个场景的光从哪个方向照到两人身上，同一束光也照在周围的环境上；灯具等光源本身不要出现在画面里。
 5. 瞬间：一个真实发生的小事件，写清动作、互动、表情和视线落点。
@@ -45,13 +44,13 @@ SYSTEM_PROMPT = '''你是一位资深的婚纱摄影师兼导演，为一对新�
 2. 两人的面部清晰可见，不被手、头发、捧花、头纱或道具遮挡；不要背对镜头，不要剪影。
 3. 不写服装；光只能来自所选场景里的光源。
 4. 动作自然、真实可拍，避免多人、复杂道具和夸张特技。
-5. 表情自然、真实，符合这个瞬间的情绪；整组的表情要有变化。
+5. 表情以含蓄为主：浅笑、抿嘴笑、嘴角带笑、低头笑、安静对视，笑容可以微微露齿，但不要写成咧嘴大笑；整组的表情要有变化。一组里可以有一两个开怀大笑的瞬间，这时要明确写出「开怀大笑」。
 6. 各个镜头彼此不同，也不要与「已拍过的镜头」重复。
 7. 只写具体的拍摄决定，不要堆砌「高级感」「电影感」「唯美」这类空洞的形容词。
 8. 只输出 JSON，不要输出任何其他文字。
 
 写法示例（只示意写法，不要照搬内容）：
-50mm 镜头，略高于两人视线，中景。旧书房的窗边，午后的阳光从画面左侧的窗户斜射进来，照亮两人和身后的书架。两人位于画面左侧，右侧留出被阳光照亮的书架。新郎从身后轻轻环住新娘，在她耳边说了句悄悄话，她笑着侧过脸看他，新郎看向镜头。'''
+50mm 镜头，略高于两人视线，半身。旧书房的窗边，午后的阳光从画面左侧的窗户斜射进来，照亮两人和身后的书架。两人位于画面左侧，右侧留出被阳光照亮的书架。新郎从身后轻轻环住新娘，在她耳边说了句悄悄话，她抿嘴浅笑着侧过脸看他，新郎看向镜头。'''
 
 
 @dataclass(frozen=True)
@@ -163,7 +162,7 @@ def _parse_moments(payload: dict) -> list[Moment]:
 def _shot_requirement(count: int) -> str:
     if count == 1:
         return '不限，选择最适合这个场景的景别和机位。'
-    return ('整组要像一次真实的拍摄：有交代环境的远景或全景，有互动的中景，有情绪的近景或特写；'
+    return ('整组要像一次真实的拍摄：既有交代环境的远景，也有互动的中景和情绪近景；'
             '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。')
 
 
@@ -177,8 +176,8 @@ def _user_prompt(style: str, scene_text: str, count: int, shot_requirement: str,
 class MockDirector:
     _samples = (
         ('窗边转圈', 'full', 'landscape', '35mm 镜头，平视机位，全身。两人位于画面右侧三分线附近，左侧留出空间。新郎牵着新娘的手举过她头顶，新娘转到一半回头笑着看向镜头，场景的主光同时照亮两人和地面。'),
-        ('回眸相依', 'medium', 'portrait', '50mm 镜头，略低机位，中景。新娘向前迈步后回头看向镜头，新郎轻扶她的手臂、侧身看着她，两人偏画面左侧，主光从侧前方照来。'),
-        ('相视一笑', 'extreme_close', 'portrait', '105mm 镜头，平视机位，特写。两人脸颊相近，新娘忍不住先笑出来，新郎侧过脸看着她也笑了，主光从侧前方照来，背景完全虚化。'),
+        ('回眸相依', 'three_quarter', 'portrait', '50mm 镜头，略低机位，七分身。新娘向前迈步后回头看向镜头，新郎轻扶她的手臂、侧身看着她，两人偏画面左侧，主光从侧前方照来。'),
+        ('相视浅笑', 'half', 'portrait', '65mm 镜头，平视机位，半身。两人面对面站着，新郎轻握新娘的双手，两人相视浅笑，主光从侧前方照来，背景虚化。'),
         ('额头相贴', 'close', 'portrait', '85mm 镜头，浅景深近景。两人额头轻轻相贴，新郎牵住新娘的手，新娘笑着看向镜头，主光从侧面照来，背景完全虚化。'),
     )
 
@@ -263,7 +262,7 @@ class Api88Director:
 
     def rewrite_shot(self, style, scene_text, original_text, target_shot, orientation):
         user = (f'风格：{style}\n{scene_text}\n原来的镜头：{original_text}\n'
-                f'请保持这个镜头里的瞬间（动作、互动、视线）和人物在场景中的位置不变，只把景别改为{SHOT_NAMES[target_shot]}，并相应调整机位、焦段和构图（例如远景让人物变小、交代环境，全景要交代脚下和站姿，近景只保留胸口以上）。画幅保持{ORIENTATION_NAMES[orientation]}。标题可以保留或微调。\n'
+                f'请保持这个镜头里的瞬间（动作、互动、视线）和人物在场景中的位置不变，只把景别改为{SHOT_NAMES[target_shot]}，并相应调整机位、焦段和构图（例如全身需要交代脚下、站姿和周围环境，近景只保留上半身和面部朝向，背景更虚化）。画幅保持{ORIENTATION_NAMES[orientation]}。标题可以保留或微调。\n'
                 f'只输出 JSON：{{"moments": [{{"title": "…", "shot_size": "{target_shot}", "orientation": "{orientation}", "text": "…"}}]}}')
         try:
             moments = self._call(user)

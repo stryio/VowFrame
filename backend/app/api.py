@@ -419,7 +419,7 @@ def _draft_response(row, moments):
     }
 
 
-LEGACY_DRAFT_SHOTS = {'three_quarter': 'medium', 'half': 'medium', 'detail': 'close'}
+LEGACY_DRAFT_SHOTS = {'wide': 'full', 'medium': 'three_quarter', 'extreme_close': 'close', 'detail': 'close'}
 
 
 def _load_draft(conn, draft_id: str):
@@ -428,8 +428,7 @@ def _load_draft(conn, draft_id: str):
         error(404, 'draft_not_found', '导演方案不存在')
     try:
         # Drafts written before per-shot frames have no orientation; every shot was portrait then. Unshot drafts
-        # with the retired studio labels move to 中景, the step that covers both knee-up and waist-up framing;
-        # retired faceless detail shots move to 近景, the closest step that still shows the couple.
+        # from the retired V3.4–V3.11 ladder move to the closest studio framing.
         moments = [Moment(**{'orientation': 'portrait', **item,
                              'shot_size': LEGACY_DRAFT_SHOTS.get(item.get('shot_size'), item.get('shot_size'))})
                    for item in json.loads(row['moments'])]

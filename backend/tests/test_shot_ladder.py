@@ -1,4 +1,4 @@
-"""Five-step shot ladder; retired faceless detail shots stay readable on old works."""
+"""Four studio framings; the retired V3.4–V3.11 ladder stays readable on old works."""
 
 import json
 
@@ -7,7 +7,7 @@ from test_face_swap import ScriptedFaceSwapper
 
 
 def shoot_mock_set(client, *, request_id='ladder'):
-    """Mock director order: 全景 landscape, 中景, 特写, 近景."""
+    """Mock director order: 全身 landscape, 七分身, 半身, 近景."""
     project = create_project(client)
     batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
     wait_batch(client, batch['id'])
@@ -39,18 +39,18 @@ def test_legacy_detail_shots_still_refuse_identity_boost_and_face_swap(app_facto
         assert boost.json()['detail']['code'] == swap.json()['detail']['code'] == 'no_faces'
 
 
-def test_change_shot_accepts_only_the_new_ladder(app_factory):
+def test_change_shot_accepts_only_the_studio_framings(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
         _, _, photos = shoot_mock_set(client)
-        target = next(photo for photo in photos if photo['shot_size'] == 'medium')
-        for retired_shot in ('half', 'detail'):
+        target = next(photo for photo in photos if photo['shot_size'] == 'three_quarter')
+        for retired_shot in ('wide', 'medium', 'extreme_close', 'detail'):
             retired = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': retired_shot, 'shot_size': retired_shot})
             assert retired.status_code == 422
-        wide = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'wide', 'shot_size': 'wide'})
-        assert wide.status_code == 201, wide.text
+        half = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'half', 'shot_size': 'half'})
+        assert half.status_code == 201, half.text
 
 
-def test_unshot_drafts_with_retired_labels_move_to_the_ladder(app_factory):
+def test_unshot_drafts_from_the_retired_ladder_move_to_studio_framings(app_factory):
     with app_factory(concurrency=1) as (client, app):
         project = create_project(client)
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
@@ -59,8 +59,9 @@ def test_unshot_drafts_with_retired_labels_move_to_the_ladder(app_factory):
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts", json={'preview_slot_id': preview['id'], 'count': 4}).json()
         with app.state.db.connect(write=True) as conn:
             moments = json.loads(conn.execute('SELECT moments FROM moment_drafts WHERE id=?', (draft['id'],)).fetchone()[0])
-            moments[0]['shot_size'], moments[1]['shot_size'], moments[2]['shot_size'] = 'three_quarter', 'half', 'detail'
+            for moment, shot in zip(moments, ('wide', 'medium', 'extreme_close', 'detail')):
+                moment['shot_size'] = shot
             conn.execute('UPDATE moment_drafts SET moments=? WHERE id=?', (json.dumps(moments, ensure_ascii=False), draft['id']))
         renamed = client.patch(f"/api/moment-drafts/{draft['id']}/moments/0", json={'title': '旧方案改名'})
         assert renamed.status_code == 200, renamed.text
-        assert [moment['shot_size'] for moment in renamed.json()['moments']][:3] == ['medium', 'medium', 'close']
+        assert [moment['shot_size'] for moment in renamed.json()['moments']] == ['full', 'three_quarter', 'close', 'close']

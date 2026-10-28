@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Role = Literal['bride', 'groom']
 TaskStatus = Literal['waiting', 'held', 'running', 'completed', 'failed', 'cancelled', 'interrupted']
-# Shots written from now on; stored works may also carry the retired studio labels and detail shots.
-ShotSize = Literal['wide', 'full', 'medium', 'close', 'extreme_close']
-StoredShotSize = Literal['wide', 'full', 'medium', 'close', 'extreme_close', 'detail', 'three_quarter', 'half']
+# Shots written from now on; stored works may also carry the retired V3.4–V3.11 ladder.
+ShotSize = Literal['full', 'three_quarter', 'half', 'close']
+StoredShotSize = Literal['full', 'three_quarter', 'half', 'close', 'wide', 'medium', 'extreme_close', 'detail']
 
 
 class InputModel(BaseModel):

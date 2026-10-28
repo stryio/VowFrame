@@ -20,13 +20,12 @@ def test_director_user_prompt_lists_every_variant_matching_section_7_2():
         '3. 海上栈道：一条伸向海面的木栈道，两侧是海水，晚霞倒映在水面上。\n'
         '4. 芒草沙丘：海边长着芒草的沙丘，草叶在风里摆动，在逆光下发着金光。\n'
         '需要的镜头数量：8\n'
-        '景别要求：整组要像一次真实的拍摄：有交代环境的远景或全景，有互动的中景，有情绪的近景或特写；'
+        '景别要求：整组要像一次真实的拍摄：既有交代环境的远景，也有互动的中景和情绪近景；'
         '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。\n'
         '已拍过的镜头（不要重复）：海边踏浪回眸、沙滩并肩漫步\n\n'
-        '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "shot_size": "wide | full | medium | close | extreme_close", '
+        '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "shot_size": "full | three_quarter | half | close", '
         '"orientation": "portrait | landscape", "text": "镜头描述，最多 220 个字，以句号结尾"}]}\n'
-        'shot_size 含义：wide 远景（人物很小，环境为主），full 全景（全身入画），medium 中景（膝盖或腰部以上），'
-        'close 近景（胸口以上），extreme_close 特写（只拍面部）。'
+        'shot_size 含义：full 全身，three_quarter 七分身，half 半身，close 近景。'
         'orientation 含义：portrait 竖版，landscape 横版。'
     )
 
@@ -47,7 +46,7 @@ def test_mock_director_covers_shots_and_avoids_titles():
     director = MockDirector()
     moments = director.write_moments('海边日落', '海边沙滩。', 8, _shot_requirement(8), ['牵手踏浪'])
     assert len(moments) == 8
-    assert {item.shot_size for item in moments} == {'full', 'medium', 'extreme_close', 'close'}
+    assert {item.shot_size for item in moments} == {'full', 'three_quarter', 'half', 'close'}
     assert len({item.title for item in moments}) == 8
     assert all(not any(word in item.text for word in FORBIDDEN_WORDS) for item in moments)
 
@@ -72,7 +71,7 @@ def test_validation_allows_eight_moments_with_the_same_shot_size():
 def test_shot_requirement_matches_section_7_2():
     assert _shot_requirement(1) == '不限，选择最适合这个场景的景别和机位。'
     assert _shot_requirement(8) == (
-        '整组要像一次真实的拍摄：有交代环境的远景或全景，有互动的中景，有情绪的近景或特写；'
+        '整组要像一次真实的拍摄：既有交代环境的远景，也有互动的中景和情绪近景；'
         '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。'
     )
 
@@ -157,7 +156,7 @@ def test_change_shot_creates_director_version(app_factory):
         batch = client.post(f"/api/projects/{project['id']}/photo-batches", json={'client_request_id': 'shoot', 'draft_id': draft['id']}).json()
         wait_batch(client, batch['id'])
         photo = client.get(f"/api/projects/{project['id']}").json()['photos'][0]
-        target = next(size for size in ('wide', 'full', 'medium', 'close', 'extreme_close') if size != photo['shot_size'])
+        target = next(size for size in SHOT_SIZES if size != photo['shot_size'])
         changed = client.post(f"/api/slots/{photo['id']}/change-shot", json={'client_request_id': 'shot-change', 'shot_size': target})
         assert changed.status_code == 201, changed.text
         wait_batch(client, changed.json()['id'])
