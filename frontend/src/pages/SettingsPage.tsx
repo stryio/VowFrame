@@ -166,7 +166,7 @@ export function SettingsPage() {
                 可用 ·{" "}
                 {health.face_swap.mode === "mock"
                   ? "模拟换脸（原样复制图片，用于测试）"
-                  : "FaceFusion · 新娘 hyperswap_1a_256 · 新郎 hyperswap_1c_256 · 像素提升 512 · 强度：相册 0.5，样片 1.0"}
+                  : "FaceFusion · 新娘 hyperswap_1a_256 · 新郎 hyperswap_1c_256 · 像素提升 512 · 遮罩 box + occlusion · 强度：相册 0.5，样片 1.0"}
               </span>
               <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <input

@@ -160,6 +160,7 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
                 'bride_model': 'hyperswap_1a_256',
                 'groom_model': 'hyperswap_1c_256',
                 'pixel_boost': '512x512',
+                'face_mask_types': ['box', 'occlusion'],
                 'weight': 1.0,
             }
 
@@ -329,6 +330,7 @@ def test_auth_quota_hold_does_not_hold_face_swap_tasks_in_same_batch(app_factory
                      'bride_model': 'hyperswap_1a_256',
                      'groom_model': 'hyperswap_1c_256',
                      'pixel_boost': '512x512',
+                     'face_mask_types': ['box', 'occlusion'],
                      'weight': 1.0,
                  }),
                  face_task['id']),

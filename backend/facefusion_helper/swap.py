@@ -85,6 +85,8 @@ def _run(payload):
         '--face-swapper-model', 'hyperswap_1a_256',
         '--face-swapper-pixel-boost', '512x512',
         '--face-swapper-weight', str(payload['weight']),
+        # The occlusion mask keeps hair strands, ears, veils and hair ornaments in front of the face untouched.
+        '--face-mask-types', 'box', 'occlusion',
         '--face-selector-mode', 'many',
         '--face-selector-order', 'large-small',
         '--face-detector-model', 'yolo_face',
@@ -144,6 +146,7 @@ def _run(payload):
             'face_swapper_model': 'hyperswap_1a_256',
             'face_swapper_pixel_boost': '512x512',
             'face_swapper_weight': payload['weight'],
+            'face_mask_types': ['box', 'occlusion'],
             'face_selector_mode': 'many',
         })
         apply_args(bride_args, state_manager.set_item)

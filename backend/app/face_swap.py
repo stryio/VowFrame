@@ -201,5 +201,6 @@ def face_swap_snapshot(mode: str, weight: float) -> str:
         'bride_model': 'hyperswap_1a_256',
         'groom_model': 'hyperswap_1c_256',
         'pixel_boost': '512x512',
+        'face_mask_types': ['box', 'occlusion'],
         'weight': weight,
     }, ensure_ascii=False)
