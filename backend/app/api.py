@@ -17,7 +17,7 @@ from starlette.background import BackgroundTask
 
 from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
-from .face_swap import face_swap_snapshot
+from .face_swap import face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
 from .prompts import DETAIL_SHOT, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_text, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
@@ -591,7 +591,7 @@ def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label
         error(409, 'no_faces', f'{slot_label}是局部特写，画面里没有人脸，无需换脸')
     references = _current_person_references(project)
     mode = swap_status['mode']
-    snapshot = face_swap_snapshot(mode)
+    snapshot = face_swap_snapshot(mode, face_swap_weight(slot['kind']))
     return {
         'slot_id': slot['id'],
         'style_id': input_task['style_id'],

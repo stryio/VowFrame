@@ -23,6 +23,13 @@ HELPER_PATH = Path(__file__).resolve().parents[1] / 'facefusion_helper' / 'swap.
 # 0.5 blends the reference face into the generated one: closer to the couple than no swap, while keeping
 # more of the generated expression and lighting than a full 1.0 replacement.
 FACE_SWAP_WEIGHT = 0.5
+# Samples are sent to the image model as the third reference, so their faces should be as close to the couple
+# as possible; the neutral expression a full swap brings does not matter there (docs/PRD.md 4.5).
+PREVIEW_FACE_SWAP_WEIGHT = 1.0
+
+
+def face_swap_weight(slot_kind: str) -> float:
+    return PREVIEW_FACE_SWAP_WEIGHT if slot_kind == 'preview' else FACE_SWAP_WEIGHT
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +49,7 @@ class FaceSwapper(Protocol):
     @property
     def status(self) -> dict: ...
 
-    def swap(self, bride: Path, groom: Path, target: Path) -> bytes: ...
+    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes: ...
 
 
 class MockFaceSwapper:
@@ -50,7 +57,7 @@ class MockFaceSwapper:
     def status(self) -> dict:
         return {'available': True, 'mode': 'mock', 'reason': None}
 
-    def swap(self, bride: Path, groom: Path, target: Path) -> bytes:
+    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes:
         return target.read_bytes()
 
 
@@ -62,7 +69,7 @@ class UnavailableFaceSwapper:
     def status(self) -> dict:
         return {'available': False, 'mode': None, 'reason': self.reason}
 
-    def swap(self, bride: Path, groom: Path, target: Path) -> bytes:
+    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes:
         raise FaceSwapError('face_swap_failed')
 
 
@@ -86,7 +93,7 @@ class FaceFusionSwapper:
             return {'available': False, 'mode': None, 'reason': '换脸辅助脚本不存在，请检查后端安装'}
         return {'available': True, 'mode': 'facefusion', 'reason': None}
 
-    def swap(self, bride: Path, groom: Path, target: Path) -> bytes:
+    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes:
         if not self.status['available']:
             raise FaceSwapError('face_swap_failed')
         with tempfile.TemporaryDirectory(prefix='vowframe-face-swap-') as directory:
@@ -98,7 +105,7 @@ class FaceFusionSwapper:
                 'target_path': str(Path(target).resolve()),
                 'output_path': str(output),
                 'work_dir': directory,
-                'weight': FACE_SWAP_WEIGHT,
+                'weight': weight,
             }
             environment = os.environ.copy()
             site_packages = self.facefusion_dir / '.venv' / 'lib'
@@ -186,7 +193,7 @@ def create_face_swapper(config: Config) -> FaceSwapper:
     return swapper
 
 
-def face_swap_snapshot(mode: str) -> str:
+def face_swap_snapshot(mode: str, weight: float) -> str:
     """Model record stored on face-swap tasks; never contains secrets."""
     return json.dumps({
         'generator': mode,
@@ -194,5 +201,5 @@ def face_swap_snapshot(mode: str) -> str:
         'bride_model': 'hyperswap_1a_256',
         'groom_model': 'hyperswap_1c_256',
         'pixel_boost': '512x512',
-        'weight': FACE_SWAP_WEIGHT,
+        'weight': weight,
     }, ensure_ascii=False)

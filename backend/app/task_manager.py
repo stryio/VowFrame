@@ -10,7 +10,7 @@ import time
 from .config import Config
 from .db import Database, new_id, utc_now
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
-from .face_swap import FaceSwapError, FaceSwapper, create_face_swapper, face_swap_snapshot
+from .face_swap import FaceSwapError, FaceSwapper, create_face_swapper, face_swap_snapshot, face_swap_weight
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, POSE_BY_ID
 from .storage import asset_path, save_image
@@ -208,7 +208,8 @@ class TaskManager:
 
         try:
             started = time.monotonic()
-            content = await asyncio.to_thread(self.swapper.swap, paths[0], paths[1], target_path)
+            weight = json.loads(task['model_config_snapshot'])['weight']
+            content = await asyncio.to_thread(self.swapper.swap, paths[0], paths[1], target_path, weight)
             if not content:
                 raise FaceSwapError('face_swap_failed')
             logger.info('Face-swap succeeded task_id=%s elapsed_seconds=%.3f', task['id'], time.monotonic() - started)
@@ -254,6 +255,7 @@ class TaskManager:
         version_id = new_id()
         swap_mode = self._auto_face_swap_mode(task)
         with self.db.connect(write=True) as conn:
+            slot_kind = conn.execute('SELECT kind FROM photo_slots WHERE id=?', (task['target_slot_id'],)).fetchone()['kind']
             current = conn.execute('SELECT status FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
             if current is None or current['status'] != 'running':
                 raise RuntimeError('Cannot save result for a task that is not running')
@@ -284,7 +286,7 @@ class TaskManager:
                     "source_version_id,created_at) VALUES (?,?,?,?,'waiting',?,?,?,?,?,'',?,'face_swap',?,?)",
                     (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'],
                      json.dumps(json.loads(task['reference_image_ids'])[:2]), task['style_id'], task['pose_id'],
-                     task['moment_title'], task['moment_shot_size'], face_swap_snapshot(swap_mode), version_id, now),
+                     task['moment_title'], task['moment_shot_size'], face_swap_snapshot(swap_mode, face_swap_weight(slot_kind)), version_id, now),
                 )
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, task['project_id']))
 

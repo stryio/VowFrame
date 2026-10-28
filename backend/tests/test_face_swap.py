@@ -22,8 +22,8 @@ class ScriptedFaceSwapper:
     def status(self):
         return {'available': True, 'mode': 'mock', 'reason': None}
 
-    def swap(self, bride, groom, target):
-        self.calls.append((bride, groom, target))
+    def swap(self, bride, groom, target, weight):
+        self.calls.append((bride, groom, target, weight))
         outcome = self.outcomes.pop(0) if self.outcomes else None
         if isinstance(outcome, Exception):
             raise outcome
@@ -160,7 +160,7 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
                 'bride_model': 'hyperswap_1a_256',
                 'groom_model': 'hyperswap_1c_256',
                 'pixel_boost': '512x512',
-                'weight': 0.5,
+                'weight': 1.0,
             }
 
         current = client.get(f'/api/projects/{project["id"]}').json()['previews'][0]['current_version']
@@ -440,8 +440,29 @@ def test_generated_images_are_face_swapped_automatically_and_keep_the_original(a
         assert len(swapper.calls) == 1
         with app.state.db.connect() as conn:
             task = conn.execute("SELECT * FROM generation_tasks WHERE regenerate_mode='face_swap'").fetchone()
-        assert json.loads(task['model_config_snapshot'])['weight'] == 0.5
+        assert json.loads(task['model_config_snapshot'])['weight'] == 1.0  # samples are swapped at full strength
+        assert swapper.calls[0][3] == 1.0
         assert task['batch_id'] == batch['id']
+
+
+def test_album_photos_are_swapped_at_half_strength_and_samples_at_full_strength(app_factory):
+    swapper = ScriptedFaceSwapper()
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_swap=True, concurrency=1) as (client, app):
+        project = create_project(client)
+        _, slots = ready_preview(client, project['id'])
+        draft = client.post(f"/api/projects/{project['id']}/moment-drafts",
+                            json={'preview_slot_id': slots['korean_minimal']['id'], 'count': 4}).json()
+        shot = client.post(f"/api/projects/{project['id']}/photo-batches", json={'client_request_id': 'weights', 'draft_id': draft['id']})
+        wait_batch(client, shot.json()['id'])
+        photo = client.get(f"/api/projects/{project['id']}").json()['photos'][0]
+        manual = client.post(f"/api/slots/{photo['id']}/face-swap", json={'client_request_id': 'manual'})
+        wait_batch(client, manual.json()['id'])
+        with app.state.db.connect() as conn:
+            weights = {(kind, json.loads(snapshot)['weight']) for kind, snapshot in conn.execute(
+                "SELECT slot.kind, task.model_config_snapshot FROM generation_tasks task "
+                "JOIN photo_slots slot ON slot.id=task.target_slot_id WHERE task.regenerate_mode='face_swap'")}
+        assert weights == {('preview', 1.0), ('photo', 0.5)}
+        assert sorted(call[3] for call in swapper.calls) == [0.5] * 5 + [1.0]
 
 
 def test_actions_on_a_swapped_image_start_from_its_generation_prompt(app_factory):
