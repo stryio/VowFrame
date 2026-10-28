@@ -419,7 +419,7 @@ def _draft_response(row, moments):
     }
 
 
-LEGACY_DRAFT_SHOTS = {'three_quarter': 'medium', 'half': 'medium'}
+LEGACY_DRAFT_SHOTS = {'three_quarter': 'medium', 'half': 'medium', 'detail': 'close'}
 
 
 def _load_draft(conn, draft_id: str):
@@ -428,7 +428,8 @@ def _load_draft(conn, draft_id: str):
         error(404, 'draft_not_found', '导演方案不存在')
     try:
         # Drafts written before per-shot frames have no orientation; every shot was portrait then. Unshot drafts
-        # with the retired studio labels move to 中景, the step that covers both knee-up and waist-up framing.
+        # with the retired studio labels move to 中景, the step that covers both knee-up and waist-up framing;
+        # retired faceless detail shots move to 近景, the closest step that still shows the couple.
         moments = [Moment(**{'orientation': 'portrait', **item,
                              'shot_size': LEGACY_DRAFT_SHOTS.get(item.get('shot_size'), item.get('shot_size'))})
                    for item in json.loads(row['moments'])]
@@ -520,8 +521,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
             pose_id = None
             # A new shot gets the frame the director chose for it.
             aspect_ratio = _shot_ratio(request, moment.orientation)
-            prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview,
-                                           shot_size=moment.shot_size)
+            prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = moment.title, moment.shot_size
     elif action == 'change_shot':
@@ -537,8 +537,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         moment = _director_rewrite_shot(request, style=style['name'], scene=scene, original=action_text,
                                         target=target_shot, orientation=orientation_of(aspect_ratio))
         pose_id = None
-        prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview,
-                                           shot_size=moment.shot_size)
+        prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview)
         regenerate_mode = 'change_shot'
         moment_title, moment_shot_size = moment.title, moment.shot_size
     else:
@@ -962,8 +961,7 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
             snapshot = _fresh_snapshot(request, model_id, aspect_ratio)
             slot_id, task_id = new_id(), new_id()
             conn.execute('INSERT INTO photo_slots (id,project_id,batch_id,kind,style_id,pose_id,pose_name,shot_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)', (slot_id, project_id, batch_id, 'photo', preview['style_id'], None, moment.title, moment.shot_size, utc_now()))
-            prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, with_preview=mode == 'with_preview',
-                                           shot_size=moment.shot_size)
+            prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, with_preview=mode == 'with_preview')
             conn.execute('INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (task_id, project_id, batch_id, slot_id, 'waiting', json.dumps(references), preview['style_id'], None, moment.title, moment.shot_size, prompt, snapshot, utc_now()))
         conn.execute('UPDATE moment_drafts SET used_by_batch_id=?,updated_at=? WHERE id=?', (batch_id, now, body.draft_id))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))

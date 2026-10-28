@@ -1,6 +1,9 @@
 """AI director validation and mock behavior tests."""
 
-from app.director import FORBIDDEN_WORDS, SYSTEM_PROMPT, MockDirector, Moment, _shot_requirement, _user_prompt, validate_moment, validate_moments
+import re
+from pathlib import Path
+
+from app.director import FORBIDDEN_WORDS, SHOT_SIZES, SYSTEM_PROMPT, MockDirector, Moment, _shot_requirement, _user_prompt, validate_moment, validate_moments
 from app.prompts import STYLES, director_scene_text
 from conftest import create_project, preview_batch, wait_batch
 from app.db import Database
@@ -17,14 +20,13 @@ def test_director_user_prompt_lists_every_variant_matching_section_7_2():
         '3. 海上栈道：一条伸向海面的木栈道，两侧是海水，晚霞倒映在水面上。\n'
         '4. 芒草沙丘：海边长着芒草的沙丘，草叶在风里摆动，在逆光下发着金光。\n'
         '需要的镜头数量：8\n'
-        '景别要求：整组要像一次真实的拍摄：以全景、中景、近景为主，远景最多一两张，可以有特写，'
-        '也可以有一两张不露脸的局部特写（例如十指相扣、戒指、捧花）；景别、机位和构图都要有变化，'
-        '不要每张都是两人并排面对镜头。情绪要有起伏：既有安静、甜蜜的瞬间，也要有一两张动作有张力的画面。\n'
+        '景别要求：整组要像一次真实的拍摄：有交代环境的远景或全景，有互动的中景，有情绪的近景或特写；'
+        '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。\n'
         '已拍过的镜头（不要重复）：海边踏浪回眸、沙滩并肩漫步\n\n'
-        '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "shot_size": "wide | full | medium | close | extreme_close | detail", '
+        '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "shot_size": "wide | full | medium | close | extreme_close", '
         '"orientation": "portrait | landscape", "text": "镜头描述，最多 220 个字，以句号结尾"}]}\n'
         'shot_size 含义：wide 远景（人物很小，环境为主），full 全景（全身入画），medium 中景（膝盖或腰部以上），'
-        'close 近景（胸口以上），extreme_close 特写（只拍面部），detail 局部特写（只拍手、戒指、捧花等局部，画面里不出现人脸）。'
+        'close 近景（胸口以上），extreme_close 特写（只拍面部）。'
         'orientation 含义：portrait 竖版，landscape 横版。'
     )
 
@@ -45,7 +47,7 @@ def test_mock_director_covers_shots_and_avoids_titles():
     director = MockDirector()
     moments = director.write_moments('海边日落', '海边沙滩。', 8, _shot_requirement(8), ['牵手踏浪'])
     assert len(moments) == 8
-    assert {item.shot_size for item in moments} == {'full', 'medium', 'detail', 'close'}
+    assert {item.shot_size for item in moments} == {'full', 'medium', 'extreme_close', 'close'}
     assert len({item.title for item in moments}) == 8
     assert all(not any(word in item.text for word in FORBIDDEN_WORDS) for item in moments)
 
@@ -70,9 +72,8 @@ def test_validation_allows_eight_moments_with_the_same_shot_size():
 def test_shot_requirement_matches_section_7_2():
     assert _shot_requirement(1) == '不限，选择最适合这个场景的景别和机位。'
     assert _shot_requirement(8) == (
-        '整组要像一次真实的拍摄：以全景、中景、近景为主，远景最多一两张，可以有特写，'
-        '也可以有一两张不露脸的局部特写（例如十指相扣、戒指、捧花）；景别、机位和构图都要有变化，'
-        '不要每张都是两人并排面对镜头。情绪要有起伏：既有安静、甜蜜的瞬间，也要有一两张动作有张力的画面。'
+        '整组要像一次真实的拍摄：有交代环境的远景或全景，有互动的中景，有情绪的近景或特写；'
+        '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。'
     )
 
 
@@ -165,6 +166,7 @@ def test_change_shot_creates_director_version(app_factory):
         assert client.get(f"/api/slots/{photo['id']}/versions").json()[0]['regenerate_mode'] == 'change_shot'
 
 
-def test_director_prompt_puts_the_couple_first_and_gives_no_template_to_copy():
-    assert '婚纱照的主角永远是这对新人' in SYSTEM_PROMPT
-    assert '写法示例' not in SYSTEM_PROMPT  # a sample shot gets copied into every set
+def test_system_prompt_matches_docs_and_no_longer_offers_detail_shots():
+    doc = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
+    assert re.search(r'### 7\.1 系统提示词\n\n```text\n(.*?)\n```', doc, re.S).group(1) == SYSTEM_PROMPT
+    assert 'detail' not in SHOT_SIZES and '局部特写' not in SYSTEM_PROMPT

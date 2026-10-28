@@ -88,7 +88,7 @@
 - `latest_task`：以该位置为目标、创建时间最新且未被其他任务替代的任务。
 - `pose_id`：旧版固定动作的编号；AI 导演写的瞬间为 null。
 - `pose_name`：相册中显示的动作名称。AI 导演写的瞬间为其 `title`，旧版固定动作为动作名；样片为 null。均取自生成当前版本的任务（无版本时取最新任务）。
-- `shot_size`：`"wide" | "full" | "medium" | "close" | "extreme_close" | "detail" | "three_quarter" | "half" | null`，同样取自对应任务；旧版固定动作与样片为 null。`three_quarter`（七分身）、`half`（半身）是停用的旧景别，只会出现在旧作品上。
+- `shot_size`：`"wide" | "full" | "medium" | "close" | "extreme_close" | "detail" | "three_quarter" | "half" | null`，同样取自对应任务；旧版固定动作与样片为 null。`detail`（局部特写）、`three_quarter`（七分身）、`half`（半身）是停用的旧景别，只会出现在旧作品上。
 - `batch_id`：创建该位置的批次。
 - `is_stale`（由后端计算）：当前版本是用旧照片生成的，即生成它的任务的参考人物照片 ≠ 项目当前的人物照片。没有当前版本时为 false。
 
@@ -224,7 +224,7 @@ ProjectSummary 加上：
 ```
 
 - `title`：2～12 个汉字，相册中显示的动作名称。
-- `shot_size`：`wide`（远景）、`full`（全景）、`medium`（中景）、`close`（近景）、`extreme_close`（特写）、`detail`（局部特写，画面里不出现人脸）。尚未拍摄的旧方案中的 `three_quarter`、`half` 读取时改为 `medium`。
+- `shot_size`：`wide`（远景）、`full`（全景）、`medium`（中景）、`close`（近景）、`extreme_close`（特写）。尚未拍摄的旧方案中的 `three_quarter`、`half` 读取时改为 `medium`，`detail` 改为 `close`。
 - `orientation`：`portrait`（竖版）或 `landscape`（横版），由导演决定、用户可在方案预览中切换。具体比例见 `Settings.portrait_ratio`。在画幅功能之前保存的方案没有这个字段，读取时按 `portrait` 处理（当时所有照片都是竖版）。
 - `text`：「镜头：」之后的正文，不含该前缀，以「。」结尾，最多 220 个字。
 
@@ -327,7 +327,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/batches/{id}/cancel` | — | `Batch`（`waiting`/`held` → `cancelled`） |
 | POST | `/api/slots/{id}/regenerate` | `{"client_request_id": string, "mode": "same" \| "identity_boost", "model"?: string}` | `Batch`（201，`batch_type = "regenerate"`） |
 | POST | `/api/slots/{id}/change-pose` | `{"client_request_id": string, "model"?: string}` | `Batch`（201）；仅 `kind = "photo"` |
-| POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "wide" \| "full" \| "medium" \| "close" \| "extreme_close" \| "detail", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；旧景别 `three_quarter`、`half` 不能作为目标（422） |
+| POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "wide" \| "full" \| "medium" \| "close" \| "extreme_close", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；旧景别 `detail`、`three_quarter`、`half` 不能作为目标（422） |
 | POST | `/api/slots/batch-action` | `{"client_request_id": string, "slot_ids": string[], "action": "same" \| "identity_boost" \| "change_pose" \| "change_shot" \| "face_swap", "shot_size"?: string, "model"?: string}` | `Batch`（201），一个批次内每个位置一个任务；`action = "change_shot"` 时必须提供 `shot_size`；`action = "face_swap"` 时忽略 `model` |
 | POST | `/api/slots/{id}/face-swap` | `{"client_request_id": string}` | `Batch`（201，`batch_type = "regenerate"`）；样片与相册作品均可 |
 | GET | `/api/slots/{id}/versions` | — | `VersionDetail[]`，按 `version_number` 倒序 |
@@ -377,7 +377,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - `model` 缺省时，`same` 沿用源任务模型配置快照，其他模式使用当前默认模型；显式传入时只替换快照中的模型 ID。参考图数量必须符合该模型的 `max_reference_images`。
 - **换动作（change-pose）**（PRD 4.2）：同步请 AI 导演为这张照片写 1 个新瞬间（避开该风格所有已有瞬间标题，景别不限），校验规则同导演方案；然后用项目当前人物照片与该位置的风格创建任务。未配置导演模型时 409 `director_not_configured`，导演失败时 502 `director_failed` / `director_invalid_output`，均不创建任务。成功后该位置的 `pose_name` / `shot_size` 显示为当前版本的瞬间。
 - **换景别（change-shot）**（PRD 4.2.1）：
-  - 局部特写（`detail`）没有人脸：对它加强长相或换脸返回 409 `no_faces`；生成后也不会自动换脸。
+  - 旧作品中的局部特写（`detail`）没有人脸：对它加强长相或换脸返回 409 `no_faces`；重新生成后也不会自动换脸。
   - 同步请 AI 导演把该位置当前版本对应任务的瞬间改写为目标景别（docs/prompts.md 第 7.4 节），校验规则同导演方案，且返回的 `shot_size` 必须等于目标景别；然后用项目当前人物照片与该位置的风格创建任务，`regenerate_mode = "change_shot"`。
   - 目标景别与当前相同时 422 `same_shot_size`；旧版固定动作的作品（无 `moment_title`）同样可用：以该动作文字作为改写起点。
   - 不把已生成的图片作为参考图。导演失败、未配置导演模型等错误同换动作，均不创建任务。

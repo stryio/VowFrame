@@ -120,12 +120,12 @@ export type RegenerateMode = "same" | "identity_boost";
 export type SlotAction = RegenerateMode | "change_pose" | "change_shot";
 /** Everything that can produce a version; face_swap is local and free. */
 export type VersionMode = SlotAction | "face_swap";
-/** The five-step shot ladder plus faceless detail shots; the only sizes new shots can use. */
-export type ShotSize = "wide" | "full" | "medium" | "close" | "extreme_close" | "detail";
-/** Older works may still carry the retired studio labels. */
-export type StoredShotSize = ShotSize | "three_quarter" | "half";
+/** The five-step shot ladder; the only sizes new shots can use. */
+export type ShotSize = "wide" | "full" | "medium" | "close" | "extreme_close";
+/** Older works may still carry the retired studio labels and faceless detail shots. */
+export type StoredShotSize = ShotSize | "detail" | "three_quarter" | "half";
 
-export const SHOT_SIZES: ShotSize[] = ["wide", "full", "medium", "close", "extreme_close", "detail"];
+export const SHOT_SIZES: ShotSize[] = ["wide", "full", "medium", "close", "extreme_close"];
 export const SHOT_LABEL: Record<StoredShotSize, string> = {
   wide: "远景",
   full: "全景",
@@ -136,7 +136,7 @@ export const SHOT_LABEL: Record<StoredShotSize, string> = {
   three_quarter: "七分身",
   half: "半身",
 };
-/** Detail shots show hands, rings or flowers only: nothing to face-swap or make more alike. */
+/** Old detail shots show hands, rings or flowers only: nothing to face-swap or make more alike. */
 export const hasFaces = (slot: Slot) => slot.shot_size !== "detail";
 
 export type Orientation = "portrait" | "landscape";
