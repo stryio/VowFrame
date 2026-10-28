@@ -9,7 +9,6 @@ from app.prompts import (
     GENERAL_AVOID,
     POSES,
     QUALITY_PARAGRAPH,
-    SAME_LOOK,
     STYLES,
     compose_identity_boost_moment_prompt,
     compose_moment_prompt,
@@ -146,8 +145,7 @@ def test_identity_boost_moment_prompt_keeps_quality_and_extends_last_avoid_parag
     assert paragraphs[5].endswith('、侧脸、低头、头发遮挡眼睛。')
 
 
-def test_every_style_asks_for_one_look_across_the_set():
+def test_director_shots_name_costume_and_look_but_no_scene():
     for style in STYLES:
         paragraph = compose_moment_prompt(style['id'], '两人相视而笑。', '3:4').split('\n\n')[2]
-        assert paragraph == '服装与风格：' + style['costume'] + SAME_LOOK + style['look']
-        assert '背头' not in style['costume']
+        assert paragraph == '服装与风格：' + style['costume'] + style['look']
