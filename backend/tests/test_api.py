@@ -23,7 +23,8 @@ def test_health_styles_and_pose_library(client_app):
     assert [s['name'] for s in styles] == [
         '韩系极简', '城市街拍', '森林森系', '海岸海岛', '中式国风', '高级光影', '新中式园林',
         '港风复古', '城市夜景', '草原旷野', '冬日雪景', '欧式教堂', '黑白经典', '生活日常',
-        '玉龙雪山', '草坪花艺', '花园花房', '法式庄园', '极简建筑', '酒店教堂', '湖畔洱海', '复古油画',
+        '玉龙雪山', '草坪花艺', '花园花房', '法式庄园', '极简建筑', '酒店教堂', '湖畔洱海', '复古油画', '黑色影棚',
+        '日系清新', '民国旗袍', '汉服古韵', '西北大漠',
     ]
     assert [s['description'] for s in styles] == [style['description'] for style in STYLES]
     assert all(set(s) == {'id', 'name', 'description', 'default_preview', 'retired'} for s in styles)
