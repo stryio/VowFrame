@@ -10,7 +10,8 @@ import time
 from .config import Config
 from .db import Database, new_id, utc_now
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
-from .face_swap import FaceSwapError, FaceSwapper, create_face_swapper, face_swap_snapshot, face_swap_weight
+from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, create_face_swapper, face_swap_applied_snapshot,
+                        face_swap_reference_ids, face_swap_snapshot, face_swap_weight)
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, POSE_BY_ID
 from .storage import asset_path, save_image
@@ -178,10 +179,16 @@ class TaskManager:
         try:
             with self.db.connect() as conn:
                 references = json.loads(task['reference_image_ids'])
-                if not isinstance(references, list) or len(references) < 2:
+                if not isinstance(references, list) or len(references) < 2 or not references[0] or not references[1]:
                     raise FileNotFoundError('Face-swap references are incomplete')
+                # [bride front, groom front, bride left, bride right, groom left, groom right]; tasks from before
+                # side photos carry only the two fronts.
+                references = references + [None] * (6 - len(references))
                 paths = []
-                for asset_id in references[:2]:
+                for asset_id in references[:6]:
+                    if asset_id is None:
+                        paths.append(None)
+                        continue
                     row = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (asset_id,)).fetchone()
                     if row is None:
                         raise FileNotFoundError(f'Reference asset missing: {asset_id}')
@@ -189,6 +196,8 @@ class TaskManager:
                     if not path.is_file():
                         raise FileNotFoundError(path)
                     paths.append(path)
+                bride = FaceSources(paths[0], paths[2], paths[3])
+                groom = FaceSources(paths[1], paths[4], paths[5])
                 source_version = conn.execute(
                     'SELECT image_asset_id FROM photo_versions WHERE id=? AND photo_slot_id=?',
                     (task['source_version_id'], task['target_slot_id']),
@@ -209,9 +218,14 @@ class TaskManager:
         try:
             started = time.monotonic()
             weight = json.loads(task['model_config_snapshot'])['weight']
-            content = await asyncio.to_thread(self.swapper.swap, paths[0], paths[1], target_path, weight)
+            result = await asyncio.to_thread(self.swapper.swap, bride, groom, target_path, weight)
+            content = result.content
             if not content:
                 raise FaceSwapError('face_swap_failed')
+            # Which model each face got is only known after measuring it; keep it on the task.
+            with self.db.connect(write=True) as conn:
+                conn.execute('UPDATE generation_tasks SET model_config_snapshot=? WHERE id=?',
+                             (face_swap_applied_snapshot(task['model_config_snapshot'], result.faces), task['id']))
             logger.info('Face-swap succeeded task_id=%s elapsed_seconds=%.3f', task['id'], time.monotonic() - started)
         except FaceSwapError as exc:
             self._handle_face_swap_error(task, exc)
@@ -256,6 +270,8 @@ class TaskManager:
         swap_mode = self._auto_face_swap_mode(task)
         with self.db.connect(write=True) as conn:
             slot_kind = conn.execute('SELECT kind FROM photo_slots WHERE id=?', (task['target_slot_id'],)).fetchone()['kind']
+            # Like a manual swap, an automatic one uses the project's current photos, side photos included.
+            project = conn.execute('SELECT * FROM projects WHERE id=?', (task['project_id'],)).fetchone()
             current = conn.execute('SELECT status FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
             if current is None or current['status'] != 'running':
                 raise RuntimeError('Cannot save result for a task that is not running')
@@ -285,7 +301,7 @@ class TaskManager:
                     'style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,regenerate_mode,'
                     "source_version_id,created_at) VALUES (?,?,?,?,'waiting',?,?,?,?,?,'',?,'face_swap',?,?)",
                     (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'],
-                     json.dumps(json.loads(task['reference_image_ids'])[:2]), task['style_id'], task['pose_id'],
+                     json.dumps(face_swap_reference_ids(project)), task['style_id'], task['pose_id'],
                      task['moment_title'], task['moment_shot_size'], face_swap_snapshot(swap_mode, face_swap_weight(slot_kind)), version_id, now),
                 )
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, task['project_id']))

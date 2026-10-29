@@ -17,9 +17,9 @@ from starlette.background import BackgroundTask
 
 from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
-from .face_swap import face_swap_snapshot, face_swap_weight
+from .face_swap import face_swap_reference_ids, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
-from .prompts import DETAIL_SHOT, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_text, shot_text_from_prompt
+from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_text, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceSwapCreate, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .storage import asset_path, image_format, save_image
@@ -108,7 +108,18 @@ def slot_response(conn, slot, project):
     stale = False
     if version is not None:
         try:
-            stale = json.loads(version['reference_image_ids'])[:2] != current_ids
+            used_references = json.loads(version['reference_image_ids'])
+            stale = used_references[:2] != current_ids
+            if not stale:
+                side_ids = {project['person_a_left_image_id'], project['person_a_right_image_id'],
+                            project['person_b_left_image_id'], project['person_b_right_image_id']}
+                for asset_id in used_references[2:]:
+                    if asset_id in current_ids:
+                        continue
+                    asset = conn.execute('SELECT asset_type FROM image_assets WHERE id=?', (asset_id,)).fetchone()
+                    if asset is not None and asset['asset_type'] == 'original' and asset_id not in side_ids:
+                        stale = True
+                        break
         except (TypeError, ValueError):
             stale = False
     latest = conn.execute(
@@ -217,8 +228,8 @@ def project_response(conn, project, *, detail: bool = True):
         slots_for_style = [p for p in photos if p['style_id'] == style_id]
         batch_ids = [r['id'] for r in conn.execute("SELECT id FROM generation_batches WHERE project_id=? AND batch_type='photo' AND style_id=? ORDER BY created_at,rowid", (project['id'], style_id))]
         photo_sets.append({'style_id': style_id, 'style_name': STYLE_BY_ID.get(style_id, {'name': style_id})['name'], 'slot_count': len(slots_for_style), 'completed_count': sum(p['current_version'] is not None for p in slots_for_style), 'batch_ids': batch_ids})
-    result.update(person_a={'asset_id': project['person_a_image_id'], 'role': project['person_a_role']},
-                  person_b={'asset_id': project['person_b_image_id'], 'role': 'groom' if project['person_a_role'] == 'bride' else 'bride'},
+    result.update(person_a={'asset_id': project['person_a_image_id'], 'left_asset_id': project['person_a_left_image_id'], 'right_asset_id': project['person_a_right_image_id'], 'role': project['person_a_role']},
+                  person_b={'asset_id': project['person_b_image_id'], 'left_asset_id': project['person_b_left_image_id'], 'right_asset_id': project['person_b_right_image_id'], 'role': 'groom' if project['person_a_role'] == 'bride' else 'bride'},
                   previews=previews, photo_sets=photo_sets, photos=photos)
     return result
 
@@ -300,13 +311,31 @@ def _parse_snapshot(value: str, slot_label: str) -> dict:
     return result
 
 
-def _current_person_references(project) -> list[str]:
+def _build_references(project, bride_facing: str = 'front', groom_facing: str = 'front',
+                      preview_asset_id: str | None = None) -> tuple[list[str], list[tuple[str, str]]]:
+    """Reference images in the fixed order [bride front, groom front, side photos..., preview?],
+    plus the (role, facing) of each side photo for the prompt's image-role list."""
     if not project['person_a_image_id'] or not project['person_b_image_id']:
         error(409, 'photos_missing', '请先上传两个人的照片')
-    references = [project['person_a_image_id'], project['person_b_image_id']]
-    if project['person_a_role'] == 'groom':
-        references.reverse()
-    return references
+    people = {
+        project['person_a_role']: ('a', project['person_a_image_id'], project['person_a_left_image_id'], project['person_a_right_image_id']),
+        ('groom' if project['person_a_role'] == 'bride' else 'bride'): (
+            'b', project['person_b_image_id'], project['person_b_left_image_id'], project['person_b_right_image_id']),
+    }
+    references = [people['bride'][1], people['groom'][1]]
+    sides: list[tuple[str, str]] = []
+    for role, facing in (('bride', bride_facing), ('groom', groom_facing)):
+        if facing == 'front':
+            continue
+        _person, _front, left_id, right_id = people[role]
+        asset_id = left_id if facing == 'left' else right_id
+        # A missing optional side photo means only the front is sent.
+        if asset_id:
+            references.append(asset_id)
+            sides.append((role, facing))
+    if preview_asset_id:
+        references.append(preview_asset_id)
+    return references, sides
 
 
 def _style_preview_reference(conn, project_id: str, style_id: str, slot_label: str) -> str:
@@ -363,8 +392,8 @@ def _director_call(request: Request, operation, *, invalid_message='AI 导演没
     try:
         result = operation(_director(request))
         if isinstance(result, list):
-            return [item if isinstance(item, Moment) else Moment(item.get('title'), item.get('shot_size'), item.get('text')) if isinstance(item, dict) else Moment(None, None, None) for item in result]
-        return result if isinstance(result, Moment) else Moment(result.get('title'), result.get('shot_size'), result.get('text')) if isinstance(result, dict) else Moment(None, None, None)
+            return [item if isinstance(item, Moment) else Moment(item.get('title'), item.get('shot_size'), item.get('text'), item.get('orientation'), item.get('bride_facing'), item.get('groom_facing')) if isinstance(item, dict) else Moment(None, None, None) for item in result]
+        return result if isinstance(result, Moment) else Moment(result.get('title'), result.get('shot_size'), result.get('text'), result.get('orientation'), result.get('bride_facing'), result.get('groom_facing')) if isinstance(result, dict) else Moment(None, None, None)
     except DirectorFailed as exc:
         error(502, 'director_failed', exc.reason)
     except DirectorInvalidOutput:
@@ -419,7 +448,7 @@ def _draft_response(row, moments):
     }
 
 
-LEGACY_DRAFT_SHOTS = {'wide': 'full', 'medium': 'three_quarter', 'extreme_close': 'close', 'detail': 'close'}
+LEGACY_DRAFT_SHOTS = {'medium': 'three_quarter', 'extreme_close': 'close', 'detail': 'close'}
 
 
 def _load_draft(conn, draft_id: str):
@@ -427,9 +456,9 @@ def _load_draft(conn, draft_id: str):
     if row is None:
         error(404, 'draft_not_found', '导演方案不存在')
     try:
-        # Drafts written before per-shot frames have no orientation; every shot was portrait then. Unshot drafts
-        # from the retired V3.4–V3.11 ladder move to the closest studio framing.
-        moments = [Moment(**{'orientation': 'portrait', **item,
+        # Legacy drafts may lack orientation and facing; only while loading them, use portrait/front defaults.
+        # Drafts from the retired V3.4–V3.11 ladder also move to the closest current framing.
+        moments = [Moment(**{'orientation': 'portrait', 'bride_facing': 'front', 'groom_facing': 'front', **item,
                              'shot_size': LEGACY_DRAFT_SHOTS.get(item.get('shot_size'), item.get('shot_size'))})
                    for item in json.loads(row['moments'])]
     except (TypeError, ValueError, KeyError):
@@ -486,7 +515,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         }
 
     style_id = source['style_id']
-    references = _current_person_references(project)
+    references, side_references = _build_references(project)
     batch_reference_mode = request.app.state.db.get_batch_reference_mode()
     with_preview = slot['kind'] == 'photo' and batch_reference_mode == 'with_preview'
     if with_preview:
@@ -520,7 +549,10 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
             pose_id = None
             # A new shot gets the frame the director chose for it.
             aspect_ratio = _shot_ratio(request, moment.orientation)
-            prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview)
+            references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing,
+                                                               _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None)
+            prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview,
+                                           side_references=side_references)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = moment.title, moment.shot_size
     elif action == 'change_shot':
@@ -536,7 +568,10 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         moment = _director_rewrite_shot(request, style=style['name'], scene=scene, original=action_text,
                                         target=target_shot, orientation=orientation_of(aspect_ratio))
         pose_id = None
-        prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview)
+        references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing,
+                                                           _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None)
+        prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview,
+                                       side_references=side_references)
         regenerate_mode = 'change_shot'
         moment_title, moment_shot_size = moment.title, moment.shot_size
     else:
@@ -589,7 +624,7 @@ def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label
 
     if input_task['moment_shot_size'] == DETAIL_SHOT:
         error(409, 'no_faces', f'{slot_label}是局部特写，画面里没有人脸，无需换脸')
-    references = _current_person_references(project)
+    references = face_swap_reference_ids(project)
     mode = swap_status['mode']
     snapshot = face_swap_snapshot(mode, face_swap_weight(slot['kind']))
     return {
@@ -684,7 +719,8 @@ def patch_settings(body: SettingsPatch, request: Request):
 
 @router.get('/styles', response_model=list[Style])
 def styles():
-    return STYLES
+    return [{**style, 'default_preview': style['id'] in DEFAULT_PREVIEW_STYLE_IDS, 'retired': style['id'] in RETIRED_STYLE_IDS}
+            for style in STYLES]
 
 
 @router.post('/projects', response_model=ProjectDetail, status_code=201)
@@ -728,7 +764,7 @@ def delete_project(project_id: str, request: Request):
         busy = conn.execute("SELECT 1 FROM generation_tasks WHERE project_id=? AND status='running' LIMIT 1", (project_id,)).fetchone() is not None
         if not busy:
             # Break cyclic references before cascading removal of project-owned rows.
-            conn.execute('UPDATE projects SET person_a_image_id=NULL,person_b_image_id=NULL,selected_preview_version_id=NULL WHERE id=?', (project_id,))
+            conn.execute('UPDATE projects SET person_a_image_id=NULL,person_a_left_image_id=NULL,person_a_right_image_id=NULL,person_b_image_id=NULL,person_b_left_image_id=NULL,person_b_right_image_id=NULL,selected_preview_version_id=NULL WHERE id=?', (project_id,))
             conn.execute('UPDATE photo_slots SET current_version_id=NULL WHERE project_id=?', (project_id,))
             conn.execute('UPDATE generation_batches SET reference_preview_version_id=NULL WHERE project_id=?', (project_id,))
             conn.execute('UPDATE generation_tasks SET output_asset_id=NULL,retry_of_task_id=NULL WHERE project_id=?', (project_id,))
@@ -747,7 +783,8 @@ def delete_project(project_id: str, request: Request):
 
 
 @router.post('/projects/{project_id}/images', response_model=ProjectDetail)
-def upload_image(project_id: str, request: Request, person: Literal['a', 'b'] = Form(...), file: UploadFile = File(...)):
+def upload_image(project_id: str, request: Request, person: Literal['a', 'b'] = Form(...),
+                 angle: Literal['front', 'left', 'right'] = Form('front'), file: UploadFile = File(...)):
     content = file.file.read()
     try:
         image_format(content)
@@ -762,9 +799,18 @@ def upload_image(project_id: str, request: Request, person: Literal['a', 'b'] = 
             logger.exception('Upload storage failed for project %s', project_id)
             error(507, 'storage_error', '照片保存失败，请检查存储空间及目录权限')
         conn.execute('INSERT INTO image_assets VALUES (?,?,?,?,?)', (asset_id, project_id, relative, 'original', now))
-        column = 'person_a_image_id' if person == 'a' else 'person_b_image_id'
+        column = f'person_{person}_image_id' if angle == 'front' else f'person_{person}_{angle}_image_id'
         conn.execute(f'UPDATE projects SET {column}=?,updated_at=? WHERE id=?', (asset_id, now, project_id))
         return project_response(conn, get_project(conn, project_id))
+
+
+@router.delete('/projects/{project_id}/images/{person}/{angle}', status_code=204)
+def delete_side_image(project_id: str, person: Literal['a', 'b'], angle: Literal['left', 'right'], request: Request):
+    with request.app.state.db.connect(write=True) as conn:
+        get_project(conn, project_id)
+        column = f'person_{person}_{angle}_image_id'
+        conn.execute(f'UPDATE projects SET {column}=NULL,updated_at=? WHERE id=?', (utc_now(), project_id))
+    return Response(status_code=204)
 
 
 @router.get('/assets/{asset_id}')
@@ -796,12 +842,15 @@ def create_previews(project_id: str, body: PreviewCreate, request: Request, resp
         model = get_model(model_id)
         if model is None:
             invalid_model()
-        style_ids = body.style_ids if body.style_ids is not None else list(STYLE_BY_ID)
+        style_ids = body.style_ids if body.style_ids is not None else list(DEFAULT_PREVIEW_STYLE_IDS)
         if not style_ids or len(set(style_ids)) != len(style_ids) or any(style not in STYLE_BY_ID for style in style_ids):
             error(422, 'invalid_styles', '请选择有效且不重复的风格')
-        references = [project['person_a_image_id'], project['person_b_image_id']]
-        if project['person_a_role'] == 'groom':
-            references.reverse()
+        # A retired style may only refresh a sample this project already has.
+        retired = [style for style in style_ids if style in RETIRED_STYLE_IDS and conn.execute(
+            "SELECT 1 FROM photo_slots WHERE project_id=? AND kind='preview' AND style_id=?", (project_id, style)).fetchone() is None]
+        if retired:
+            error(422, 'invalid_styles', '「' + '」「'.join(STYLE_BY_ID[style]['name'] for style in retired) + '」已停用，不能生成新的样片')
+        references, _ = _build_references(project)
         if len(references) > model.max_reference_images:
             error(422, 'invalid_model', '所选模型支持的参考照片数量不足')
         batch_id, now = new_id(), utc_now()
@@ -943,24 +992,30 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
         model = get_model(model_id)
         if model is None:
             invalid_model()
-        references = [project['person_a_image_id'], project['person_b_image_id']]
-        if project['person_a_role'] == 'groom':
-            references.reverse()
         mode = request.app.state.db.get_batch_reference_mode()
         preview_version = preview['current_version_id']
+        preview_asset = None
         if mode == 'with_preview':
-            asset = conn.execute('SELECT image_asset_id FROM photo_versions WHERE id=?', (preview_version,)).fetchone()
-            references.append(asset['image_asset_id'])
-        if len(references) > model.max_reference_images:
-            error(422, 'invalid_model', '所选模型支持的参考照片数量不足')
+            preview_asset = conn.execute('SELECT image_asset_id FROM photo_versions WHERE id=?', (preview_version,)).fetchone()['image_asset_id']
+        prepared_references = []
+        offending_shots = []
+        for moment in moments:
+            references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing, preview_asset)
+            prepared_references.append((references, side_references))
+            if len(references) > model.max_reference_images:
+                offending_shots.append(moment.title)
+        if offending_shots:
+            required = max(len(references) for references, _ in prepared_references)
+            error(422, 'invalid_model', f'以下镜头需要 {required} 张参考图，超过所选模型上限：{"、".join(offending_shots)}。请切换模型或关闭「带样片参考」')
         batch_id, now = new_id(), utc_now()
         conn.execute('INSERT INTO generation_batches (id,project_id,batch_type,client_request_id,created_at,style_id,reference_preview_version_id) VALUES (?,?,?,?,?,?,?)', (batch_id, project_id, 'photo', body.client_request_id, now, preview['style_id'], preview_version))
-        for moment in moments:
+        for moment, (references, side_references) in zip(moments, prepared_references):
             aspect_ratio = _shot_ratio(request, moment.orientation)
             snapshot = _fresh_snapshot(request, model_id, aspect_ratio)
             slot_id, task_id = new_id(), new_id()
             conn.execute('INSERT INTO photo_slots (id,project_id,batch_id,kind,style_id,pose_id,pose_name,shot_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)', (slot_id, project_id, batch_id, 'photo', preview['style_id'], None, moment.title, moment.shot_size, utc_now()))
-            prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, with_preview=mode == 'with_preview')
+            prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, with_preview=mode == 'with_preview',
+                                           side_references=side_references)
             conn.execute('INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (task_id, project_id, batch_id, slot_id, 'waiting', json.dumps(references), preview['style_id'], None, moment.title, moment.shot_size, prompt, snapshot, utc_now()))
         conn.execute('UPDATE moment_drafts SET used_by_batch_id=?,updated_at=? WHERE id=?', (batch_id, now, body.draft_id))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))

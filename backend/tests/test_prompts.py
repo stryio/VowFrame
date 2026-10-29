@@ -83,6 +83,21 @@ def test_preview_reference_is_inserted_after_groom_sentence_and_keeps_identity_r
     assert identity.replace(PREVIEW_INSERTION, '') == IDENTITY_TEXT
 
 
+def test_side_identity_references_are_described_after_fronts():
+    identity = compose_moment_prompt(
+        'korean_minimal', EXAMPLE_SHOT, '3:4',
+        side_references=[('bride', 'left'), ('groom', 'right')],
+    ).split('\n\n')[1]
+    assert identity.startswith('图片角色：第一张图是新娘的身份参考，第二张图是新郎的身份参考，第三张图是新娘脸朝画面左侧时的样子，第四张图是新郎脸朝画面右侧时的样子。')
+    assert '与新娘、新郎的参考照片一致' in identity
+    with_preview = compose_moment_prompt(
+        'korean_minimal', EXAMPLE_SHOT, '3:4', with_preview=True,
+        side_references=[('bride', 'left')],
+    ).split('\n\n')[1]
+    assert with_preview.startswith('图片角色：第一张图是新娘的身份参考，第二张图是新郎的身份参考，第三张图是新娘脸朝画面左侧时的样子。'
+                                   '第四张图是风格参考，只参考它的场景、服装、光线和色调，不参考其中的人脸、长相和构图。严格保持两人的长相')
+
+
 def test_every_legacy_pose_and_reference_mode_has_six_paragraphs():
     for style in STYLES:
         for pose in POSES:

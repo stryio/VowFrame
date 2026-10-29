@@ -1,4 +1,4 @@
-"""Four studio framings; the retired V3.4–V3.11 ladder stays readable on old works."""
+"""Wide plus the four studio framings (V3.14); retired V3.4–V3.11 sizes stay readable on old works."""
 
 import json
 
@@ -39,18 +39,19 @@ def test_legacy_detail_shots_still_refuse_identity_boost_and_face_swap(app_facto
         assert boost.json()['detail']['code'] == swap.json()['detail']['code'] == 'no_faces'
 
 
-def test_change_shot_accepts_only_the_studio_framings(app_factory):
+def test_change_shot_accepts_wide_and_the_studio_framings_only(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
         _, _, photos = shoot_mock_set(client)
         target = next(photo for photo in photos if photo['shot_size'] == 'three_quarter')
-        for retired_shot in ('wide', 'medium', 'extreme_close', 'detail'):
+        for retired_shot in ('medium', 'extreme_close', 'detail'):
             retired = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': retired_shot, 'shot_size': retired_shot})
             assert retired.status_code == 422
-        half = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'half', 'shot_size': 'half'})
-        assert half.status_code == 201, half.text
+        for shot in ('half', 'wide'):
+            changed = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': shot, 'shot_size': shot})
+            assert changed.status_code == 201, changed.text
 
 
-def test_unshot_drafts_from_the_retired_ladder_move_to_studio_framings(app_factory):
+def test_unshot_drafts_keep_wide_and_move_retired_sizes_to_current_framings(app_factory):
     with app_factory(concurrency=1) as (client, app):
         project = create_project(client)
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
@@ -64,4 +65,4 @@ def test_unshot_drafts_from_the_retired_ladder_move_to_studio_framings(app_facto
             conn.execute('UPDATE moment_drafts SET moments=? WHERE id=?', (json.dumps(moments, ensure_ascii=False), draft['id']))
         renamed = client.patch(f"/api/moment-drafts/{draft['id']}/moments/0", json={'title': '旧方案改名'})
         assert renamed.status_code == 200, renamed.text
-        assert [moment['shot_size'] for moment in renamed.json()['moments']] == ['full', 'three_quarter', 'close', 'close']
+        assert [moment['shot_size'] for moment in renamed.json()['moments']] == ['wide', 'three_quarter', 'close', 'close']

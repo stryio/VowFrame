@@ -17,12 +17,12 @@ from .prompts import DETAIL_SHOT
 
 logger = logging.getLogger(__name__)
 
-# The four studio framings. Works from V3.4–V3.11 may still carry wide / medium / extreme_close / detail;
+# Wide plus the four studio framings (V3.14). Works from V3.4–V3.11 may still carry medium / extreme_close / detail;
 # they are read and shown but never written for new shots.
-SHOT_SIZES = ('full', 'three_quarter', 'half', 'close')
+SHOT_SIZES = ('wide', 'full', 'three_quarter', 'half', 'close')
 SHOT_NAMES = {'full': '全身', 'three_quarter': '七分身', 'half': '半身', 'close': '近景',
               'wide': '远景', 'medium': '中景', 'extreme_close': '特写', DETAIL_SHOT: '局部特写'}
-SHOT_MEANINGS = 'full 全身，three_quarter 七分身，half 半身，close 近景'
+SHOT_MEANINGS = 'wide 远景，full 全身，three_quarter 七分身，half 半身，close 近景'
 FORBIDDEN_WORDS = (
     '眼睛', '眼型', '眼神清澈', '双眼皮', '单眼皮', '丹凤', '杏眼', '桃花眼', '睫毛', '眉毛', '眉形',
     '鼻子', '鼻梁', '鼻型', '嘴唇', '唇形', '红唇', '脸型', '瓜子脸', '鹅蛋脸', '圆脸', '尖下巴',
@@ -36,8 +36,9 @@ SYSTEM_PROMPT = '''你是一位资深的婚纱摄影师兼导演，为一对新�
 1. 机位与焦段：机位的高低和角度，用什么焦段（例如 35mm 交代环境，85mm 压缩背景、浅景深）。
 2. 构图：竖版还是横版，两人在画面里的位置和大小，留白在哪里，有没有前景。以竖版为主；交代环境的远景、需要横向延展的画面（例如海平面、天际线、长廊）适合横版。
 3. 人与场景：使用哪个场景（有多个场景变体时选一个），写清背景、两人所在的位置和与哪个场景元素发生关系。
-4. 光：这个场景的光从哪个方向照到两人身上，同一束光也照在周围的环境上；灯具等光源本身不要出现在画面里。
+4. 光：这个场景的光从哪个方向照到两人身上，同一束光也照在周围的环境上；摄影补光灯等器材不要出现在画面里，吊灯、烛台等场景里的装饰可以入画。
 5. 瞬间：一个真实发生的小事件，写清动作、互动、表情和视线落点。
+6. 分别写新娘和新郎的面部朝向 facing：front、left 或 right。方向按画面所见判断，left 表示脸朝画面左侧，right 表示脸朝画面右侧；必须与镜头文字描述一致。例如“两人面对面站，新娘在画面左边，她的脸朝画面右（right）”。
 
 必须遵守：
 1. 不描述任何五官或长相（例如眼睛、脸型、鼻子、嘴唇、皮肤），长相由参考照片决定。
@@ -58,7 +59,9 @@ class Moment:
     title: str
     shot_size: str
     text: str
-    orientation: str
+    orientation: str = 'portrait'
+    bride_facing: str = 'front'
+    groom_facing: str = 'front'
 
 
 class DirectorError(Exception):
@@ -94,8 +97,10 @@ def validate_moment(moment: Moment | dict, *, avoid_titles: list[str] = (), targ
     if isinstance(moment, dict):
         title, shot_size, text = moment.get('title'), moment.get('shot_size'), moment.get('text')
         orientation = moment.get('orientation')
+        bride_facing, groom_facing = moment.get('bride_facing'), moment.get('groom_facing')
     else:
         title, shot_size, text, orientation = moment.title, moment.shot_size, moment.text, moment.orientation
+        bride_facing, groom_facing = moment.bride_facing, moment.groom_facing
     problems: list[str] = []
     if not isinstance(title, str) or not (2 <= _cjk_or_basic_length(title) <= 12) or not re.search(r'[\u3400-\u9fff]', title or ''):
         problems.append('标题必须为 2～12 个字符且至少包含一个汉字')
@@ -103,6 +108,10 @@ def validate_moment(moment: Moment | dict, *, avoid_titles: list[str] = (), targ
         problems.append('shot_size 必须是 ' + '、'.join(SHOT_SIZES) + ' 之一')
     if orientation not in ORIENTATIONS:
         problems.append('orientation 必须是 portrait 或 landscape')
+    if bride_facing not in ('front', 'left', 'right'):
+        problems.append('bride_facing 必须是 front、left 或 right')
+    if groom_facing not in ('front', 'left', 'right'):
+        problems.append('groom_facing 必须是 front、left 或 right')
     if not isinstance(text, str) or len(text) > MAX_TEXT_LENGTH or not text.endswith('。'):
         problems.append(f'text 必须不超过 {MAX_TEXT_LENGTH} 个字符并以“。”结尾')
     if isinstance(text, str) and any(word in text for word in FORBIDDEN_WORDS):
@@ -155,7 +164,8 @@ def _parse_moments(payload: dict) -> list[Moment]:
     for value in raw:
         if not isinstance(value, dict):
             raise ValueError('moment is not an object')
-        result.append(Moment(value.get('title'), value.get('shot_size'), value.get('text'), value.get('orientation')))
+        result.append(Moment(value.get('title'), value.get('shot_size'), value.get('text'), value.get('orientation'),
+                             value.get('bride_facing'), value.get('groom_facing')))
     return result
 
 
@@ -163,22 +173,22 @@ def _shot_requirement(count: int) -> str:
     if count == 1:
         return '不限，选择最适合这个场景的景别和机位。'
     return ('整组要像一次真实的拍摄：既有交代环境的远景，也有互动的中景和情绪近景；'
-            '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。')
+            '既有两人之间的互动，也可以有两人一起看向镜头的瞬间；景别、机位和构图都要有变化。')
 
 
 def _user_prompt(style: str, scene_text: str, count: int, shot_requirement: str, avoid_titles: list[str]) -> str:
     return (f'风格：{style}\n{scene_text}\n需要的镜头数量：{count}\n'
             f'景别要求：{shot_requirement}\n已拍过的镜头（不要重复）：{"、".join(avoid_titles) if avoid_titles else "无"}\n\n'
-            f'请输出 JSON：{{"moments": [{{"title": "2～12 个汉字的标题", "shot_size": "{" | ".join(SHOT_SIZES)}", "orientation": "portrait | landscape", "text": "镜头描述，最多 {MAX_TEXT_LENGTH} 个字，以句号结尾"}}]}}\n'
-            f'shot_size 含义：{SHOT_MEANINGS}。orientation 含义：portrait 竖版，landscape 横版。')
+            f'请输出 JSON：{{"moments": [{{"title": "2～12 个汉字的标题", "shot_size": "{" | ".join(SHOT_SIZES)}", "orientation": "portrait | landscape", "bride_facing": "front | left | right", "groom_facing": "front | left | right", "text": "镜头描述，最多 {MAX_TEXT_LENGTH} 个字，以句号结尾"}}]}}\n'
+            f'shot_size 含义：{SHOT_MEANINGS}。orientation 含义：portrait 竖版，landscape 横版。facing 按画面所见判断，left 是脸朝画面左侧，right 是脸朝画面右侧；必须与 text 描述一致。')
 
 
 class MockDirector:
     _samples = (
-        ('窗边转圈', 'full', 'landscape', '35mm 镜头，平视机位，全身。两人位于画面右侧三分线附近，左侧留出空间。新郎牵着新娘的手举过她头顶，新娘转到一半回头笑着看向镜头，场景的主光同时照亮两人和地面。'),
-        ('回眸相依', 'three_quarter', 'portrait', '50mm 镜头，略低机位，七分身。新娘向前迈步后回头看向镜头，新郎轻扶她的手臂、侧身看着她，两人偏画面左侧，主光从侧前方照来。'),
-        ('相视浅笑', 'half', 'portrait', '65mm 镜头，平视机位，半身。两人面对面站着，新郎轻握新娘的双手，两人相视浅笑，主光从侧前方照来，背景虚化。'),
-        ('额头相贴', 'close', 'portrait', '85mm 镜头，浅景深近景。两人额头轻轻相贴，新郎牵住新娘的手，新娘笑着看向镜头，主光从侧面照来，背景完全虚化。'),
+            ('窗边转圈', 'full', 'landscape', 'front', 'front', '35mm 镜头，平视机位，全身。两人位于画面右侧三分线附近，左侧留出空间。新郎牵着新娘的手举过她头顶，新娘转到一半回头笑着看向镜头，场景的主光同时照亮两人和地面。'),
+        ('回眸相依', 'three_quarter', 'portrait', 'front', 'left', '50mm 镜头，略低机位，七分身。新娘向前迈步后回头看向镜头，新郎轻扶她的手臂、侧身看着她，两人偏画面左侧，主光从侧前方照来。'),
+        ('相视浅笑', 'half', 'portrait', 'right', 'left', '65mm 镜头，平视机位，半身。两人面对面站着，新郎轻握新娘的双手，两人相视浅笑，主光从侧前方照来，背景虚化。'),
+        ('额头相贴', 'close', 'portrait', 'front', 'front', '85mm 镜头，浅景深近景。两人额头轻轻相贴，新郎牵住新娘的手，新娘笑着看向镜头，主光从侧面照来，背景完全虚化。'),
     )
 
     def __init__(self):
@@ -188,14 +198,14 @@ class MockDirector:
         result = []
         used = set(avoid_titles)
         for index in range(count):
-            title, shot, orientation, text = self._samples[(self.counter + index) % len(self._samples)]
+            title, shot, orientation, bride_facing, groom_facing, text = self._samples[(self.counter + index) % len(self._samples)]
             candidate = title
             suffix = 2
             while candidate in used:
                 candidate = f'{title}{suffix}'
                 suffix += 1
             used.add(candidate)
-            result.append(Moment(candidate, shot, text, orientation))
+            result.append(Moment(candidate, shot, text, orientation, bride_facing, groom_facing))
         self.counter += count
         problems = validate_moments(result, count=count, avoid_titles=avoid_titles)
         if problems:
@@ -204,7 +214,7 @@ class MockDirector:
 
     def rewrite_shot(self, style, scene_text, original_text, target_shot, orientation):
         title = SHOT_NAMES[target_shot] + '瞬间'
-        moment = Moment(title, target_shot, original_text if original_text.endswith('。') else original_text + '。', orientation)
+        moment = Moment(title, target_shot, original_text if original_text.endswith('。') else original_text + '。', orientation, 'front', 'front')
         problems = validate_moment(moment, target_shot=target_shot, target_orientation=orientation)
         if problems:
             raise DirectorInvalidOutput(problems)
@@ -262,8 +272,8 @@ class Api88Director:
 
     def rewrite_shot(self, style, scene_text, original_text, target_shot, orientation):
         user = (f'风格：{style}\n{scene_text}\n原来的镜头：{original_text}\n'
-                f'请保持这个镜头里的瞬间（动作、互动、视线）和人物在场景中的位置不变，只把景别改为{SHOT_NAMES[target_shot]}，并相应调整机位、焦段和构图（例如全身需要交代脚下、站姿和周围环境，近景只保留上半身和面部朝向，背景更虚化）。画幅保持{ORIENTATION_NAMES[orientation]}。标题可以保留或微调。\n'
-                f'只输出 JSON：{{"moments": [{{"title": "…", "shot_size": "{target_shot}", "orientation": "{orientation}", "text": "…"}}]}}')
+                f'请保持这个镜头里的瞬间（动作、互动、视线）和人物在场景中的位置不变，只把景别改为{SHOT_NAMES[target_shot]}，并相应调整机位、焦段和构图（例如远景以环境为主、两人在画面中较小，全身需要交代脚下、站姿和周围环境，近景只保留上半身和面部朝向，背景更虚化）。画幅保持{ORIENTATION_NAMES[orientation]}。标题可以保留或微调。\n'
+                f'只输出 JSON：{{"moments": [{{"title": "…", "shot_size": "{target_shot}", "orientation": "{orientation}", "bride_facing": "front | left | right", "groom_facing": "front | left | right", "text": "…"}}]}}。facing 按画面所见，且必须和 text 一致。')
         try:
             moments = self._call(user)
         except ValueError:

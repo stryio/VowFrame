@@ -7,6 +7,7 @@ import {
   SHOT_LABEL,
   SHOT_SIZES,
   type Model,
+  type Facing,
   type Moment,
   type MomentDraft,
   type ShotSize,
@@ -330,6 +331,8 @@ function MomentRow({
                   </button>
                 ))}
               </div>
+              <FacingSelector label="新娘" value={moment.bride_facing} disabled={locked} onChange={(bride_facing) => onSave({ bride_facing })} />
+              <FacingSelector label="新郎" value={moment.groom_facing} disabled={locked} onChange={(groom_facing) => onSave({ groom_facing })} />
               <span className="selection-spacer" />
               <button className="btn btn-sm btn-ghost" onClick={() => onRewrite()} disabled={locked}>
                 换一个
@@ -341,6 +344,24 @@ function MomentRow({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function FacingSelector({ label, value, disabled, onChange }: {
+  label: string;
+  value: Facing;
+  disabled: boolean;
+  onChange: (facing: Facing) => void;
+}) {
+  const options: [Facing, string][] = [["front", "正面"], ["left", "左"], ["right", "右"]];
+  return (
+    <div className="shot-switch" role="group" aria-label={`${label}面部朝向`} title="只决定传哪张参考照，不改动镜头描述">
+      <span className="facing-label">{label}：</span>
+      {options.map(([facing, text]) => (
+        <button key={facing} className={`shot-pill ${value === facing ? "active" : ""}`} disabled={disabled || value === facing}
+          title="只决定传哪张参考照，不改动镜头描述" onClick={() => onChange(facing)}>{text}</button>
+      ))}
     </div>
   );
 }

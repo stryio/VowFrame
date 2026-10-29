@@ -6,7 +6,7 @@ import {
   isBroken,
   isFaceSwapped,
   isGenerating,
-  type Person,
+  type Facing, type Person,
   type ProjectDetail,
   type Role,
   type Slot,
@@ -123,6 +123,7 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
   const { ask, dialog } = useGenerateDialog();
   const styles = usePolledResource(api.styles, []);
   const [starting, setStarting] = useState(false);
+  const [chosen, setChosen] = useState<string[]>([]);
   const ready = Boolean(project.person_a.asset_id && project.person_b.asset_id);
   const hasPreviews = project.previews.length > 0;
 
@@ -143,16 +144,22 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
       onNext();
       return;
     }
-    const styleCount = styles.data!.length;
+    // No pick means the backend's default styles; list them so the user knows what will be spent.
+    const targets = chosen.length > 0
+      ? styles.data!.filter((s) => chosen.includes(s.id))
+      : styles.data!.filter((s) => s.default_preview);
     const choice = await ask({
       title: "开始生成风格样片",
-      message: `将为 ${styleCount} 种风格各生成 1 张样片。`,
-      taskCount: styleCount,
+      message: `将为 ${targets.length} 种风格各生成 1 张样片：${targets.map((s) => s.name).join("、")}。`,
+      taskCount: targets.length,
     });
     if (!choice) return;
     setStarting(true);
     try {
-      await api.createPreviews(project.id, { model: choice.model });
+      await api.createPreviews(project.id, {
+        styleIds: chosen.length > 0 ? targets.map((s) => s.id) : undefined,
+        model: choice.model,
+      });
       await refresh();
       onNext();
     } catch (err) {
@@ -173,11 +180,47 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
         <h3>照片建议</h3>
         <ul>
           <li>近期照片，五官清晰，没有墨镜、口罩或大面积刘海遮挡</li>
-          <li>正脸或接近正脸，自然光</li>
+          <li>正面照必传：正脸或接近正脸，自然光</li>
           <li>半身照效果优于证件照；证件照可以用，但效果可能较弱</li>
-          <li>每人只需 1 张，多张反而容易让模型混淆长相</li>
+          <li>侧面照可选：约 45° 侧脸，只在脸朝同一侧的镜头里使用</li>
         </ul>
       </div>
+
+      {!hasPreviews && styles.data && (
+        <div className="card style-picker">
+          <div className="style-picker-header">
+            <h3>选择要生成样片的风格</h3>
+            <span className="muted">
+              {chosen.length > 0
+                ? `已选 ${chosen.length} 种`
+                : `未选择时生成默认的 ${styles.data.filter((s) => s.default_preview).length} 种`}
+            </span>
+            {chosen.length > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setChosen([])}>
+                清空
+              </button>
+            )}
+          </div>
+          <div className="style-picker-grid">
+            {styles.data.filter((style) => !style.retired).map((style) => {
+              const on = chosen.includes(style.id);
+              const isDefault = chosen.length === 0 && style.default_preview;
+              return (
+                <button
+                  key={style.id}
+                  className={`style-option ${on ? "on" : ""} ${isDefault ? "default" : ""}`}
+                  title={style.description}
+                  onClick={() =>
+                    setChosen((prev) => (on ? prev.filter((id) => id !== style.id) : [...prev, style.id]))
+                  }
+                >
+                  {style.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="action-bar">
         {!ready && <span className="muted">请先上传两个人的照片</span>}
@@ -204,20 +247,22 @@ function PersonUpload({
   const { project, refresh } = useCurrentProject();
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
+  const sideInputRefs = { left: useRef<HTMLInputElement>(null), right: useRef<HTMLInputElement>(null) };
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  const upload = async (file: File | undefined) => {
+  const upload = async (file: File | undefined, angle: Facing = "front") => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast.info("请选择图片文件");
       return;
     }
-    const replacing = Boolean(person.asset_id);
+    // Samples use only the front photos, so only replacing a front photo makes them outdated.
+    const replacing = angle === "front" && Boolean(person.asset_id);
     const hadResults = Boolean(project && (project.previews.length > 0 || project.photos.length > 0));
     setUploading(true);
     try {
-      await api.uploadImage(projectId, which, file);
+      await api.uploadImage(projectId, which, file, angle);
       if (replacing && hadResults) {
         toast.info("照片已更换，之前的样片和作品都会保留；建议重新生成风格样片");
       }
@@ -257,7 +302,7 @@ function PersonUpload({
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          upload(e.dataTransfer.files[0]);
+          upload(e.dataTransfer.files[0], "front");
         }}
       >
         {person.asset_id ? (
@@ -293,6 +338,22 @@ function PersonUpload({
           </button>
         </div>
       )}
+      <div className="side-upload-grid">
+        {(["left", "right"] as const).map((angle) => {
+          const assetId = angle === "left" ? person.left_asset_id : person.right_asset_id;
+          const label = angle === "left" ? "脸朝画面左" : "脸朝画面右";
+          return (
+            <div className="side-upload" key={angle}>
+              <div className="side-upload-label">{label}</div>
+              <button className={`side-dropzone ${assetId ? "filled" : ""}`} onClick={() => sideInputRefs[angle].current?.click()}>
+                {assetId ? <img src={assetUrl(assetId)} alt={label} /> : <span>＋ 上传</span>}
+              </button>
+              <input ref={sideInputRefs[angle]} type="file" accept="image/*" hidden onChange={(e) => { upload(e.target.files?.[0], angle); e.target.value = ""; }} />
+              {assetId && <button className="btn btn-ghost btn-sm" onClick={async () => { try { await api.deleteSideImage(projectId, which, angle); await refresh(); } catch (err) { toast.error(err); } }}>删除</button>}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -350,14 +411,17 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
   const allFailed =
     project.previews.length > 0 && project.previews.every((s) => !s.current_version && isBroken(s));
 
-  const regenerate = async (styleIds: string[] | undefined, label: string) => {
+  // Styles that already have a sample; "regenerate all" covers only these, not every built-in style.
+  const generatedStyleIds = styles.data.filter((s) => slotByStyle.has(s.id)).map((s) => s.id);
+
+  const regenerate = async (styleIds: string[], label: string) => {
     const choice = await ask({
       title: label,
       message: "已有的样片会保留为历史版本。",
-      taskCount: styleIds?.length ?? styles.data!.length,
+      taskCount: styleIds.length,
     });
     if (!choice) return;
-    setBusy(styleIds?.[0] ?? "all");
+    setBusy(styleIds.length === 1 ? styleIds[0] : "all");
     try {
       await api.createPreviews(project.id, { styleIds, model: choice.model });
       await refresh();
@@ -410,8 +474,8 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           </button>
           <button
             className="btn"
-            onClick={() => regenerate(undefined, "重新生成全部样片")}
-            disabled={busy !== null}
+            onClick={() => regenerate(generatedStyleIds, "重新生成已有的全部样片")}
+            disabled={busy !== null || generatedStyleIds.length === 0}
           >
             重新生成全部
           </button>
@@ -430,14 +494,14 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           title="样片全部生成失败"
           description="可能是网络或模型服务暂时不可用，也可能是照片未通过审核。请检查设置后重试。"
           action={
-            <button className="btn btn-primary" onClick={() => regenerate(undefined, "重新生成全部样片")}>
+            <button className="btn btn-primary" onClick={() => regenerate(generatedStyleIds, "重新生成全部样片")}>
               全部重试
             </button>
           }
         />
       ) : (
         <div className="preview-grid">
-          {styles.data.map((style) => (
+          {styles.data.filter((style) => !style.retired || slotByStyle.has(style.id)).map((style) => (
             <PreviewCard
               key={style.id}
               style={style}

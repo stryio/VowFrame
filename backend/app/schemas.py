@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 Role = Literal['bride', 'groom']
 TaskStatus = Literal['waiting', 'held', 'running', 'completed', 'failed', 'cancelled', 'interrupted']
 # Shots written from now on; stored works may also carry the retired V3.4–V3.11 ladder.
-ShotSize = Literal['full', 'three_quarter', 'half', 'close']
+ShotSize = Literal['wide', 'full', 'three_quarter', 'half', 'close']
 StoredShotSize = Literal['full', 'three_quarter', 'half', 'close', 'wide', 'medium', 'extreme_close', 'detail']
 
 
@@ -145,10 +145,14 @@ class Style(BaseModel):
     id: str
     name: str
     description: str
+    default_preview: bool
+    retired: bool
 
 
 class Person(BaseModel):
     asset_id: str | None
+    left_asset_id: str | None = None
+    right_asset_id: str | None = None
     role: Role
 
 
@@ -266,6 +270,8 @@ class Moment(BaseModel):
     title: str
     shot_size: ShotSize
     orientation: Literal['portrait', 'landscape']
+    bride_facing: Literal['front', 'left', 'right']
+    groom_facing: Literal['front', 'left', 'right']
     text: str
 
 
@@ -286,6 +292,8 @@ class MomentPatch(InputModel):
     title: str | None = None
     shot_size: ShotSize | None = None
     orientation: Literal['portrait', 'landscape'] | None = None
+    bride_facing: Literal['front', 'left', 'right'] | None = None
+    groom_facing: Literal['front', 'left', 'right'] | None = None
     text: str | None = None
 
 

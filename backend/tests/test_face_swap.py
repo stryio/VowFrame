@@ -6,11 +6,18 @@ import time
 
 from app.db import Database
 from app.config import load_config
-from app.face_swap import HELPER_PATH, FaceFusionSwapper, FaceSwapError, MockFaceSwapper, create_face_swapper
+from app.face_swap import HELPER_PATH, FaceFusionSwapper, FaceSwapError, FaceSwapResult, MockFaceSwapper, create_face_swapper
 from app.task_manager import TaskManager
 from app.storage import asset_path
-from facefusion_helper.swap import _cuda_face_swapper_used
-from conftest import BlockingGenerator, ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
+from facefusion_helper.swap import _cuda_face_swapper_used, _face_turn, _facing
+from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
+
+
+# What the FaceFusion helper reports for a groom turned toward the picture's left.
+SCRIPTED_FACES = {
+    'bride': {'turn': 0.02, 'facing': 'front', 'model': 'hyperswap_1c_256', 'sources': 1},
+    'groom': {'turn': -0.31, 'facing': 'left', 'model': 'hyperswap_1b_256', 'sources': 2},
+}
 
 
 class ScriptedFaceSwapper:
@@ -27,7 +34,7 @@ class ScriptedFaceSwapper:
         outcome = self.outcomes.pop(0) if self.outcomes else None
         if isinstance(outcome, Exception):
             raise outcome
-        return target.read_bytes()
+        return FaceSwapResult(target.read_bytes(), SCRIPTED_FACES)
 
 
 class BlockingAuthGenerator:
@@ -145,23 +152,29 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
         assert first_task['regenerate_mode'] == 'face_swap'
         assert first_task['source_version_id'] == original_version
         assert first_task['prompt'] == ''
-        assert first_task['model'] == 'hyperswap_1a_256/hyperswap_1c_256'
+        # The model actually applied per face: bride / groom.
+        assert first_task['model'] == 'hyperswap_1c_256/hyperswap_1b_256'
         assert first_task['status'] == 'completed'
-        assert swapper.calls[0][0].name.endswith('.png') and swapper.calls[0][1].name.endswith('.png')
+        bride, groom = swapper.calls[0][0], swapper.calls[0][1]
+        assert bride.front.name.endswith('.png') and groom.front.name.endswith('.png')
+        assert (bride.left, bride.right, groom.left, groom.right) == (None, None, None, None)
         assert swapper.calls[0][2].is_file()
 
         with app.state.db.connect() as conn:
             row = conn.execute('SELECT * FROM generation_tasks WHERE id=?', (first_task['id'],)).fetchone()
-            assert json.loads(row['reference_image_ids']) == [project['person_a']['asset_id'], project['person_b']['asset_id']]
+            assert json.loads(row['reference_image_ids']) == [
+                project['person_a']['asset_id'], project['person_b']['asset_id'], None, None, None, None]
             snapshot = json.loads(row['model_config_snapshot'])
             assert snapshot == {
                 'generator': 'mock',
-                'model': 'hyperswap_1a_256/hyperswap_1c_256',
-                'bride_model': 'hyperswap_1a_256',
-                'groom_model': 'hyperswap_1c_256',
+                'model': 'hyperswap_1c_256/hyperswap_1b_256',
+                'front_model': 'hyperswap_1c_256',
+                'side_model': 'hyperswap_1b_256',
+                'side_turn': 0.18,
                 'pixel_boost': '512x512',
                 'face_mask_types': ['box', 'occlusion'],
                 'weight': 1.0,
+                'faces': SCRIPTED_FACES,
             }
 
         current = client.get(f'/api/projects/{project["id"]}').json()['previews'][0]['current_version']
@@ -247,20 +260,26 @@ def test_cuda_face_swapper_requires_cuda_profiles_for_both_models(tmp_path):
 
     cuda_event = {'args': {'provider': 'CUDAExecutionProvider'}}
     cpu_event = {'args': {'provider': 'CPUExecutionProvider'}}
-    bride_model = 'hyperswap_1a_256.onnx'
-    groom_model = 'hyperswap_1c_256.onnx'
+    front_model = 'hyperswap_1c_256'
+    side_model = 'hyperswap_1b_256'
+    both = {front_model, side_model}
 
     assert _cuda_face_swapper_used([
-        (bride_model, ProfiledSession([cuda_event])),
-        (groom_model, ProfiledSession([cuda_event])),
-    ])
+        (front_model + '.onnx', ProfiledSession([cuda_event])),
+        (side_model + '.onnx', ProfiledSession([cuda_event])),
+    ], both)
     assert not _cuda_face_swapper_used([
-        (bride_model, ProfiledSession([cuda_event])),
-        (groom_model, ProfiledSession([cpu_event])),
-    ])
+        (front_model + '.onnx', ProfiledSession([cuda_event])),
+        (side_model + '.onnx', ProfiledSession([cpu_event])),
+    ], both)
     assert not _cuda_face_swapper_used([
-        (bride_model, ProfiledSession([cuda_event])),
-    ])
+        (front_model + '.onnx', ProfiledSession([cuda_event])),
+    ], both)
+    # Both faces front-on: one model ran, and that is the whole expectation.
+    assert _cuda_face_swapper_used([
+        ('content_analyser.onnx', ProfiledSession([cpu_event])),
+        (front_model + '.onnx', ProfiledSession([cuda_event])),
+    ], {front_model})
 
 
 def test_missing_reference_asset_fails_without_retry(app_factory):
@@ -326,9 +345,10 @@ def test_auth_quota_hold_does_not_hold_face_swap_tasks_in_same_batch(app_factory
                  json.dumps([project['person_a']['asset_id'], project['person_b']['asset_id']]), '',
                  json.dumps({
                      'generator': 'mock',
-                     'model': 'hyperswap_1a_256/hyperswap_1c_256',
-                     'bride_model': 'hyperswap_1a_256',
-                     'groom_model': 'hyperswap_1c_256',
+                     'model': 'hyperswap_1c_256/hyperswap_1b_256',
+                     'front_model': 'hyperswap_1c_256',
+                     'side_model': 'hyperswap_1b_256',
+                     'side_turn': 0.18,
                      'pixel_boost': '512x512',
                      'face_mask_types': ['box', 'occlusion'],
                      'weight': 1.0,
@@ -498,3 +518,40 @@ def test_no_automatic_swap_when_disabled_or_unavailable(app_factory, tmp_path):
         project = create_project(client)
         batch, _ = ready_preview(client, project['id'])
         assert client.get(f"/api/batches/{batch['id']}").json()['total'] == 1
+
+
+def test_face_turn_and_facing_follow_the_picture_direction():
+    class Face:
+        def __init__(self, nose_x):
+            # Eyes at x=40 and x=60 (distance 20); the nose moves along the eye line.
+            self.landmark_set = {'5/68': [(40, 50), (60, 50), (nose_x, 62), (43, 72), (57, 72)]}
+
+    assert _face_turn(Face(50)) == 0
+    assert _face_turn(Face(44)) == -0.3
+    assert _face_turn(Face(56)) == 0.3
+    assert [_facing(turn, 0.18) for turn in (-0.3, -0.18, -0.17, 0, 0.17, 0.18, 0.3)] == [
+        'left', 'left', 'front', 'front', 'front', 'right', 'right']
+
+
+def test_face_swap_passes_side_photos_by_role_and_slot(app_factory):
+    swapper = ScriptedFaceSwapper()
+    with app_factory(face_swapper=swapper) as (client, app):
+        project = create_project(client, role='groom')  # person a is the groom
+        uploads = {}
+        for person, angle in (('a', 'left'), ('b', 'right')):
+            detail = client.post(f"/api/projects/{project['id']}/images", data={'person': person, 'angle': angle},
+                                 files={'file': (f'{person}-{angle}.png', PNG, 'image/png')}).json()
+            uploads[(person, angle)] = detail[f'person_{person}'][f'{angle}_asset_id']
+        _, slots = ready_preview(client, project['id'], request_id='side-swap-ready')
+        batch = client.post(f"/api/slots/{slots['korean_minimal']['id']}/face-swap", json={'client_request_id': 'side-swap'})
+        wait_batch(client, batch.json()['id'])
+        task = client.get('/api/tasks', params={'batch_id': batch.json()['id']}).json()[0]
+        with app.state.db.connect() as conn:
+            references = json.loads(conn.execute(
+                'SELECT reference_image_ids FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()[0])
+        # [bride front, groom front, bride left, bride right, groom left, groom right]
+        assert references == [project['person_b']['asset_id'], project['person_a']['asset_id'],
+                              None, uploads[('b', 'right')], uploads[('a', 'left')], None]
+        bride, groom = swapper.calls[-1][0], swapper.calls[-1][1]
+        assert bride.left is None and bride.right is not None
+        assert groom.left is not None and groom.right is None

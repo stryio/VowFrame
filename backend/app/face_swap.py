@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -30,6 +31,45 @@ PREVIEW_FACE_SWAP_WEIGHT = 1.0
 
 def face_swap_weight(slot_kind: str) -> float:
     return PREVIEW_FACE_SWAP_WEIGHT if slot_kind == 'preview' else FACE_SWAP_WEIGHT
+
+
+# Chosen by the user on 2026-10-28: a face in the generated image that looks at the camera is swapped with
+# 1C from the front photo; a turned face is swapped with 1B from the front photo plus the matching side photo
+# (FaceFusion averages the identities of several source photos).
+FRONT_FACE_MODEL = 'hyperswap_1c_256'
+SIDE_FACE_MODEL = 'hyperswap_1b_256'
+# How far the nose sits from the eye midpoint, along the eye line, in eye distances. Calibrated on 146 faces
+# of real generated photos on 2026-10-28: ~0.12–0.16 is a slight turn (~15–20°), from ~0.19 a clear side
+# view; 0.18 sits between a frontal face and the ~45° side photos.
+SIDE_FACE_TURN = 0.18
+
+
+@dataclass(frozen=True)
+class FaceSources:
+    """One person's uploaded photos; side photos are optional. Directions are as seen in the picture."""
+    front: Path
+    left: Path | None = None
+    right: Path | None = None
+
+
+@dataclass(frozen=True)
+class FaceSwapResult:
+    content: bytes
+    # Per role ('bride' / 'groom'): turn, facing, model and the number of source photos actually used.
+    faces: dict = field(default_factory=dict)
+
+
+def face_swap_reference_ids(project) -> list[str | None]:
+    """Face-swap task references: [bride front, groom front, bride left, bride right, groom left, groom right].
+
+    The fronts stay first like every other task; a missing side photo is null so each slot keeps its meaning.
+    """
+    a = (project['person_a_image_id'], project['person_a_left_image_id'], project['person_a_right_image_id'])
+    b = (project['person_b_image_id'], project['person_b_left_image_id'], project['person_b_right_image_id'])
+    bride, groom = (a, b) if project['person_a_role'] == 'bride' else (b, a)
+    return [bride[0], groom[0], bride[1], bride[2], groom[1], groom[2]]
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,7 +89,7 @@ class FaceSwapper(Protocol):
     @property
     def status(self) -> dict: ...
 
-    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes: ...
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult: ...
 
 
 class MockFaceSwapper:
@@ -57,8 +97,8 @@ class MockFaceSwapper:
     def status(self) -> dict:
         return {'available': True, 'mode': 'mock', 'reason': None}
 
-    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes:
-        return target.read_bytes()
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
+        return FaceSwapResult(target.read_bytes())
 
 
 class UnavailableFaceSwapper:
@@ -69,7 +109,7 @@ class UnavailableFaceSwapper:
     def status(self) -> dict:
         return {'available': False, 'mode': None, 'reason': self.reason}
 
-    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes:
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
         raise FaceSwapError('face_swap_failed')
 
 
@@ -93,19 +133,27 @@ class FaceFusionSwapper:
             return {'available': False, 'mode': None, 'reason': '换脸辅助脚本不存在，请检查后端安装'}
         return {'available': True, 'mode': 'facefusion', 'reason': None}
 
-    def swap(self, bride: Path, groom: Path, target: Path, weight: float) -> bytes:
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
         if not self.status['available']:
             raise FaceSwapError('face_swap_failed')
+
+        def sources(person: FaceSources) -> dict:
+            return {angle: str(Path(path).resolve()) if path else None
+                    for angle, path in (('front', person.front), ('left', person.left), ('right', person.right))}
+
         with tempfile.TemporaryDirectory(prefix='vowframe-face-swap-') as directory:
             output = Path(directory) / 'result.png'
             payload = {
                 'facefusion_dir': str(self.facefusion_dir),
-                'bride_path': str(Path(bride).resolve()),
-                'groom_path': str(Path(groom).resolve()),
+                'bride': sources(bride),
+                'groom': sources(groom),
                 'target_path': str(Path(target).resolve()),
                 'output_path': str(output),
                 'work_dir': directory,
                 'weight': weight,
+                'front_model': FRONT_FACE_MODEL,
+                'side_model': SIDE_FACE_MODEL,
+                'side_turn': SIDE_FACE_TURN,
             }
             environment = os.environ.copy()
             site_packages = self.facefusion_dir / '.venv' / 'lib'
@@ -172,8 +220,12 @@ class FaceFusionSwapper:
             if not output.is_file():
                 logger.warning('FaceFusion did not create an output image')
                 raise FaceSwapError('face_swap_failed')
+            faces = result.get('faces')
+            if not isinstance(faces, dict):
+                logger.warning('FaceFusion helper did not report the per-face models')
+                raise FaceSwapError('face_swap_failed')
             try:
-                return output.read_bytes()
+                return FaceSwapResult(output.read_bytes(), faces)
             except OSError:
                 logger.warning('FaceFusion output could not be read')
                 raise FaceSwapError('face_swap_failed') from None
@@ -194,13 +246,27 @@ def create_face_swapper(config: Config) -> FaceSwapper:
 
 
 def face_swap_snapshot(mode: str, weight: float) -> str:
-    """Model record stored on face-swap tasks; never contains secrets."""
+    """Model record stored on face-swap tasks; never contains secrets.
+
+    Which model each face gets is only known once the generated face is measured, so `model` starts as the
+    rule summary and face_swap_applied_snapshot records what was actually used.
+    """
     return json.dumps({
         'generator': mode,
-        'model': 'hyperswap_1a_256/hyperswap_1c_256',
-        'bride_model': 'hyperswap_1a_256',
-        'groom_model': 'hyperswap_1c_256',
+        'model': f'{FRONT_FACE_MODEL}/{SIDE_FACE_MODEL}',
+        'front_model': FRONT_FACE_MODEL,
+        'side_model': SIDE_FACE_MODEL,
+        'side_turn': SIDE_FACE_TURN,
         'pixel_boost': '512x512',
         'face_mask_types': ['box', 'occlusion'],
         'weight': weight,
     }, ensure_ascii=False)
+
+
+def face_swap_applied_snapshot(snapshot: str, faces: dict) -> str:
+    """Add the per-face outcome; `model` then reads bride model / groom model as actually applied."""
+    value = json.loads(snapshot)
+    if faces:
+        value['faces'] = faces
+        value['model'] = f"{faces['bride']['model']}/{faces['groom']['model']}"
+    return json.dumps(value, ensure_ascii=False)

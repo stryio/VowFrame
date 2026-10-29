@@ -16,8 +16,27 @@ def _largest_face(faces, order):
     return ordered[0] if ordered else None
 
 
-def _cuda_face_swapper_used(tracked_sessions):
-    expected_models = {'hyperswap_1a_256.onnx', 'hyperswap_1c_256.onnx'}
+def _face_turn(face):
+    """Nose offset from the eye midpoint along the eye line, in eye distances (independent of head tilt).
+
+    Negative: the face turns toward the picture's left; positive: toward the picture's right.
+    """
+    (lx, ly), (rx, ry), (nx, ny) = ((float(x), float(y)) for x, y in face.landmark_set['5/68'][:3])
+    ax, ay = rx - lx, ry - ly
+    return ((nx - (lx + rx) / 2) * ax + (ny - (ly + ry) / 2) * ay) / (ax * ax + ay * ay)
+
+
+def _facing(turn, side_turn):
+    if turn <= -side_turn:
+        return 'left'
+    if turn >= side_turn:
+        return 'right'
+    return 'front'
+
+
+def _cuda_face_swapper_used(tracked_sessions, expected_models):
+    """True when every face-swap model that ran executed on CUDA."""
+    expected_models = {f'{model}.onnx' for model in expected_models}
     cuda_models = set()
     for model_name, session in tracked_sessions:
         profile_path = session.end_profiling()
@@ -82,7 +101,7 @@ def _run(payload):
         '--temp-path', temp_path,
         '--execution-providers', 'cuda',
         '--processors', 'face_swapper',
-        '--face-swapper-model', 'hyperswap_1a_256',
+        '--face-swapper-model', payload['front_model'],
         '--face-swapper-pixel-boost', '512x512',
         '--face-swapper-weight', str(payload['weight']),
         # The occlusion mask keeps hair strands, ears, veils and hair ornaments in front of the face untouched.
@@ -100,7 +119,7 @@ def _run(payload):
     parser = create_program()
     state_args = vars(parser.parse_args(base_args + [
         '--face-selector-gender', 'female',
-        '-s', payload['bride_path'],
+        '-s', payload['bride']['front'],
         '-t', payload['target_path'],
         '-o', str(bride_output_path),
     ]))
@@ -113,59 +132,74 @@ def _run(payload):
         if not job_manager.init_jobs(jobs_path):
             raise RuntimeError('FaceFusion could not initialize its temporary job directory')
 
-        bride_frame = read_static_image(payload['bride_path'])
-        groom_frame = read_static_image(payload['groom_path'])
+        def largest_face(path):
+            frame = read_static_image(path)
+            if frame is None:
+                raise RuntimeError('A face-swap input image could not be decoded')
+            return _largest_face(get_static_faces([frame]), sort_faces_by_order)
+
+        people = {'bride': 'female', 'groom': 'male'}
+        for role, gender in people.items():
+            face = largest_face(payload[role]['front'])
+            if face is None or face.gender != gender:
+                return {'ok': False, 'error_code': 'roles_swapped'}
+
         target_frame = read_static_image(payload['target_path'])
-        if bride_frame is None or groom_frame is None or target_frame is None:
+        if target_frame is None:
             raise RuntimeError('A face-swap input image could not be decoded')
-
-        bride_face = _largest_face(get_static_faces([bride_frame]), sort_faces_by_order)
-        groom_face = _largest_face(get_static_faces([groom_frame]), sort_faces_by_order)
-        if bride_face is None or bride_face.gender != 'female':
-            return {'ok': False, 'error_code': 'roles_swapped'}
-        if groom_face is None or groom_face.gender != 'male':
-            return {'ok': False, 'error_code': 'roles_swapped'}
-
         target_faces = get_static_faces([target_frame])
-        missing = []
-        if not any(face.gender == 'female' for face in target_faces):
-            missing.append('bride')
-        if not any(face.gender == 'male' for face in target_faces):
-            missing.append('groom')
+        targets = {role: _largest_face([face for face in target_faces if face.gender == gender], sort_faces_by_order)
+                   for role, gender in people.items()}
+        missing = [role for role, face in targets.items() if face is None]
         if missing:
             return {'ok': False, 'error_code': 'face_not_found', 'missing': missing}
 
-        bride_args = dict(state_args)
-        bride_args.update({
-            'face_selector_gender': 'female',
-            'source_paths': [payload['bride_path']],
-            'target_path': payload['target_path'],
-            'output_path': str(bride_output_path),
+        # Each person's model and sources follow how their (largest) face turns in the generated image.
+        faces = {}
+        plans = {}
+        for role, gender in people.items():
+            turn = _face_turn(targets[role])
+            facing = _facing(turn, payload['side_turn'])
+            sources = [payload[role]['front']]
+            face = {'turn': round(turn, 3), 'facing': facing,
+                    'model': payload['front_model'] if facing == 'front' else payload['side_model']}
+            side_path = payload[role].get(facing) if facing != 'front' else None
+            if side_path:
+                side_face = largest_face(side_path)
+                if side_face is not None and side_face.gender == gender:
+                    sources.append(side_path)
+                else:
+                    # The optional side photo cannot be used; record it rather than hide it.
+                    face['side_photo_unusable'] = True
+            face['sources'] = len(sources)
+            faces[role] = face
+            plans[role] = sources
+
+        pass_args = dict(state_args)
+        pass_args.update({
             'execution_providers': ['cuda'],
             'processors': ['face_swapper'],
-            'face_swapper_model': 'hyperswap_1a_256',
             'face_swapper_pixel_boost': '512x512',
             'face_swapper_weight': payload['weight'],
             'face_mask_types': ['box', 'occlusion'],
             'face_selector_mode': 'many',
         })
-        apply_args(bride_args, state_manager.set_item)
-        if core.process_headless(bride_args) != 0:
-            raise RuntimeError('FaceFusion bride pass failed')
+        passes = (('bride', payload['target_path'], bride_output_path),
+                  ('groom', str(bride_output_path), raw_output_path))
+        for role, target_path, output_path in passes:
+            pass_args.update({
+                'face_selector_gender': people[role],
+                # Several source photos: FaceFusion averages their identities.
+                'source_paths': plans[role],
+                'target_path': target_path,
+                'output_path': str(output_path),
+                'face_swapper_model': faces[role]['model'],
+            })
+            apply_args(pass_args, state_manager.set_item)
+            if core.process_headless(pass_args) != 0:
+                raise RuntimeError(f'FaceFusion {role} pass failed')
 
-        groom_args = dict(bride_args)
-        groom_args.update({
-            'face_selector_gender': 'male',
-            'source_paths': [payload['groom_path']],
-            'target_path': str(bride_output_path),
-            'output_path': str(raw_output_path),
-            'face_swapper_model': 'hyperswap_1c_256',
-        })
-        apply_args(groom_args, state_manager.set_item)
-        if core.process_headless(groom_args) != 0:
-            raise RuntimeError('FaceFusion groom pass failed')
-
-        swapper_cuda_used = _cuda_face_swapper_used(tracked_sessions)
+        swapper_cuda_used = _cuda_face_swapper_used(tracked_sessions, {face['model'] for face in faces.values()})
 
         if not raw_output_path.is_file():
             raise RuntimeError('FaceFusion did not create the output image')
@@ -175,7 +209,7 @@ def _run(payload):
         from facefusion.vision import write_image
         if not write_image(payload['output_path'], final_frame):
             raise RuntimeError('FaceFusion could not encode the PNG output')
-        return {'ok': True, 'cuda_face_swapper_used': swapper_cuda_used}
+        return {'ok': True, 'cuda_face_swapper_used': swapper_cuda_used, 'faces': faces}
 
 
 def main():

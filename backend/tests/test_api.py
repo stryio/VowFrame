@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from app.prompts import POSES, STYLES, compose_photo_prompt
+from app.prompts import POSES, RETIRED_STYLE_IDS, STYLES, compose_photo_prompt
 from conftest import PNG, BlockingGenerator, create_project, preview_batch, wait_batch
 
 
@@ -21,11 +21,12 @@ def test_health_styles_and_pose_library(client_app):
     styles = client.get('/api/styles').json()
     assert [s['id'] for s in styles] == [s['id'] for s in STYLES]
     assert [s['name'] for s in styles] == [
-        '韩系极简', '法式复古', '森系自然', '海边日落', '中式国风', '高级光影', '新中式',
-        '港风复古', '城市夜景', '花海草原', '冬日雪景', '欧式教堂', '黑白经典', '生活日常',
+        '韩系极简', '城市街拍', '森林森系', '海岸海岛', '中式国风', '高级光影', '新中式园林',
+        '港风复古', '城市夜景', '草原旷野', '冬日雪景', '欧式教堂', '黑白经典', '生活日常',
+        '玉龙雪山', '草坪花艺', '花园花房', '法式庄园', '极简建筑', '酒店教堂', '湖畔洱海', '复古油画',
     ]
     assert [s['description'] for s in styles] == [style['description'] for style in STYLES]
-    assert all(set(s) == {'id', 'name', 'description'} for s in styles)
+    assert all(set(s) == {'id', 'name', 'description', 'default_preview', 'retired'} for s in styles)
     assert [p['id'] for p in POSES] == [f'pose_{i:02d}' for i in range(1, 13)]
     assert '两人相视而笑' in compose_photo_prompt('korean_minimal', 'pose_02', '3:4')
     assert '不参考其中的人脸、长相和构图' in compose_photo_prompt(
@@ -41,8 +42,8 @@ def test_project_create_list_patch_role_delete(client_app):
     assert datetime.fromisoformat(project['created_at']).utcoffset().total_seconds() == 0
     assert project['name'] == '我的婚纱照'
     assert project['stage'] == 'upload'
-    assert project['person_a'] == {'asset_id': None, 'role': 'bride'}
-    assert project['person_b'] == {'asset_id': None, 'role': 'groom'}
+    assert project['person_a'] == {'asset_id': None, 'left_asset_id': None, 'right_asset_id': None, 'role': 'bride'}
+    assert project['person_b'] == {'asset_id': None, 'left_asset_id': None, 'right_asset_id': None, 'role': 'groom'}
     second = client.post('/api/projects', json={'name': '第二个项目'}).json()
     changed = client.patch(f"/api/projects/{project['id']}", json={'name': '我们的婚纱照', 'person_a_role': 'groom'}).json()
     assert changed['person_a']['role'] == 'groom'
@@ -105,15 +106,16 @@ def test_upload_stage_select_and_replacement_keeps_old_assets(client_app):
 def test_previews_complete_and_regenerate_same_slot(client_app):
     client, app = client_app
     project = create_project(client)
-    all_styles = len(STYLES)
-    batch = preview_batch(client, project['id'], style_ids=[s['id'] for s in STYLES])
+    active = [s['id'] for s in STYLES if s['id'] not in RETIRED_STYLE_IDS]
+    all_styles = len(active)
+    batch = preview_batch(client, project['id'], style_ids=active)
     assert batch['total'] == all_styles
     completed = wait_batch(client, batch['id'])
     assert completed['counts'] == {'waiting': 0, 'held': 0, 'running': 0, 'completed': all_styles, 'failed': 0, 'cancelled': 0, 'interrupted': 0}
     detail = client.get(f"/api/projects/{project['id']}").json()
     assert len(detail['previews']) == all_styles
     assert detail['photo_count'] == 0 and detail['active_task_count'] == 0
-    assert [s['style_id'] for s in detail['previews']] == [s['id'] for s in STYLES]
+    assert [s['style_id'] for s in detail['previews']] == active
     for slot in detail['previews']:
         assert slot['version_count'] == slot['current_version']['version_number'] == 1
         assert slot['latest_task']['status'] == 'completed'
@@ -164,8 +166,9 @@ def test_idempotency_including_concurrent_submissions(client_app):
     assert client.post(url, json={'client_request_id': 'same-request', 'style_ids': ['forest_natural']}).status_code == 200
     with app.state.db.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM generation_batches').fetchone()[0] == 1
-        # Omitting style_ids samples every built-in style.
-        assert conn.execute('SELECT COUNT(*) FROM generation_tasks').fetchone()[0] == len(STYLES)
+        # Omitting style_ids samples the first six built-in styles.
+        assert [row[0] for row in conn.execute('SELECT style_id FROM generation_tasks ORDER BY rowid')] == [s['id'] for s in STYLES[:6]]
+    assert [s['id'] for s in client.get('/api/styles').json() if s['default_preview']] == [s['id'] for s in STYLES[:6]]
     other = create_project(client)
     repeated = client.post(f"/api/projects/{other['id']}/previews", json={'client_request_id': 'same-request'})
     assert repeated.status_code == 200

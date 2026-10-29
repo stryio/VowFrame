@@ -98,6 +98,60 @@ def test_photo_batch_reference_modes_stale_and_settings(client_app):
     assert invalid.status_code == 422 and invalid.json()['detail']['code'] == 'invalid_reference_mode'
 
 
+def test_photo_batch_uses_side_references_per_moment_and_delete_keeps_asset(client_app):
+    client, app = client_app
+    project = create_project(client)
+    side_ids = {}
+    for person, angle in (('a', 'right'), ('b', 'left')):
+        response = client.post(f"/api/projects/{project['id']}/images", data={'person': person, 'angle': angle},
+                               files={'file': (f'{person}-{angle}.png', PNG, 'image/png')})
+        assert response.status_code == 200
+        side_ids[person] = response.json()[f'person_{person}'][f'{angle}_asset_id']
+    preview = ready_preview(client, project['id'])
+    response = create_director_photo_batch(client, project['id'], preview['id'], request_id='side-refs', count=4)
+    assert response.status_code == 201, response.text
+    wait_batch(client, response.json()['id'])
+    with app.state.db.connect() as conn:
+        rows = conn.execute('SELECT reference_image_ids,prompt FROM generation_tasks WHERE batch_id=? ORDER BY rowid',
+                            (response.json()['id'],)).fetchall()
+    refs = [json.loads(row['reference_image_ids']) for row in rows]
+    assert refs[1][2] == side_ids['b']
+    assert refs[2][2] == side_ids['a']
+    assert [len(item) for item in refs] == [2, 3, 4, 2]
+    # Mock shots: 回眸相依 has the groom facing left; 相视浅笑 has bride right, groom left.
+    assert '第二张图是新郎的身份参考，第三张图是新郎脸朝画面左侧时的样子。' in rows[1]['prompt']
+    assert '第三张图是新娘脸朝画面右侧时的样子，第四张图是新郎脸朝画面左侧时的样子。' in rows[2]['prompt']
+    replacement = client.post(f"/api/projects/{project['id']}/images", data={'person': 'a', 'angle': 'right'},
+                               files={'file': ('a-right-new.png', PNG, 'image/png')})
+    assert replacement.status_code == 200
+    assert any(photo['is_stale'] for photo in client.get(f"/api/projects/{project['id']}").json()['photos'])
+    assert client.delete(f"/api/projects/{project['id']}/images/a/right").status_code == 204
+    with app.state.db.connect() as conn:
+        assert conn.execute('SELECT 1 FROM image_assets WHERE id=?', (side_ids['a'],)).fetchone() is not None
+
+
+def test_photo_batch_rejects_capacity_per_offending_shot(client_app):
+    client, app = client_app
+    project = create_project(client)
+    for person, angle in (('a', 'right'), ('b', 'left')):
+        response = client.post(f"/api/projects/{project['id']}/images", data={'person': person, 'angle': angle},
+                               files={'file': (f'{person}-{angle}.png', PNG, 'image/png')})
+        assert response.status_code == 200
+    preview = ready_preview(client, project['id'])
+    client.patch('/api/settings', json={'batch_reference_mode': 'with_preview'})
+    draft = client.post(f"/api/projects/{project['id']}/moment-drafts", json={'preview_slot_id': preview['id'], 'count': 4}).json()
+    patched = client.patch(f"/api/moment-drafts/{draft['id']}/moments/0", json={'bride_facing': 'right', 'groom_facing': 'left'})
+    assert patched.status_code == 200, patched.text
+    response = client.post(f"/api/projects/{project['id']}/photo-batches", json={
+        'client_request_id': 'capacity-reject', 'draft_id': draft['id'], 'model': 'gpt-image-2',
+    })
+    assert response.status_code == 422
+    assert response.json()['detail']['code'] == 'invalid_model'
+    assert '窗边转圈' in response.json()['detail']['message']
+    with app.state.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM generation_tasks WHERE batch_id IN (SELECT id FROM generation_batches WHERE client_request_id='capacity-reject')").fetchone()[0] == 0
+
+
 def test_photo_batch_requires_draft_id_and_is_idempotent(client_app):
     client, _ = client_app
     project = create_project(client)

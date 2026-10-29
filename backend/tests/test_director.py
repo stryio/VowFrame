@@ -10,30 +10,31 @@ from app.db import Database
 
 
 def test_director_user_prompt_lists_every_variant_matching_section_7_2():
-    scene = director_scene_text('seaside_sunset', single_variant=False)
-    assert _user_prompt('海边日落', scene, 8, _shot_requirement(8), ['海边踏浪回眸', '沙滩并肩漫步']) == (
-        '风格：海边日落\n'
-        '视觉语言（摄影团队已确定）：温暖浪漫的黄金时刻，暖橙与粉紫的天空色彩，夕阳形成暖色轮廓光，天空的余晖作为柔和的正面光。\n'
+    scene = director_scene_text('cinematic_light', single_variant=False)
+    assert _user_prompt('高级光影', scene, 8, _shot_requirement(8), ['海边踏浪回眸', '沙滩并肩漫步']) == (
+        '风格：高级光影\n'
+        '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和人物身上形成清晰的明暗结构或投影图案；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
         '场景变体（每个镜头选其中一个，并在镜头里写清背景和光影；整组尽量用到不同的变体）：\n'
-        '1. 浪花沙滩：湿润反光的沙滩和涌上来的浪花，夕阳低垂在海平面上方，沙滩上倒映着晚霞。\n'
-        '2. 海边礁石：一段深色的礁石，海浪拍在石头上溅起水花，夕阳从侧面照来。\n'
-        '3. 海上栈道：一条伸向海面的木栈道，两侧是海水，晚霞倒映在水面上。\n'
-        '4. 芒草沙丘：海边长着芒草的沙丘，草叶在风里摆动，在逆光下发着金光。\n'
+        '1. 窗格投影：暖白色墙面的空房间，午后的硬质阳光从一侧的窗户射入，在墙上、地面和人身上投出清晰的窗格影子。\n'
+        '2. 百叶窗条纹：浅灰色的墙面，阳光穿过百叶窗，在墙面和两人身上落下斜向的条纹光影。\n'
+        '3. 树影墙：米黄色的外墙，阳光把附近树枝和树叶的影子投在墙上和人身上。\n'
+        '4. 暗调单光：深色背景，一束侧前方的柔光让人物从暗部中浮现，背景逐渐沉入暗部。\n'
+        '5. 色彩墙侧光：墨绿色或雾蓝色的纯色墙面，一束侧光从画面一侧掠过墙面，形成由亮到暗的渐变。\n'
         '需要的镜头数量：8\n'
         '景别要求：整组要像一次真实的拍摄：既有交代环境的远景，也有互动的中景和情绪近景；'
-        '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。\n'
+        '既有两人之间的互动，也可以有两人一起看向镜头的瞬间；景别、机位和构图都要有变化。\n'
         '已拍过的镜头（不要重复）：海边踏浪回眸、沙滩并肩漫步\n\n'
-        '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "shot_size": "full | three_quarter | half | close", '
-        '"orientation": "portrait | landscape", "text": "镜头描述，最多 220 个字，以句号结尾"}]}\n'
-        'shot_size 含义：full 全身，three_quarter 七分身，half 半身，close 近景。'
-        'orientation 含义：portrait 竖版，landscape 横版。'
+        '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "shot_size": "wide | full | three_quarter | half | close", '
+        '"orientation": "portrait | landscape", "bride_facing": "front | left | right", "groom_facing": "front | left | right", "text": "镜头描述，最多 220 个字，以句号结尾"}]}\n'
+        'shot_size 含义：wide 远景，full 全身，three_quarter 七分身，half 半身，close 近景。'
+        'orientation 含义：portrait 竖版，landscape 横版。facing 按画面所见判断，left 是脸朝画面左侧，right 是脸朝画面右侧；必须与 text 描述一致。'
     )
 
 
 def test_preview_reference_mode_keeps_director_in_the_first_variant():
-    assert director_scene_text('seaside_sunset', single_variant=True) == (
-        '视觉语言（摄影团队已确定）：温暖浪漫的黄金时刻，暖橙与粉紫的天空色彩，夕阳形成暖色轮廓光，天空的余晖作为柔和的正面光。\n'
-        '场景（所有镜头都在这个场景里）：湿润反光的沙滩和涌上来的浪花，夕阳低垂在海平面上方，沙滩上倒映着晚霞。'
+    assert director_scene_text('cinematic_light', single_variant=True) == (
+        '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和人物身上形成清晰的明暗结构或投影图案；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
+        '场景（所有镜头都在这个场景里）：暖白色墙面的空房间，午后的硬质阳光从一侧的窗户射入，在墙上、地面和人身上投出清晰的窗格影子。'
     )
 
 
@@ -57,6 +58,11 @@ def test_validation_requires_a_known_orientation():
                validate_moment(Moment('窗边转圈', 'full', '两人看向镜头。', 'landscape'), target_orientation='portrait'))
 
 
+def test_validation_requires_valid_facing_values():
+    problems = validate_moment(Moment('窗边转圈', 'full', '两人看向镜头。', 'portrait', 'diagonal', 'front'))
+    assert any('bride_facing' in problem for problem in problems)
+
+
 def test_validation_checks_forbidden_words():
     invalid = Moment('背影', 'half', '两人背对镜头形成背影。', 'portrait')
     problems = validate_moment(invalid)
@@ -72,7 +78,7 @@ def test_shot_requirement_matches_section_7_2():
     assert _shot_requirement(1) == '不限，选择最适合这个场景的景别和机位。'
     assert _shot_requirement(8) == (
         '整组要像一次真实的拍摄：既有交代环境的远景，也有互动的中景和情绪近景；'
-        '景别、机位和构图都要有变化，不要每张都是两人并排面对镜头。'
+        '既有两人之间的互动，也可以有两人一起看向镜头的瞬间；景别、机位和构图都要有变化。'
     )
 
 

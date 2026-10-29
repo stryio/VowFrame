@@ -44,8 +44,10 @@
 ### Person
 
 ```json
-{ "asset_id": "…" | null, "role": "bride" }
+{ "asset_id": "…" | null, "left_asset_id": "…" | null, "right_asset_id": "…" | null, "role": "bride" }
 ```
+
+`left_asset_id` / `right_asset_id` 是可选的侧面参考照；方向均按图片所见（`left` = 脸朝画面左侧）。
 
 ### VersionRef
 
@@ -53,7 +55,7 @@
 { "id": "…", "asset_id": "…", "version_number": 1, "created_at": "…", "model": "gpt-image-2" | null, "source_version_id": "…" | null }
 ```
 
-- `model`：生成该版本的任务所用模型（取自任务的模型配置快照）；换脸版本为两个 pass 的模型摘要 `hyperswap_1a_256/hyperswap_1c_256`；模拟生成或无法确定时为 null。既有版本仍按其创建时的快照显示。
+- `model`：生成该版本的任务所用模型（取自任务的模型配置快照）；换脸版本为两人实际所用模型「新娘/新郎」，如 `hyperswap_1c_256/hyperswap_1b_256`（2026-10-28 之前的换脸版本为 `hyperswap_1a_256/hyperswap_1c_256`）；模拟生成或无法确定时为 null。既有版本仍按其创建时的快照显示。
 - `source_version_id`：换脸版本的来源版本（换脸时输入的那个版本）；其他版本为 null。
 
 ### TaskBrief
@@ -88,9 +90,9 @@
 - `latest_task`：以该位置为目标、创建时间最新且未被其他任务替代的任务。
 - `pose_id`：旧版固定动作的编号；AI 导演写的瞬间为 null。
 - `pose_name`：相册中显示的动作名称。AI 导演写的瞬间为其 `title`，旧版固定动作为动作名；样片为 null。均取自生成当前版本的任务（无版本时取最新任务）。
-- `shot_size`：`"full" | "three_quarter" | "half" | "close" | "wide" | "medium" | "extreme_close" | "detail" | null`，同样取自对应任务；旧版固定动作与样片为 null。`wide`（远景）、`medium`（中景）、`extreme_close`（特写）、`detail`（局部特写）是 V3.4～V3.11 的停用景别，只会出现在旧作品上。
+- `shot_size`：`"wide" | "full" | "three_quarter" | "half" | "close" | "medium" | "extreme_close" | "detail" | null`，同样取自对应任务；旧版固定动作与样片为 null。`wide`（远景）自 V3.14 起重新启用；`medium`（中景）、`extreme_close`（特写）、`detail`（局部特写）是 V3.4～V3.11 的停用景别，只会出现在旧作品上。
 - `batch_id`：创建该位置的批次。
-- `is_stale`（由后端计算）：当前版本是用旧照片生成的，即生成它的任务的参考人物照片 ≠ 项目当前的人物照片。没有当前版本时为 false。
+- `is_stale`（由后端计算）：当前版本是用旧照片生成的，即生成它的任务的正面照或所用侧面照已不再是项目当前对应照片。样片参考图不参与侧照 stale 判断。没有当前版本时为 false。
 
 ### PhotoSet（按风格汇总的「一组」，由后端计算）
 
@@ -177,7 +179,7 @@ ProjectSummary 加上：
   "style_id": "korean_minimal",
   "pose_id": null,
   "moment_title": "海边踏浪回眸" | null,
-  "moment_shot_size": "full" | "three_quarter" | "half" | "close" | "wide" | "medium" | "extreme_close" | "detail" | null,
+  "moment_shot_size": "wide" | "full" | "three_quarter" | "half" | "close" | "medium" | "extreme_close" | "detail" | null,
   "prompt": "…",
   "error_code": "rejected",
   "error_message": "内容审核未通过，请调整照片后重试",
@@ -220,12 +222,13 @@ ProjectSummary 加上：
 ### Moment（AI 导演写的一个镜头）
 
 ```json
-{ "title": "海边踏浪回眸", "shot_size": "full", "orientation": "landscape", "text": "新娘提着裙摆踩着浪花向前跑，回头笑着看向镜头，新郎牵着她的手跟在身后……" }
+{ "title": "海边踏浪回眸", "shot_size": "full", "orientation": "landscape", "bride_facing": "front", "groom_facing": "right", "text": "新娘提着裙摆踩着浪花向前跑，回头笑着看向镜头，新郎牵着她的手跟在身后……" }
 ```
 
 - `title`：2～12 个汉字，相册中显示的动作名称。
-- `shot_size`：`full`（全身）、`three_quarter`（七分身）、`half`（半身）、`close`（近景）。尚未拍摄的旧方案中的停用景别读取时改为最接近的一档：`wide`→`full`，`medium`→`three_quarter`，`extreme_close`、`detail`→`close`。
+- `shot_size`：`wide`（远景）、`full`（全身）、`three_quarter`（七分身）、`half`（半身）、`close`（近景）。尚未拍摄的旧方案中的停用景别读取时改为最接近的一档：`medium`→`three_quarter`，`extreme_close`、`detail`→`close`。
 - `orientation`：`portrait`（竖版）或 `landscape`（横版），由导演决定、用户可在方案预览中切换。具体比例见 `Settings.portrait_ratio`。在画幅功能之前保存的方案没有这个字段，读取时按 `portrait` 处理（当时所有照片都是竖版）。
+- `bride_facing` / `groom_facing`：`front`、`left`、`right`，方向按图片所见。旧草稿缺少字段时读取为 `front`；新导演输出必须包含字段。
 - `text`：「镜头：」之后的正文，不含该前缀，以「。」结尾，最多 220 个字。
 
 ### MomentDraft（拍组前的导演方案）
@@ -256,8 +259,12 @@ ProjectSummary 加上：
 ### Style
 
 ```json
-{ "id": "korean_minimal", "name": "韩系极简", "description": "白纱、黑西装、简约影棚、柔光" }
+{ "id": "korean_minimal", "name": "韩系极简", "description": "白纱、黑西装、简约影棚、柔光", "default_preview": true, "retired": false }
 ```
+
+`default_preview`：生成样片时用户没有选择风格，就生成这些风格（内置顺序中未停用的前 6 种）。
+
+`retired`：已停用的风格（V3.20 起：港风复古、城市夜景、冬日雪景、黑白经典、生活日常；V3.22 起：欧式教堂）。接口仍然返回它们，因为旧项目的样片和作品要显示风格名；前端选择风格时不列出，样片列表只在项目已有该风格样片时显示。生成样片时传入已停用的风格返回 422 `invalid_styles`，除非这个项目已经有该风格的样片（重新生成旧样片仍然允许）。旧作品的重新生成、换动作、换景别、加强长相不受影响。
 
 ### Model
 
@@ -313,12 +320,13 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/projects/{id}` | — | `ProjectDetail` |
 | PATCH | `/api/projects/{id}` | `{"name"?: string, "person_a_role"?: Role}` | `ProjectDetail` |
 | DELETE | `/api/projects/{id}` | — | 204；存在 `running` 任务时 409 `project_busy`（先取消剩余任务） |
-| POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`file` | `ProjectDetail` |
+| POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail` |
+| DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |
 | GET | `/api/assets/{id}` | — | 图片文件 |
 | POST | `/api/projects/{id}/previews` | `{"client_request_id": string, "style_ids"?: string[], "model"?: string}` | `Batch`（201）；`model` 缺省用默认模型，不在列表中时 422 `invalid_model` |
 | POST | `/api/projects/{id}/moment-drafts` | `{"preview_slot_id": string, "count": 4 \| 8 \| 12 \| 20}` | `MomentDraft`（201）；同步调用 AI 导演 |
 | GET | `/api/moment-drafts/{id}` | — | `MomentDraft` |
-| PATCH | `/api/moment-drafts/{id}/moments/{index}` | `{"title"?: string, "shot_size"?: string, "orientation"?: string, "text"?: string}` | `MomentDraft`；用户手动修改第 `index`（从 0 开始）个瞬间 |
+| PATCH | `/api/moment-drafts/{id}/moments/{index}` | `{"title"?: string, "shot_size"?: string, "orientation"?: string, "bride_facing"?: string, "groom_facing"?: string, "text"?: string}` | `MomentDraft`；用户手动修改第 `index`（从 0 开始）个瞬间 |
 | POST | `/api/moment-drafts/{id}/moments/{index}/rewrite` | `{"shot_size"?: string}` | `MomentDraft`；请 AI 导演只重写这一个。不传 `shot_size`：换一个新瞬间；传入：保持该瞬间的动作和画幅，改写为指定景别 |
 | POST | `/api/projects/{id}/photo-batches` | `{"client_request_id": string, "draft_id": string, "model"?: string}` | `Batch`（201，`batch_type = "photo"`），张数 = 方案中瞬间的数量 |
 | GET | `/api/projects/{id}/batches` | — | `Batch[]`，按创建时间倒序 |
@@ -327,7 +335,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/batches/{id}/cancel` | — | `Batch`（`waiting`/`held` → `cancelled`） |
 | POST | `/api/slots/{id}/regenerate` | `{"client_request_id": string, "mode": "same" \| "identity_boost", "model"?: string}` | `Batch`（201，`batch_type = "regenerate"`） |
 | POST | `/api/slots/{id}/change-pose` | `{"client_request_id": string, "model"?: string}` | `Batch`（201）；仅 `kind = "photo"` |
-| POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "full" \| "three_quarter" \| "half" \| "close", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；停用景别 `wide`、`medium`、`extreme_close`、`detail` 不能作为目标（422） |
+| POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "wide" \| "full" \| "three_quarter" \| "half" \| "close", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；停用景别 `medium`、`extreme_close`、`detail` 不能作为目标（422） |
 | POST | `/api/slots/batch-action` | `{"client_request_id": string, "slot_ids": string[], "action": "same" \| "identity_boost" \| "change_pose" \| "change_shot" \| "face_swap", "shot_size"?: string, "model"?: string}` | `Batch`（201），一个批次内每个位置一个任务；`action = "change_shot"` 时必须提供 `shot_size`；`action = "face_swap"` 时忽略 `model` |
 | POST | `/api/slots/{id}/face-swap` | `{"client_request_id": string}` | `Batch`（201，`batch_type = "regenerate"`）；样片与相册作品均可 |
 | GET | `/api/slots/{id}/versions` | — | `VersionDetail[]`，按 `version_number` 倒序 |
@@ -350,7 +358,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - 502/504：保持现有文字，`error_code = "unknown_outcome"`。
 - **真实生成错误**：未建立连接为 `not_sent`，可自动重试；请求发送后读取、写入、协议异常以及生成成功后的图片下载失败为 `unknown_outcome`，任务保持 `interrupted`，不能自动重发。鉴权或余额不足为 `auth_or_quota`，暂停同批等待任务；HTTP 429 为 `rate_limited`，按 `Retry-After` 全局退避；审核/参数拒绝、服务端 HTTP 5xx、成功响应没有图片为 `rejected`。用户只看到中文提示，服务商原始错误只写入脱敏日志。真实调用与用户主动重试均可能收费。
 - **上传照片**：替换照片不删除、不清除任何已有内容；用旧照片生成的样片和作品通过 `is_stale` 标出（PRD 15.3）。旧图片文件不删除，因为可能仍被任务引用。
-- **生成样片**：两张照片齐全才允许，否则 409 `photos_missing`。`style_ids` 缺省为全部内置风格。每种风格复用该项目已有的样片位置（没有则新建），所以重生样片会产生新版本。
+- **生成样片**：两张照片齐全才允许，否则 409 `photos_missing`。`style_ids` 缺省为默认风格（`Style.default_preview` 为 true 的前 6 种）；前端在用户未选风格时不传该字段，「重新生成全部」只传已有样片的风格。每种风格复用该项目已有的样片位置（没有则新建），所以重生样片会产生新版本。
 - **防重复提交**：同一 `client_request_id` 再次提交，返回已存在的批次（200），不新建任务。
 - **手动重试**：任务只能成功手动重试一次。原任务行永不修改，新任务通过 `retry_of_task_id` 指向原任务；再次重试已被替代的任务返回 409 `task_already_retried`（`该任务已经重试过，请查看最新的任务`）。批次统计、项目任务统计和 `Slot.latest_task` 均只考虑重试链中最新的任务。
 - **AI 导演（moment-drafts）**（PRD 3.3）：
@@ -389,8 +397,8 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - 配置：`config.local.json` 的 `facefusion_dir`（FaceFusion 安装目录，须包含 `run.sh` 与 `.venv`）。环境变量 `VOWFRAME_FACE_SWAPPER=mock` 强制使用模拟换脸（测试与隔离端到端验证用：复制输入图片，不调用 FaceFusion）。未配置且未设置模拟时不可用，**不回退到任何默认目录**。
   - 请求校验：不可用时 409 `face_swap_unavailable`；该位置没有当前版本时 409 `slot_not_ready`；有 `waiting`/`running`/`held` 任务时 409 `slot_busy`；照片缺失时 409 `photos_missing`。
   - 输入版本：当前版本；若当前版本本身是换脸结果，改用它的 `source_version_id` 指向的版本（来源版本已不存在时 409 `slot_not_ready`）。任务记录 `source_version_id`。
-  - 任务字段：`regenerate_mode = "face_swap"`；`reference_image_ids = [新娘, 新郎]`（项目当前照片）；`style_id`、`pose_id`、`moment_title`、`moment_shot_size` 复制自输入版本的任务，所以成功后作品的动作名与景别不变；`prompt` 为空字符串；`model_config_snapshot = {"generator": "facefusion" | "mock", "model": "hyperswap_1a_256/hyperswap_1c_256", "bride_model": "hyperswap_1a_256", "groom_model": "hyperswap_1c_256", "pixel_boost": "512x512", "face_mask_types": ["box", "occlusion"], "weight": 0.5 | 1.0}`（相册作品 0.5，样片 1.0）。其中 `model` 是界面显示的版本模型摘要。
-  - 执行（FaceFusion）：一个进程内完成检测与两次换脸。先检测新娘、新郎原照的性别，不符时失败 `roles_swapped`（「新娘和新郎的照片可能放反了，请在工作台点『交换』后重试」）；再检测输入图片，缺少女性脸或男性脸时失败 `face_not_found`（「没有识别到新娘的脸，可能是侧脸角度过大或被遮挡」，新郎同理，两者都缺时合并说明）。然后新娘原照用 `hyperswap_1a_256` 换到女性脸、新郎原照用 `hyperswap_1c_256` 换到男性脸。两种模型均须在 profile 中确认执行过 `CUDAExecutionProvider` 运算，否则任务失败。模型是用户在 2026-10-27 对真实照片比较后选定的；`512x512` 像素提升当时直接采用，2026-10-28 与 `256x256` 对比后保留；遮罩 `box` + `occlusion` 同日选定；相册强度同日改为 `0.5`，样片强度 2026-10-28 定为 `1.0`（见 PRD 4.5）。两个强度定义在后端常量 `FACE_SWAP_WEIGHT`、`PREVIEW_FACE_SWAP_WEIGHT`，创建任务时按目标图片类型写入快照，执行时按快照传给 FaceFusion。
+  - 任务字段：`regenerate_mode = "face_swap"`；`reference_image_ids = [新娘正面, 新郎正面, 新娘左, 新娘右, 新郎左, 新郎右]`（项目当前照片，没有的侧面照为 null；自动换脸同样取项目当前照片；2026-10-28 之前的任务只有两张正面）；`style_id`、`pose_id`、`moment_title`、`moment_shot_size` 复制自输入版本的任务，所以成功后作品的动作名与景别不变；`prompt` 为空字符串；`model_config_snapshot = {"generator": "facefusion" | "mock", "model": "hyperswap_1c_256/hyperswap_1b_256", "front_model": "hyperswap_1c_256", "side_model": "hyperswap_1b_256", "side_turn": 0.18, "pixel_boost": "512x512", "face_mask_types": ["box", "occlusion"], "weight": 0.5 | 1.0}`；换脸成功后追加 `faces`（每人的 `turn`、`facing`、`model`、`sources`，侧面照里检测不到对应性别的脸时另有 `side_photo_unusable: true`），`model` 改为实际的「新娘/新郎」模型（相册作品 0.5，样片 1.0）。其中 `model` 是界面显示的版本模型摘要。
+  - 执行（FaceFusion）：一个进程内完成检测与两次换脸。先检测新娘、新郎原照的性别，不符时失败 `roles_swapped`（「新娘和新郎的照片可能放反了，请在工作台点『交换』后重试」）；再检测输入图片，缺少女性脸或男性脸时失败 `face_not_found`（「没有识别到新娘的脸，可能是侧脸角度过大或被遮挡」，新郎同理，两者都缺时合并说明）。然后按每人在输入图片里的转头程度选模型和源照片（规则见 PRD 4.5：正脸 `hyperswap_1c_256` + 正面照，侧脸 `hyperswap_1b_256` + 正面照与对应侧面照），先换女性脸、再换男性脸。实际用到的模型均须在 profile 中确认执行过 `CUDAExecutionProvider` 运算，否则任务失败。模型是用户在 2026-10-27 对真实照片比较后选定的；`512x512` 像素提升当时直接采用，2026-10-28 与 `256x256` 对比后保留；遮罩 `box` + `occlusion` 同日选定；相册强度同日改为 `0.5`，样片强度 2026-10-28 定为 `1.0`（见 PRD 4.5）。两个强度定义在后端常量 `FACE_SWAP_WEIGHT`、`PREVIEW_FACE_SWAP_WEIGHT`，创建任务时按目标图片类型写入快照，执行时按快照传给 FaceFusion。
   - 失败处理：`roles_swapped`、`face_not_found`、`reference_missing` 直接失败，不自动重试；FaceFusion 进程崩溃、超时（120 秒）或没有输出文件为 `face_swap_failed`（「换脸处理失败，请稍后重试」），自动重试最多 2 次。
   - 调度：换脸任务单独一条队列，同时最多运行 1 个；不计入生图并发 `max_concurrency`，不受 429 退避影响，鉴权/余额搁置也不影响它。
   - 启动恢复：`running` 的换脸任务改回 `waiting`（本地、不收费，可安全重做），`waiting` 的换脸任务保持 `waiting`，不改为 `held`。

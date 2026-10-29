@@ -15,6 +15,8 @@ export type BatchType = "preview" | "photo" | "regenerate";
 
 export interface Person {
   asset_id: string | null;
+  left_asset_id: string | null;
+  right_asset_id: string | null;
   role: Role;
 }
 
@@ -120,18 +122,18 @@ export type RegenerateMode = "same" | "identity_boost";
 export type SlotAction = RegenerateMode | "change_pose" | "change_shot";
 /** Everything that can produce a version; face_swap is local and free. */
 export type VersionMode = SlotAction | "face_swap";
-/** The four studio framings; the only sizes new shots can use. */
-export type ShotSize = "full" | "three_quarter" | "half" | "close";
-/** Works from V3.4–V3.11 may still carry the retired five-step ladder and faceless detail shots. */
-export type StoredShotSize = ShotSize | "wide" | "medium" | "extreme_close" | "detail";
+/** Wide plus the four studio framings (V3.14); the only sizes new shots can use. */
+export type ShotSize = "wide" | "full" | "three_quarter" | "half" | "close";
+/** Works from V3.4–V3.11 may still carry retired sizes and faceless detail shots. */
+export type StoredShotSize = ShotSize | "medium" | "extreme_close" | "detail";
 
-export const SHOT_SIZES: ShotSize[] = ["full", "three_quarter", "half", "close"];
+export const SHOT_SIZES: ShotSize[] = ["wide", "full", "three_quarter", "half", "close"];
 export const SHOT_LABEL: Record<StoredShotSize, string> = {
+  wide: "远景",
   full: "全身",
   three_quarter: "七分身",
   half: "半身",
   close: "近景",
-  wide: "远景",
   medium: "中景",
   extreme_close: "特写",
   detail: "局部特写",
@@ -140,6 +142,7 @@ export const SHOT_LABEL: Record<StoredShotSize, string> = {
 export const hasFaces = (slot: Slot) => slot.shot_size !== "detail";
 
 export type Orientation = "portrait" | "landscape";
+export type Facing = "front" | "left" | "right";
 export const ORIENTATIONS: Orientation[] = ["portrait", "landscape"];
 export const ORIENTATION_LABEL: Record<Orientation, string> = { portrait: "竖版", landscape: "横版" };
 
@@ -150,6 +153,8 @@ export interface Moment {
   title: string;
   shot_size: ShotSize;
   orientation: Orientation;
+  bride_facing: Facing;
+  groom_facing: Facing;
   text: string;
 }
 
@@ -183,6 +188,10 @@ export interface Style {
   id: string;
   name: string;
   description: string;
+  /** Generated when the user picks no style before the first samples. */
+  default_preview: boolean;
+  /** Hidden from new picks; still shown where a project already has its sample. */
+  retired: boolean;
 }
 
 export interface Model {
@@ -270,12 +279,15 @@ export const api = {
     request<ProjectDetail>(`/projects/${id}`, json("PATCH", patch)),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),
 
-  uploadImage: (id: string, person: "a" | "b", file: File) => {
+  uploadImage: (id: string, person: "a" | "b", file: File, angle: Facing = "front") => {
     const form = new FormData();
     form.append("person", person);
+    form.append("angle", angle);
     form.append("file", file);
     return request<ProjectDetail>(`/projects/${id}/images`, { method: "POST", body: form });
   },
+  deleteSideImage: (id: string, person: "a" | "b", angle: Exclude<Facing, "front">) =>
+    request<void>(`/projects/${id}/images/${person}/${angle}`, { method: "DELETE" }),
 
   createPreviews: (id: string, options: { styleIds?: string[]; model?: string } = {}) =>
     request<Batch>(
