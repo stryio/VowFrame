@@ -13,7 +13,7 @@ from .generator import GeneratorError, ImageGenerator, OutcomeKind
 from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, create_face_swapper, face_swap_applied_snapshot,
                         face_swap_reference_ids, face_swap_snapshot, face_swap_weight)
 from .models import DEFAULT_MODEL
-from .prompts import DETAIL_SHOT, POSE_BY_ID
+from .prompts import DETAIL_SHOT, POSE_BY_ID, is_faceless_shot
 from .storage import asset_path, save_image
 
 logger = logging.getLogger(__name__)
@@ -259,6 +259,8 @@ class TaskManager:
         """Swapper mode to queue after this task, or None when no automatic swap applies."""
         if task['regenerate_mode'] == 'face_swap' or task['moment_shot_size'] == DETAIL_SHOT:
             return None  # never swap a swap; detail shots have no faces to swap
+        if task['moment_shot_size'] and is_faceless_shot(task['prompt']):
+            return None  # back views and silhouettes show no faces; a manual swap is still available
         if not self.db.get_auto_face_swap():
             return None
         status = self.swapper.status

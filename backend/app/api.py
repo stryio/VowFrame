@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -19,7 +20,7 @@ from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
 from .face_swap import face_swap_reference_ids, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
-from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_text, shot_text_from_prompt
+from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceSwapCreate, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .storage import asset_path, image_format, save_image
@@ -392,8 +393,8 @@ def _director_call(request: Request, operation, *, invalid_message='AI 导演没
     try:
         result = operation(_director(request))
         if isinstance(result, list):
-            return [item if isinstance(item, Moment) else Moment(item.get('title'), item.get('shot_size'), item.get('text'), item.get('orientation'), item.get('bride_facing'), item.get('groom_facing')) if isinstance(item, dict) else Moment(None, None, None) for item in result]
-        return result if isinstance(result, Moment) else Moment(result.get('title'), result.get('shot_size'), result.get('text'), result.get('orientation'), result.get('bride_facing'), result.get('groom_facing')) if isinstance(result, dict) else Moment(None, None, None)
+            return [item if isinstance(item, Moment) else Moment(item.get('title'), item.get('shot_size'), item.get('text'), item.get('orientation'), item.get('bride_facing'), item.get('groom_facing'), item.get('scene'), item.get('faces_clear', True)) if isinstance(item, dict) else Moment(None, None, None) for item in result]
+        return result if isinstance(result, Moment) else Moment(result.get('title'), result.get('shot_size'), result.get('text'), result.get('orientation'), result.get('bride_facing'), result.get('groom_facing'), result.get('scene'), result.get('faces_clear', True)) if isinstance(result, dict) else Moment(None, None, None)
     except DirectorFailed as exc:
         error(502, 'director_failed', exc.reason)
     except DirectorInvalidOutput:
@@ -404,16 +405,18 @@ def _director_call(request: Request, operation, *, invalid_message='AI 导演没
         error(502, 'director_failed', 'AI 导演暂时无法响应，请稍后重试')
 
 
-def _director_write(request: Request, *, style: str, scene: str, count: int, shot_requirement: str,
+def _director_write(request: Request, *, style: str, scene: str, scene_count: int, count: int, shot_requirement: str,
                     avoid_titles: list[str]) -> list[Moment]:
     director = _director(request)
     try:
-        first = _director_call(request, lambda value: value.write_moments(style, scene, count, shot_requirement, avoid_titles))
-        problems = validate_moments(first, count=count, avoid_titles=avoid_titles)
+        first = _director_call(request, lambda value: value.write_moments(style, scene, count, shot_requirement, avoid_titles,
+                                                                          scene_count=scene_count))
+        problems = validate_moments(first, count=count, avoid_titles=avoid_titles, scene_count=scene_count)
         if problems:
             feedback = '上面的输出不符合要求：' + '；'.join(problems) + '。请修正后重新输出完整 JSON。'
-            second = _director_call(request, lambda value: value.write_moments(style, scene + '\n\n' + feedback, count, shot_requirement, avoid_titles))
-            problems = validate_moments(second, count=count, avoid_titles=avoid_titles)
+            second = _director_call(request, lambda value: value.write_moments(style, scene + '\n\n' + feedback, count, shot_requirement,
+                                                                               avoid_titles, scene_count=scene_count))
+            problems = validate_moments(second, count=count, avoid_titles=avoid_titles, scene_count=scene_count)
             if problems:
                 raise DirectorInvalidOutput(problems)
             return second
@@ -426,11 +429,11 @@ def _director_rewrite_shot(request: Request, *, style: str, scene: str, original
                            orientation: str) -> Moment:
     try:
         first = _director_call(request, lambda value: value.rewrite_shot(style, scene, original, target, orientation))
-        problems = validate_moment(first, target_shot=target, target_orientation=orientation)
+        problems = validate_moment(first, target_shot=target, target_orientation=orientation, check_facing_text=True)
         if problems:
             feedback = '上面的输出不符合要求：' + '；'.join(problems) + '。请修正后重新输出完整 JSON。'
             second = _director_call(request, lambda value: value.rewrite_shot(style, scene + '\n\n' + feedback, original, target, orientation))
-            problems = validate_moment(second, target_shot=target, target_orientation=orientation)
+            problems = validate_moment(second, target_shot=target, target_orientation=orientation, check_facing_text=True)
             if problems:
                 raise DirectorInvalidOutput(problems)
             return second
@@ -526,7 +529,8 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         if source['moment_shot_size'] == DETAIL_SHOT:
             error(409, 'no_faces', f'{slot_label}是局部特写，画面里没有人脸，无需加强长相')
         pose_id = source['pose_id']
-        prompt = (compose_identity_boost_moment_prompt(style_id, shot_text_from_prompt(source['prompt']), aspect_ratio, with_preview=with_preview)
+        prompt = (compose_identity_boost_moment_prompt(style_id, shot_text_from_prompt(source['prompt']), aspect_ratio,
+                                                       scene=scene_from_prompt(style_id, source['prompt']), with_preview=with_preview)
                   if source['moment_shot_size'] else compose_identity_boost_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview))
         regenerate_mode = 'identity_boost'
     elif action == 'change_pose':
@@ -544,15 +548,16 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
                 'SELECT DISTINCT moment_title FROM generation_tasks WHERE project_id=? AND style_id=? AND moment_title IS NOT NULL',
                 (project['id'], style_id)) if row['moment_title']]
             avoid.extend(avoid_extra or [])
-            moment = _director_write(request, style=style['name'], scene=scene, count=1,
+            moment = _director_write(request, style=style['name'], scene=scene,
+                                     scene_count=director_scene_count(style_id, single_variant=with_preview), count=1,
                                      shot_requirement=_shot_requirement(1), avoid_titles=avoid)[0]
             pose_id = None
             # A new shot gets the frame the director chose for it.
             aspect_ratio = _shot_ratio(request, moment.orientation)
             references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing,
                                                                _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None)
-            prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview,
-                                           side_references=side_references)
+            prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=moment.scene, faces_clear=moment.faces_clear,
+                                           with_preview=with_preview, side_references=side_references)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = moment.title, moment.shot_size
     elif action == 'change_shot':
@@ -570,8 +575,10 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         pose_id = None
         references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing,
                                                            _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None)
-        prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, with_preview=with_preview,
-                                       side_references=side_references)
+        # Changing the shot size keeps the scene and whether it is an atmosphere shot.
+        prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=scene_from_prompt(style_id, source['prompt']),
+                                       faces_clear=not is_faceless_shot(source['prompt']),
+                                       with_preview=with_preview, side_references=side_references)
         regenerate_mode = 'change_shot'
         moment_title, moment_shot_size = moment.title, moment.shot_size
     else:
@@ -894,8 +901,10 @@ def create_moment_draft(project_id: str, body: MomentDraftCreate, request: Reque
             (project_id, preview['style_id'])) if row['moment_title']]
         style = STYLE_BY_ID[preview['style_id']]
         # With the preview as a reference image, every shot stays in the preview's scene (docs/prompts.md 7.2).
-        scene = director_scene_text(preview['style_id'], single_variant=_uses_preview_reference(request))
-        result = _director_write(request, style=style['name'], scene=scene, count=count,
+        single_variant = _uses_preview_reference(request)
+        scene = director_scene_text(preview['style_id'], single_variant=single_variant)
+        result = _director_write(request, style=style['name'], scene=scene,
+                                 scene_count=director_scene_count(preview['style_id'], single_variant=single_variant), count=count,
                                  shot_requirement=_shot_requirement(count), avoid_titles=avoid)
         now, draft_id = utc_now(), new_id()
         director_model = request.app.state.db.get_director_model() or ('mock' if request.app.state.config.generator == 'mock' else None)
@@ -945,18 +954,22 @@ def rewrite_moment(draft_id: str, index: int, body: MomentRewrite, request: Requ
             error(404, 'moment_not_found', '动作瞬间不存在')
         preview = conn.execute('SELECT * FROM photo_slots WHERE id=?', (row['preview_slot_id'],)).fetchone()
         style = STYLE_BY_ID[row['style_id']]
-        scene = director_scene_text(row['style_id'], single_variant=_uses_preview_reference(request))
+        single_variant = _uses_preview_reference(request)
+        scene = director_scene_text(row['style_id'], single_variant=single_variant)
         current = moments[index]
         avoid = [item.title for item in moments]
         if body.shot_size:
             replacement = _director_rewrite_shot(request, style=style['name'], scene=scene, original=current.text,
                                                  target=body.shot_size, orientation=current.orientation)
+            # Changing the shot size keeps the scene and whether it is an atmosphere shot.
+            replacement = replace(replacement, scene=current.scene, faces_clear=current.faces_clear)
         else:
-            replacement = _director_write(request, style=style['name'], scene=scene, count=1,
+            replacement = _director_write(request, style=style['name'], scene=scene,
+                                          scene_count=director_scene_count(row['style_id'], single_variant=single_variant), count=1,
                                           shot_requirement=f'保持 {SHOT_NAMES[current.shot_size]}。',
                                           avoid_titles=avoid)[0]
         problems = validate_moment(replacement, avoid_titles=[item.title for item in moments if item is not current], target_shot=body.shot_size,
-                                   target_orientation=current.orientation if body.shot_size else None)
+                                   target_orientation=current.orientation if body.shot_size else None, check_facing_text=True)
         if problems:
             error(502, 'director_invalid_output', 'AI 导演没有写出符合要求的方案，请重试')
         moments[index] = replacement
@@ -1014,7 +1027,8 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
             snapshot = _fresh_snapshot(request, model_id, aspect_ratio)
             slot_id, task_id = new_id(), new_id()
             conn.execute('INSERT INTO photo_slots (id,project_id,batch_id,kind,style_id,pose_id,pose_name,shot_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)', (slot_id, project_id, batch_id, 'photo', preview['style_id'], None, moment.title, moment.shot_size, utc_now()))
-            prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, with_preview=mode == 'with_preview',
+            prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, scene=moment.scene,
+                                           faces_clear=moment.faces_clear, with_preview=mode == 'with_preview',
                                            side_references=side_references)
             conn.execute('INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (task_id, project_id, batch_id, slot_id, 'waiting', json.dumps(references), preview['style_id'], None, moment.title, moment.shot_size, prompt, snapshot, utc_now()))
         conn.execute('UPDATE moment_drafts SET used_by_batch_id=?,updated_at=? WHERE id=?', (batch_id, now, body.draft_id))

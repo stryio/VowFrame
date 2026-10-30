@@ -14,6 +14,8 @@ from app.prompts import (
     compose_moment_prompt,
     compose_photo_prompt,
     compose_preview_prompt,
+    is_faceless_shot,
+    scene_from_prompt,
     shot_text_from_prompt,
 )
 
@@ -55,7 +57,7 @@ def doc_block(heading: str) -> str:
 
 def test_full_example_matches_docs_verbatim():
     expected = doc_block('## 5. 完整示例')
-    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4') == expected
+    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4', scene=2) == expected
 
 
 def test_shared_paragraphs_and_costumes_match_docs_verbatim():
@@ -65,12 +67,21 @@ def test_shared_paragraphs_and_costumes_match_docs_verbatim():
         assert doc_block(f" `{style['id']}`\n") == style['costume']
 
 
-def test_preview_and_legacy_poses_use_the_first_variant_but_director_shots_do_not():
+def test_preview_and_legacy_poses_use_the_first_variant_and_director_shots_their_chosen_one():
     for style in STYLES:
         scene = '场景：' + style['variants'][0][1]
         assert compose_preview_prompt(style['id'], '3:4').split('\n\n')[2] == style['scene_prompt'] + scene
         assert compose_photo_prompt(style['id'], 'pose_01', '3:4').split('\n\n')[2] == style['scene_prompt'] + scene
-        assert compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4').split('\n\n')[2] == style['scene_prompt']
+        last = len(style['variants'])
+        chosen = compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4', scene=last)
+        assert chosen.split('\n\n')[2] == style['scene_prompt'] + '场景：' + style['variants'][-1][1]
+        assert scene_from_prompt(style['id'], chosen) == last
+        # Director shots before V3.34 have no scene and keep their old text.
+        legacy = compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4')
+        assert legacy.split('\n\n')[2] == style['scene_prompt']
+        assert scene_from_prompt(style['id'], legacy) is None
+        boosted = compose_identity_boost_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4', scene=last)
+        assert scene_from_prompt(style['id'], boosted) == last
 
 
 def test_preview_reference_is_inserted_after_groom_sentence_and_keeps_identity_rules():
@@ -164,3 +175,17 @@ def test_director_shots_name_costume_and_look_but_no_scene():
     for style in STYLES:
         paragraph = compose_moment_prompt(style['id'], '两人相视而笑。', '3:4').split('\n\n')[2]
         assert paragraph == '服装与风格：' + style['costume'] + style['look']
+
+
+def test_atmosphere_shots_get_their_own_quality_and_drop_conflicting_avoid_terms():
+    for style in STYLES:
+        normal = compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4', scene=1).split('\n\n')
+        atmosphere = compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4', scene=1, faces_clear=False).split('\n\n')
+        assert normal[4] == QUALITY_PARAGRAPH and '两人面部清晰可辨' in normal[4]
+        assert '两人面部清晰可辨' not in atmosphere[4] and '氛围照片' in atmosphere[4]
+        assert '面部被遮挡' in normal[5] and '面部被遮挡' not in atmosphere[5]
+        assert '剪影' not in atmosphere[5].replace('、', ' ').split()
+        assert atmosphere[:4] == normal[:4]
+        assert is_faceless_shot('\n\n'.join(atmosphere)) and not is_faceless_shot('\n\n'.join(normal))
+    # The word alone in the shot does not count.
+    assert not is_faceless_shot(compose_moment_prompt('seaside_sunset', '逆光拍摄，不拍剪影。', '3:4', scene=1))

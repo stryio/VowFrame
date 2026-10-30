@@ -433,6 +433,12 @@ QUALITY_PARAGRAPH = (
     '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境处在同一光源下，受光方向、色温和明暗一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感：地面没有杂物，背景里没有杂乱无章的元素；'
     '两人面部清晰可辨，亮度跟随场景的光线；表情自然含蓄：默认是浅笑或微笑，可以微微露出牙齿，但不要咧开嘴的大笑；只有镜头里写明「开怀大笑」时，才按大笑来表现；焦外自然虚化，影调柔和、细节细腻，带有轻微的胶片颗粒感；白平衡准确，白色呈现干净的白；色彩处理统一，皮肤保留真实质感。'
 )
+_FACE_CLEAR_SENTENCE = '两人面部清晰可辨，亮度跟随场景的光线；'
+# Atmosphere shots (back view, silhouette, tiny figures, foreground cover) do not show the faces clearly (V3.35).
+ATMOSPHERE_QUALITY_PARAGRAPH = QUALITY_PARAGRAPH.replace(
+    _FACE_CLEAR_SENTENCE, '这是一张氛围照片，不追求看清两人的面部：按镜头的描述表现背影、剪影、远处很小的人物或前景的遮挡，亮度跟随场景的光线；')
+# Avoid terms that would fight an atmosphere shot.
+_ATMOSPHERE_DROPPED_AVOID = ('面部被遮挡', '剪影')
 # Retired faceless detail shots (V3.4–V3.9). Old works may still carry it: they have no faces to boost or swap.
 DETAIL_SHOT = 'detail'
 SHOT_LABEL = '镜头：'
@@ -487,23 +493,31 @@ def _identity_paragraph(with_preview: bool, side_references: list[tuple[str, str
             '风格要求与长相冲突时，以长相为准。')
 
 
-def _style_paragraph(style: dict, *, with_default_scene: bool) -> str:
-    if not with_default_scene:
+def _style_paragraph(style: dict, *, scene: int | None) -> str:
+    """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34)."""
+    if scene is None:
         return style['scene_prompt']
-    return style['scene_prompt'] + '场景：' + style['variants'][0][1]
+    return style['scene_prompt'] + '场景：' + style['variants'][scene - 1][1]
+
+
+def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
+    terms = f"{GENERAL_AVOID}、{style['avoid']}".split('、')
+    if not faces_clear:
+        terms = [term for term in terms if term not in _ATMOSPHERE_DROPPED_AVOID]
+    return '避免：' + '、'.join(terms) + '。'
 
 
 def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_preview: bool = False,
-                    with_default_scene: bool = True, side_references: list[tuple[str, str]] | None = None) -> str:
+                    scene: int | None = 1, faces_clear: bool = True,
+                    side_references: list[tuple[str, str]] | None = None) -> str:
     style = STYLE_BY_ID[style_id]
-    avoid = f"避免：{GENERAL_AVOID}、{style['avoid']}。"
     return '\n\n'.join((
         _aspect_paragraph(aspect_ratio),
         _identity_paragraph(with_preview, side_references),
-        _style_paragraph(style, with_default_scene=with_default_scene),
+        _style_paragraph(style, scene=scene),
         action,
-        QUALITY_PARAGRAPH,
-        avoid,
+        QUALITY_PARAGRAPH if faces_clear else ATMOSPHERE_QUALITY_PARAGRAPH,
+        _avoid_paragraph(style, faces_clear=faces_clear),
     ))
 
 
@@ -527,19 +541,34 @@ def director_scene_text(style_id: str, *, single_variant: bool) -> str:
     style = STYLE_BY_ID[style_id]
     lines = ['视觉语言（摄影团队已确定）：' + style['look']]
     if single_variant:
-        lines.append('场景（所有镜头都在这个场景里）：' + style['variants'][0][1])
+        lines.append('场景（所有镜头都在这个场景里，scene 填 1）：' + style['variants'][0][1])
     else:
-        lines.append('场景变体（每个镜头选其中一个，并在镜头里写清背景和光影；整组尽量用到不同的变体）：')
+        lines.append('场景变体（每个镜头选其中一个，把编号填在 scene；整组尽量用到不同的变体）：')
         lines.extend(f'{index}. {name}：{text}' for index, (name, text) in enumerate(style['variants'], 1))
     return '\n'.join(lines)
 
 
-def compose_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, with_preview: bool = False,
+def director_scene_count(style_id: str, *, single_variant: bool) -> int:
+    """How many scenes director_scene_text offers, i.e. the valid range of a moment's scene number."""
+    return 1 if single_variant else len(STYLE_BY_ID[style_id]['variants'])
+
+
+def compose_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
+                          faces_clear: bool = True, with_preview: bool = False,
                           side_references: list[tuple[str, str]] | None = None) -> str:
     if not isinstance(moment_text, str) or not moment_text.endswith('。'):
         raise ValueError('moment text must end with exactly one Chinese full stop')
     return _compose_prompt(style_id, SHOT_LABEL + moment_text, aspect_ratio, with_preview=with_preview,
-                           with_default_scene=False, side_references=side_references)
+                           scene=scene, faces_clear=faces_clear, side_references=side_references)
+
+
+def scene_from_prompt(style_id: str, prompt: str) -> int | None:
+    """The scene number a stored director-shot prompt was built with; None for prompts before V3.34."""
+    paragraph = prompt.split('\n\n')[2]
+    for number, (_name, text) in enumerate(STYLE_BY_ID[style_id]['variants'], 1):
+        if '场景：' + text in paragraph:
+            return number
+    return None
 
 
 def shot_text_from_prompt(prompt: str) -> str:
@@ -549,6 +578,12 @@ def shot_text_from_prompt(prompt: str) -> str:
         if paragraph.startswith(label):
             return paragraph.removeprefix(label)
     return paragraph
+
+
+def is_faceless_shot(prompt: str) -> bool:
+    """An atmosphere shot (the director's faces_clear = false): no clear faces to swap."""
+    paragraphs = prompt.split('\n\n')
+    return len(paragraphs) == 6 and paragraphs[4] == ATMOSPHERE_QUALITY_PARAGRAPH
 
 
 def _apply_identity_boost(prompt: str) -> str:
@@ -568,7 +603,7 @@ def compose_identity_boost_prompt(style_id: str, pose_id: str | None, aspect_rat
     return _apply_identity_boost(prompt)
 
 
-def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str,
-                                         *, with_preview: bool = False, side_references: list[tuple[str, str]] | None = None) -> str:
-    return _apply_identity_boost(compose_moment_prompt(style_id, moment_text, aspect_ratio, with_preview=with_preview,
+def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
+                                         with_preview: bool = False, side_references: list[tuple[str, str]] | None = None) -> str:
+    return _apply_identity_boost(compose_moment_prompt(style_id, moment_text, aspect_ratio, scene=scene, with_preview=with_preview,
                                                        side_references=side_references))

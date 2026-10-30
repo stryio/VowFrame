@@ -66,3 +66,16 @@ def test_unshot_drafts_keep_wide_and_move_retired_sizes_to_current_framings(app_
         renamed = client.patch(f"/api/moment-drafts/{draft['id']}/moments/0", json={'title': '旧方案改名'})
         assert renamed.status_code == 200, renamed.text
         assert [moment['shot_size'] for moment in renamed.json()['moments']] == ['wide', 'three_quarter', 'close', 'close']
+
+
+def test_change_shot_keeps_the_scene_of_the_source_photo(app_factory):
+    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
+        _, batch_id, photos = shoot_mock_set(client, request_id='keep-scene')
+        target = next(photo for photo in photos if photo['shot_size'] == 'three_quarter')
+        source = next(task for task in client.get('/api/tasks', params={'batch_id': batch_id}).json()
+                      if task['target_slot_id'] == target['id'])
+        assert '场景：' in source['prompt'].split('\n\n')[2]
+        changed = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'keep-scene-close', 'shot_size': 'close'})
+        assert changed.status_code == 201, changed.text
+        task = next(task for task in client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json())
+        assert task['prompt'].split('\n\n')[2] == source['prompt'].split('\n\n')[2]

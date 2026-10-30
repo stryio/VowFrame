@@ -273,6 +273,8 @@ class Moment(BaseModel):
     bride_facing: Literal['front', 'left', 'right']
     groom_facing: Literal['front', 'left', 'right']
     text: str
+    scene: int | None = None
+    faces_clear: bool = True
 
 
 class MomentDraft(BaseModel):
@@ -295,6 +297,7 @@ class MomentPatch(InputModel):
     bride_facing: Literal['front', 'left', 'right'] | None = None
     groom_facing: Literal['front', 'left', 'right'] | None = None
     text: str | None = None
+    faces_clear: bool | None = None
 
 
 class MomentRewrite(InputModel):

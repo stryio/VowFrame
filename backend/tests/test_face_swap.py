@@ -555,3 +555,24 @@ def test_face_swap_passes_side_photos_by_role_and_slot(app_factory):
         bride, groom = swapper.calls[-1][0], swapper.calls[-1][1]
         assert bride.left is None and bride.right is not None
         assert groom.left is not None and groom.right is None
+
+
+def test_back_view_and_silhouette_shots_are_not_swapped_automatically(app_factory):
+    swapper = ScriptedFaceSwapper()
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_swap=True, concurrency=1) as (client, _app):
+        project = create_project(client)
+        _, slots = ready_preview(client, project['id'])
+        swapper.calls.clear()
+        draft = client.post(f"/api/projects/{project['id']}/moment-drafts",
+                            json={'preview_slot_id': slots['korean_minimal']['id'], 'count': 4}).json()
+        for index, text in ((0, '35mm 镜头，远景。两人牵手走向远处，留下背影。'), (1, '逆光下两人相拥，形成剪影。')):
+            patched = client.patch(f"/api/moment-drafts/{draft['id']}/moments/{index}",
+                                   json={'text': text, 'faces_clear': False, 'bride_facing': 'front', 'groom_facing': 'front'})
+            assert patched.status_code == 200, patched.text
+        # Saying there is no silhouette does not make a shot an atmosphere shot.
+        patched = client.patch(f"/api/moment-drafts/{draft['id']}/moments/2", json={'text': '两人看向镜头浅笑，不拍剪影。'})
+        assert patched.status_code == 200, patched.text
+        batch = client.post(f"/api/projects/{project['id']}/photo-batches",
+                            json={'client_request_id': 'faceless', 'draft_id': draft['id']}).json()
+        wait_batch(client, batch['id'])
+        assert len(swapper.calls) == 2  # only the two shots with faces

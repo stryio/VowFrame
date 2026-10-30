@@ -222,13 +222,15 @@ ProjectSummary 加上：
 ### Moment（AI 导演写的一个镜头）
 
 ```json
-{ "title": "海边踏浪回眸", "shot_size": "full", "orientation": "landscape", "bride_facing": "front", "groom_facing": "right", "text": "新娘提着裙摆踩着浪花向前跑，回头笑着看向镜头，新郎牵着她的手跟在身后……" }
+{ "title": "海边踏浪回眸", "shot_size": "full", "orientation": "landscape", "bride_facing": "front", "groom_facing": "right", "scene": 1, "faces_clear": true, "text": "新娘提着裙摆踩着浪花向前跑，回头笑着看向镜头，新郎的脸朝画面右侧，牵着她的手跟在身后……" }
 ```
 
 - `title`：2～12 个汉字，相册中显示的动作名称。
 - `shot_size`：`wide`（远景）、`full`（全身）、`three_quarter`（七分身）、`half`（半身）、`close`（近景）。尚未拍摄的旧方案中的停用景别读取时改为最接近的一档：`medium`→`three_quarter`，`extreme_close`、`detail`→`close`。
 - `orientation`：`portrait`（竖版）或 `landscape`（横版），由导演决定、用户可在方案预览中切换。具体比例见 `Settings.portrait_ratio`。在画幅功能之前保存的方案没有这个字段，读取时按 `portrait` 处理（当时所有照片都是竖版）。
-- `bride_facing` / `groom_facing`：`front`、`left`、`right`，方向按图片所见。旧草稿缺少字段时读取为 `front`；新导演输出必须包含字段。
+- `bride_facing` / `groom_facing`：`front`、`left`、`right`，方向按图片所见。旧草稿缺少字段时读取为 `front`；新导演输出必须包含字段，并且非 `front` 的朝向要在 `text` 里写成「新娘的脸朝画面左侧」这样的原话（docs/prompts.md 第 7.2 节）。用户通过 PATCH 手动修改朝向时不做这项检查。
+- `faces_clear`：两人面部是否清晰可见。背影、剪影、人物很小、被遮挡的氛围镜头为 `false`，这时提示词改用氛围画面质感段，作品不自动换脸（docs/prompts.md 第 2.5 节）。V3.35 以前的方案读取为 `true`；可以通过 PATCH 修改。
+- `scene`：导演所选场景变体的编号（从 1 开始），成片提示词据此附上该场景的原文。V3.34 以前的方案为 `null`；不能通过 PATCH 修改，「换一个」会重新选择，改景别沿用原值。
 - `text`：「镜头：」之后的正文，不含该前缀，以「。」结尾，最多 220 个字。
 
 ### MomentDraft（拍组前的导演方案）
@@ -326,7 +328,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/projects/{id}/previews` | `{"client_request_id": string, "style_ids"?: string[], "model"?: string}` | `Batch`（201）；`model` 缺省用默认模型，不在列表中时 422 `invalid_model` |
 | POST | `/api/projects/{id}/moment-drafts` | `{"preview_slot_id": string, "count": 4 \| 8 \| 12 \| 20}` | `MomentDraft`（201）；同步调用 AI 导演 |
 | GET | `/api/moment-drafts/{id}` | — | `MomentDraft` |
-| PATCH | `/api/moment-drafts/{id}/moments/{index}` | `{"title"?: string, "shot_size"?: string, "orientation"?: string, "bride_facing"?: string, "groom_facing"?: string, "text"?: string}` | `MomentDraft`；用户手动修改第 `index`（从 0 开始）个瞬间 |
+| PATCH | `/api/moment-drafts/{id}/moments/{index}` | `{"title"?: string, "shot_size"?: string, "orientation"?: string, "bride_facing"?: string, "groom_facing"?: string, "text"?: string, "faces_clear"?: boolean}` | `MomentDraft`；用户手动修改第 `index`（从 0 开始）个瞬间 |
 | POST | `/api/moment-drafts/{id}/moments/{index}/rewrite` | `{"shot_size"?: string}` | `MomentDraft`；请 AI 导演只重写这一个。不传 `shot_size`：换一个新瞬间；传入：保持该瞬间的动作和画幅，改写为指定景别 |
 | POST | `/api/projects/{id}/photo-batches` | `{"client_request_id": string, "draft_id": string, "model"?: string}` | `Batch`（201，`batch_type = "photo"`），张数 = 方案中瞬间的数量 |
 | GET | `/api/projects/{id}/batches` | — | `Batch[]`，按创建时间倒序 |
