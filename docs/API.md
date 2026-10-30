@@ -144,7 +144,7 @@ ProjectSummary 加上：
 }
 ```
 
-- `makeup_level`：新娘的妆容强度，`light`（淡妆）、`natural`（自然新娘妆，默认）或 `refined`（精致新娘妆），写进之后新建的样片和拍组的提示词；重新生成沿用原提示词里的档位（docs/prompts.md 第 2.2 节）。
+- `makeup_level`：新娘的妆容强度，`light`（淡妆）、`natural`（自然新娘妆，默认）或 `refined`（精致新娘妆），写进之后新建的样片和拍组的提示词；换动作、换景别沿用原提示词里的档位，加强长相一律用 `light`（docs/prompts.md 第 2.2 节）。
 - `previews`：按内置风格顺序排列，只包含已创建的样片位置。
 - `photo_sets`：按该风格第一次拍组的时间正序。
 - `photos`：全部 `kind = "photo"` 的作品位置，按创建时间正序（同一批次内按动作分配顺序）。

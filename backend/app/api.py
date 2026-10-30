@@ -521,6 +521,8 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
     style_id = source['style_id']
     # A regenerated photo keeps the makeup it was shot with, whatever the project uses now.
     makeup = makeup_from_prompt(source['prompt'])
+    # Boosting likeness tones makeup down to light; prompts before V3.37 stay without makeup.
+    boost_makeup = 'light' if makeup else None
     references, side_references = _build_references(project)
     batch_reference_mode = request.app.state.db.get_batch_reference_mode()
     with_preview = slot['kind'] == 'photo' and batch_reference_mode == 'with_preview'
@@ -534,9 +536,9 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         pose_id = source['pose_id']
         prompt = (compose_identity_boost_moment_prompt(style_id, shot_text_from_prompt(source['prompt']), aspect_ratio,
                                                        scene=scene_from_prompt(style_id, source['prompt']), with_preview=with_preview,
-                                                       makeup=makeup)
+                                                       makeup=boost_makeup)
                   if source['moment_shot_size'] else compose_identity_boost_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview,
-                                                                                   makeup=makeup))
+                                                                                   makeup=boost_makeup))
         regenerate_mode = 'identity_boost'
     elif action == 'change_pose':
         if slot['kind'] != 'photo':

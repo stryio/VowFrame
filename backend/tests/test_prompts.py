@@ -206,9 +206,13 @@ def test_makeup_level_is_drawn_in_the_identity_paragraph_and_read_back():
         for prompt in prompts:
             identity = prompt.split('\n\n')[1]
             assert allowed + '妆容按本提示词重新绘制，不复制参考图的妆容浓度、眼线、睫毛或唇色：' + looks[level] in identity
-            assert '不改变脸型、眼型、鼻型、唇形和五官比例；新郎保持干净、自然的面容。' in identity
+            assert '底妆保留皮肤的纹理和痣，不是磨皮' in identity
+            assert '不改变脸的宽窄、眼睛大小、鼻子长短、嘴的大小和五官比例；新郎保持干净、自然的面容。' in identity
+            assert '不改变真实的身体比例。' in identity
+            assert '不要瘦脸、磨皮或改变五官。' in identity and '不要美颜' not in identity
             assert makeup_from_prompt(prompt) == level
             assert len(prompt.split('\n\n')) == 6
     # Prompts before V3.37 say nothing about makeup and stay that way.
     legacy = compose_preview_prompt('korean_minimal', '3:4')
     assert '妆容按本提示词' not in legacy and makeup_from_prompt(legacy) is None
+    assert '不要美颜、瘦脸、磨皮或改变五官。' in legacy

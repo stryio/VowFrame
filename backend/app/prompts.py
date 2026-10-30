@@ -454,17 +454,23 @@ _IDENTITY_PARAGRAPH = (
 # The bride's makeup is drawn from the prompt, not copied from the reference photo (V3.37).
 MAKEUP_LEVELS = ('light', 'natural', 'refined')
 DEFAULT_MAKEUP = 'natural'
+# Each level names what a makeup artist does to every part of the face, skin cleanup included (V3.38).
 _MAKEUP_LOOKS = {
-    'light': '新娘化淡妆：清透的底妆，眼妆几乎看不出来，唇色接近自然的唇色',
-    'natural': '新娘化自然的新娘妆：干净的底妆，柔和的眼妆和唇色',
-    'refined': '新娘化精致的新娘妆：完整细致的眼妆，更明显的唇色和腮红',
+    'light': '新娘化淡妆：轻薄的底妆，只淡化临时的痘印，自然的眉形，浅色的眼影，唇色接近自然的唇色',
+    'natural': '新娘化自然的新娘妆：均匀提亮的底妆，去掉痘印、淡化黑眼圈，修整过的眉形，大地色眼影配细细的内眼线，'
+               '轻微的修容和高光，柔和的腮红和唇色',
+    'refined': '新娘化精致的新娘妆：完整细致的底妆和高光，去掉痘印、淡化黑眼圈，清晰的眉形，有层次的眼影和眼线，'
+               '更立体的修容，饱满的唇色',
 }
 _ALLOWED_CHANGES = '允许改变的只有发型造型、妆容、服装、姿态、场景和光线。'
+_NO_RETOUCH = '不要美颜、瘦脸、磨皮或改变五官。'
 
 
 def _makeup_sentence(level: str) -> str:
     return ('妆容按本提示词重新绘制，不复制参考图的妆容浓度、眼线、睫毛或唇色：' + _MAKEUP_LOOKS[level] +
-            '；妆容只改变色彩和质感，不改变脸型、眼型、鼻型、唇形和五官比例；新郎保持干净、自然的面容。')
+            '；底妆保留皮肤的纹理和痣，不是磨皮；妆容只修饰肤色、眉眼和面部的明暗，'
+            '不改变脸的宽窄、眼睛大小、鼻子长短、嘴的大小和五官比例；新郎保持干净、自然的面容。'
+            '两人体态挺拔，靠站姿、机位和服装的线条自然显瘦，不改变真实的身体比例。')
 
 
 _PREVIEW_REFERENCE_INSERTION = '第三张图是风格参考，只参考它的场景、服装、光线和色调，不参考其中的人脸、长相和构图。'
@@ -495,6 +501,8 @@ def _identity_paragraph(with_preview: bool, side_references: list[tuple[str, str
     paragraph = _identity_roles(with_preview, side_references)
     if makeup is None:
         return paragraph
+    # Makeup and skin cleanup are wanted retouching; face slimming and smoothing stay forbidden.
+    paragraph = paragraph.replace(_NO_RETOUCH, '不要瘦脸、磨皮或改变五官。', 1)
     return paragraph.replace(_ALLOWED_CHANGES, _ALLOWED_CHANGES + _makeup_sentence(makeup), 1)
 
 

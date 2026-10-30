@@ -79,3 +79,21 @@ def test_change_shot_keeps_the_scene_of_the_source_photo(app_factory):
         assert changed.status_code == 201, changed.text
         task = next(task for task in client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json())
         assert task['prompt'].split('\n\n')[2] == source['prompt'].split('\n\n')[2]
+
+
+def test_change_shot_keeps_the_makeup_the_photo_was_shot_with(app_factory):
+    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
+        project = create_project(client)
+        client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
+        preview_slot = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        wait_batch(client, preview_slot['id'])
+        preview = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
+        draft = client.post(f"/api/projects/{project['id']}/moment-drafts", json={'preview_slot_id': preview['id'], 'count': 4}).json()
+        shot = client.post(f"/api/projects/{project['id']}/photo-batches", json={'client_request_id': 'makeup-set', 'draft_id': draft['id']})
+        wait_batch(client, shot.json()['id'])
+        target = next(photo for photo in client.get(f"/api/projects/{project['id']}").json()['photos'] if photo['shot_size'] == 'three_quarter')
+        client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'light'})
+        changed = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'makeup-close', 'shot_size': 'close'})
+        assert changed.status_code == 201, changed.text
+        task = client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json()[0]
+        assert '新娘化精致的新娘妆' in task['prompt'] and '新娘化淡妆' not in task['prompt']

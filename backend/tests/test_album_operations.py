@@ -546,12 +546,12 @@ def test_project_makeup_level_shapes_new_prompts_and_regenerations_keep_theirs(a
         preview = ready_preview(client, project['id'])
         first = task_for_batch(client, preview['batch_id'])
         assert '新娘化精致的新娘妆' in first['prompt']
-        # A later change only affects new shots; regenerating keeps the makeup the photo was shot with.
-        client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'light'})
+        # A later change only affects new shots; boosting likeness tones the photo's makeup down to light.
+        client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'natural'})
         result = client.post(f"/api/slots/{preview['id']}/regenerate", json={
             'client_request_id': 'makeup-boost', 'mode': 'identity_boost',
         })
         assert result.status_code == 201, result.text
         wait_batch(client, result.json()['id'])
         boosted = task_for_batch(client, result.json()['id'])
-        assert '新娘化精致的新娘妆' in boosted['prompt'] and '新娘化淡妆' not in boosted['prompt']
+        assert '新娘化淡妆' in boosted['prompt'] and '精致' not in boosted['prompt'].split('\n\n')[1]
