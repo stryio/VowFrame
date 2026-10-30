@@ -539,7 +539,8 @@ def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with
 def director_scene_text(style_id: str, *, single_variant: bool) -> str:
     """Scene block for the director: every variant, or only the preview's variant (docs/prompts.md 7.2)."""
     style = STYLE_BY_ID[style_id]
-    lines = ['视觉语言（摄影团队已确定）：' + style['look']]
+    # The costume lets the director plan veil, skirt and train moments only where they exist (V3.36).
+    lines = ['服装（摄影团队已确定）：' + style['costume'], '视觉语言（摄影团队已确定）：' + style['look']]
     if single_variant:
         lines.append('场景（所有镜头都在这个场景里，scene 填 1）：' + style['variants'][0][1])
     else:

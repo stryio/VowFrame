@@ -13,6 +13,7 @@ def test_director_user_prompt_lists_every_variant_matching_section_7_2():
     scene = director_scene_text('cinematic_light', single_variant=False)
     assert _user_prompt('高级光影', scene, 8, _shot_requirement(8), ['海边踏浪回眸', '沙滩并肩漫步']) == (
         '风格：高级光影\n'
+        '服装（摄影团队已确定）：新娘穿缎面婚纱，新郎穿黑色西装。\n'
         '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
         '场景变体（每个镜头选其中一个，把编号填在 scene；整组尽量用到不同的变体）：\n'
         '1. 窗格投影：上午的硬质阳光从房间一侧的窗户射入，在白色墙面、水泥地面和两人的衣服上投出清晰的窗格影子。\n'
@@ -21,8 +22,7 @@ def test_director_user_prompt_lists_every_variant_matching_section_7_2():
         '4. 暗调单光：房间的光线压暗，只有侧前方一扇窗透进一束柔光，让人物从暗部中浮现，身后的墙面和地面逐渐沉入暗部。\n'
         '5. 色彩墙侧光：房间里刷成雾蓝色的一面墙，一束侧光从画面一侧掠过墙面和水泥地面，形成由亮到暗的渐变。\n'
         '需要的镜头数量：8\n'
-        '景别要求：整组要像一次真实的拍摄：既有交代环境的远景（用广角靠近两人拍，身后是大片的环境，两人仍能看清神情），也有互动的中景和情绪近景；'
-        '既有两人之间的互动，也可以有两人一起看向镜头的瞬间；景别、机位和构图都要有变化。\n'
+        '景别要求：' + _shot_requirement(8) + '\n'
         '已拍过的镜头（不要重复）：海边踏浪回眸、沙滩并肩漫步\n\n'
         '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "scene": 所选场景的编号, "faces_clear": true | false, "shot_size": "wide | full | three_quarter | half | close", '
         '"orientation": "portrait | landscape", "bride_facing": "front | left | right", "groom_facing": "front | left | right", "text": "镜头描述，最多 220 个字，以句号结尾"}]}\n'
@@ -34,6 +34,7 @@ def test_director_user_prompt_lists_every_variant_matching_section_7_2():
 
 def test_preview_reference_mode_keeps_director_in_the_first_variant():
     assert director_scene_text('cinematic_light', single_variant=True) == (
+        '服装（摄影团队已确定）：新娘穿缎面婚纱，新郎穿黑色西装。\n'
         '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
         '场景（所有镜头都在这个场景里，scene 填 1）：上午的硬质阳光从房间一侧的窗户射入，在白色墙面、水泥地面和两人的衣服上投出清晰的窗格影子。'
     )
@@ -107,10 +108,17 @@ def test_validation_allows_eight_moments_with_the_same_shot_size():
 
 def test_shot_requirement_matches_section_7_2():
     assert _shot_requirement(1) == '不限，选择最适合这个场景的景别和机位。'
-    assert _shot_requirement(8) == (
-        '整组要像一次真实的拍摄：既有交代环境的远景（用广角靠近两人拍，身后是大片的环境，两人仍能看清神情），也有互动的中景和情绪近景；'
-        '既有两人之间的互动，也可以有两人一起看向镜头的瞬间；景别、机位和构图都要有变化。'
-    )
+    doc = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
+    assert _shot_requirement(12) == re.search(r'12 张时的原文：\n\n```text\n(.*?)\n```', doc, re.S).group(1)
+
+
+def test_wedding_set_composition_scales_with_the_count():
+    # (standard, interaction, costume, atmosphere) per docs/prompts.md 7.2
+    for count, (standard, interaction, costume, atmosphere) in {4: (2, 2, 0, 0), 8: (3, 3, 1, 1), 12: (4, 5, 2, 1), 20: (7, 8, 3, 2)}.items():
+        text = _shot_requirement(count)
+        assert f'标准照 {standard} 张' in text and f'互动 {interaction} 张' in text
+        assert (f'婚纱表现 {costume} 张' in text) == bool(costume)
+        assert (f'氛围镜头 {atmosphere} 张' in text) if atmosphere else '这组不安排氛围镜头' in text
 
 
 def test_style_scene_text_has_no_lens_frame_or_separate_face_light_terms():
