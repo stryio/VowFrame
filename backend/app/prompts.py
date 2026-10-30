@@ -451,6 +451,22 @@ _IDENTITY_PARAGRAPH = (
     '不要美颜、瘦脸、磨皮或改变五官。允许改变的只有发型造型、妆容、服装、姿态、场景和光线。'
     '风格要求与长相冲突时，以长相为准。'
 )
+# The bride's makeup is drawn from the prompt, not copied from the reference photo (V3.37).
+MAKEUP_LEVELS = ('light', 'natural', 'refined')
+DEFAULT_MAKEUP = 'natural'
+_MAKEUP_LOOKS = {
+    'light': '新娘化淡妆：清透的底妆，眼妆几乎看不出来，唇色接近自然的唇色',
+    'natural': '新娘化自然的新娘妆：干净的底妆，柔和的眼妆和唇色',
+    'refined': '新娘化精致的新娘妆：完整细致的眼妆，更明显的唇色和腮红',
+}
+_ALLOWED_CHANGES = '允许改变的只有发型造型、妆容、服装、姿态、场景和光线。'
+
+
+def _makeup_sentence(level: str) -> str:
+    return ('妆容按本提示词重新绘制，不复制参考图的妆容浓度、眼线、睫毛或唇色：' + _MAKEUP_LOOKS[level] +
+            '；妆容只改变色彩和质感，不改变脸型、眼型、鼻型、唇形和五官比例；新郎保持干净、自然的面容。')
+
+
 _PREVIEW_REFERENCE_INSERTION = '第三张图是风格参考，只参考它的场景、服装、光线和色调，不参考其中的人脸、长相和构图。'
 
 
@@ -473,7 +489,16 @@ _ROLE_NAMES = {'bride': '新娘', 'groom': '新郎'}
 _FACING_NAMES = {'left': '左', 'right': '右'}
 
 
-def _identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None = None) -> str:
+def _identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None = None,
+                        makeup: str | None = None) -> str:
+    """makeup is a MAKEUP_LEVELS value; None (prompts before V3.37) says nothing about makeup."""
+    paragraph = _identity_roles(with_preview, side_references)
+    if makeup is None:
+        return paragraph
+    return paragraph.replace(_ALLOWED_CHANGES, _ALLOWED_CHANGES + _makeup_sentence(makeup), 1)
+
+
+def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] | None) -> str:
     """side_references: (role, facing) of each side photo, in the order they follow the two fronts."""
     if not side_references:
         if not with_preview:
@@ -508,12 +533,12 @@ def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
 
 
 def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_preview: bool = False,
-                    scene: int | None = 1, faces_clear: bool = True,
+                    scene: int | None = 1, faces_clear: bool = True, makeup: str | None = None,
                     side_references: list[tuple[str, str]] | None = None) -> str:
     style = STYLE_BY_ID[style_id]
     return '\n\n'.join((
         _aspect_paragraph(aspect_ratio),
-        _identity_paragraph(with_preview, side_references),
+        _identity_paragraph(with_preview, side_references, makeup),
         _style_paragraph(style, scene=scene),
         action,
         QUALITY_PARAGRAPH if faces_clear else ATMOSPHERE_QUALITY_PARAGRAPH,
@@ -521,19 +546,26 @@ def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_previ
     ))
 
 
-def compose_preview_prompt(style_id: str, aspect_ratio: str) -> str:
-    return _compose_prompt(style_id, PREVIEW_MOMENT, aspect_ratio)
+def compose_preview_prompt(style_id: str, aspect_ratio: str, *, makeup: str | None = None) -> str:
+    return _compose_prompt(style_id, PREVIEW_MOMENT, aspect_ratio, makeup=makeup)
 
 
 def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with_preview: bool = False,
-                         side_references: list[tuple[str, str]] | None = None) -> str:
+                         makeup: str | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
     return _compose_prompt(
         style_id,
         POSE_BY_ID[pose_id]['prompt_template'],
         aspect_ratio,
         with_preview=with_preview,
+        makeup=makeup,
         side_references=side_references,
     )
+
+
+def makeup_from_prompt(prompt: str) -> str | None:
+    """The makeup level a stored prompt was built with; None for prompts before V3.37."""
+    paragraph = prompt.split('\n\n')[1]
+    return next((level for level in MAKEUP_LEVELS if _makeup_sentence(level) in paragraph), None)
 
 
 def director_scene_text(style_id: str, *, single_variant: bool) -> str:
@@ -555,12 +587,12 @@ def director_scene_count(style_id: str, *, single_variant: bool) -> int:
 
 
 def compose_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
-                          faces_clear: bool = True, with_preview: bool = False,
+                          faces_clear: bool = True, with_preview: bool = False, makeup: str | None = None,
                           side_references: list[tuple[str, str]] | None = None) -> str:
     if not isinstance(moment_text, str) or not moment_text.endswith('。'):
         raise ValueError('moment text must end with exactly one Chinese full stop')
     return _compose_prompt(style_id, SHOT_LABEL + moment_text, aspect_ratio, with_preview=with_preview,
-                           scene=scene, faces_clear=faces_clear, side_references=side_references)
+                           scene=scene, faces_clear=faces_clear, makeup=makeup, side_references=side_references)
 
 
 def scene_from_prompt(style_id: str, prompt: str) -> int | None:
@@ -597,14 +629,16 @@ def _apply_identity_boost(prompt: str) -> str:
     return '\n\n'.join(paragraphs)
 
 
-def compose_identity_boost_prompt(style_id: str, pose_id: str | None, aspect_ratio: str,
-                                  *, with_preview: bool = False, side_references: list[tuple[str, str]] | None = None) -> str:
-    prompt = (compose_preview_prompt(style_id, aspect_ratio) if pose_id is None else
-              compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, side_references=side_references))
+def compose_identity_boost_prompt(style_id: str, pose_id: str | None, aspect_ratio: str, *, with_preview: bool = False,
+                                  makeup: str | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
+    prompt = (compose_preview_prompt(style_id, aspect_ratio, makeup=makeup) if pose_id is None else
+              compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=makeup,
+                                   side_references=side_references))
     return _apply_identity_boost(prompt)
 
 
 def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
-                                         with_preview: bool = False, side_references: list[tuple[str, str]] | None = None) -> str:
+                                         with_preview: bool = False, makeup: str | None = None,
+                                         side_references: list[tuple[str, str]] | None = None) -> str:
     return _apply_identity_boost(compose_moment_prompt(style_id, moment_text, aspect_ratio, scene=scene, with_preview=with_preview,
-                                                       side_references=side_references))
+                                                       makeup=makeup, side_references=side_references))

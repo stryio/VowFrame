@@ -19,11 +19,15 @@ class ProjectCreate(InputModel):
     name: str = '我的婚纱照'
 
 
+MakeupLevel = Literal['light', 'natural', 'refined']
+
+
 class ProjectPatch(InputModel):
     name: str | None = None
     person_a_role: Role | None = None
+    makeup_level: MakeupLevel | None = None
 
-    @field_validator('name', 'person_a_role')
+    @field_validator('name', 'person_a_role', 'makeup_level')
     @classmethod
     def reject_null(cls, value):
         if value is None:
@@ -224,6 +228,7 @@ class ProjectSummary(BaseModel):
 
 
 class ProjectDetail(ProjectSummary):
+    makeup_level: MakeupLevel
     person_a: Person
     person_b: Person
     previews: list[Slot]

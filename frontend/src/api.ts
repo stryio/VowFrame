@@ -1,6 +1,7 @@
 // Typed client for the backend contract in docs/API.md.
 
 export type Role = "bride" | "groom";
+export type MakeupLevel = "light" | "natural" | "refined";
 export type Stage = "upload" | "style" | "shooting";
 export type TaskStatus =
   | "waiting"
@@ -77,6 +78,7 @@ export interface ProjectSummary {
 }
 
 export interface ProjectDetail extends ProjectSummary {
+  makeup_level: MakeupLevel;
   person_a: Person;
   person_b: Person;
   previews: Slot[];
@@ -275,7 +277,7 @@ export const api = {
   getProject: (id: string) => request<ProjectDetail>(`/projects/${id}`),
   createProject: (name?: string) =>
     request<ProjectDetail>("/projects", json("POST", name ? { name } : {})),
-  updateProject: (id: string, patch: { name?: string; person_a_role?: Role }) =>
+  updateProject: (id: string, patch: { name?: string; person_a_role?: Role; makeup_level?: MakeupLevel }) =>
     request<ProjectDetail>(`/projects/${id}`, json("PATCH", patch)),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),
 

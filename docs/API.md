@@ -135,6 +135,7 @@ ProjectSummary 加上：
 
 ```json
 {
+  "makeup_level": "natural",
   "person_a": Person,
   "person_b": Person,
   "previews": [Slot],
@@ -143,6 +144,7 @@ ProjectSummary 加上：
 }
 ```
 
+- `makeup_level`：新娘的妆容强度，`light`（淡妆）、`natural`（自然新娘妆，默认）或 `refined`（精致新娘妆），写进之后新建的样片和拍组的提示词；重新生成沿用原提示词里的档位（docs/prompts.md 第 2.2 节）。
 - `previews`：按内置风格顺序排列，只包含已创建的样片位置。
 - `photo_sets`：按该风格第一次拍组的时间正序。
 - `photos`：全部 `kind = "photo"` 的作品位置，按创建时间正序（同一批次内按动作分配顺序）。
@@ -320,7 +322,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/projects` | — | `ProjectSummary[]`，按 `updated_at` 倒序 |
 | POST | `/api/projects` | `{"name"?: string}` | `ProjectDetail`（201），默认名「我的婚纱照」 |
 | GET | `/api/projects/{id}` | — | `ProjectDetail` |
-| PATCH | `/api/projects/{id}` | `{"name"?: string, "person_a_role"?: Role}` | `ProjectDetail` |
+| PATCH | `/api/projects/{id}` | `{"name"?: string, "person_a_role"?: Role, "makeup_level"?: "light" \| "natural" \| "refined"}` | `ProjectDetail`；字段为 null 或档位无效时 422 |
 | DELETE | `/api/projects/{id}` | — | 204；存在 `running` 任务时 409 `project_busy`（先取消剩余任务） |
 | POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail` |
 | DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |

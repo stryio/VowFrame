@@ -13,8 +13,10 @@ from app.prompts import (
     compose_identity_boost_moment_prompt,
     compose_moment_prompt,
     compose_photo_prompt,
+    MAKEUP_LEVELS,
     compose_preview_prompt,
     is_faceless_shot,
+    makeup_from_prompt,
     scene_from_prompt,
     shot_text_from_prompt,
 )
@@ -57,7 +59,7 @@ def doc_block(heading: str) -> str:
 
 def test_full_example_matches_docs_verbatim():
     expected = doc_block('## 5. 完整示例')
-    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4', scene=2) == expected
+    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4', scene=2, makeup='natural') == expected
 
 
 def test_shared_paragraphs_and_costumes_match_docs_verbatim():
@@ -189,3 +191,24 @@ def test_atmosphere_shots_get_their_own_quality_and_drop_conflicting_avoid_terms
         assert is_faceless_shot('\n\n'.join(atmosphere)) and not is_faceless_shot('\n\n'.join(normal))
     # The word alone in the shot does not count.
     assert not is_faceless_shot(compose_moment_prompt('seaside_sunset', '逆光拍摄，不拍剪影。', '3:4', scene=1))
+
+
+def test_makeup_level_is_drawn_in_the_identity_paragraph_and_read_back():
+    allowed = '允许改变的只有发型造型、妆容、服装、姿态、场景和光线。'
+    looks = {'light': '新娘化淡妆', 'natural': '新娘化自然的新娘妆', 'refined': '新娘化精致的新娘妆'}
+    for level in MAKEUP_LEVELS:
+        prompts = (
+            compose_preview_prompt('korean_minimal', '3:4', makeup=level),
+            compose_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', scene=1, makeup=level, with_preview=True,
+                                  side_references=[('bride', 'left')]),
+            compose_identity_boost_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', scene=1, makeup=level),
+        )
+        for prompt in prompts:
+            identity = prompt.split('\n\n')[1]
+            assert allowed + '妆容按本提示词重新绘制，不复制参考图的妆容浓度、眼线、睫毛或唇色：' + looks[level] in identity
+            assert '不改变脸型、眼型、鼻型、唇形和五官比例；新郎保持干净、自然的面容。' in identity
+            assert makeup_from_prompt(prompt) == level
+            assert len(prompt.split('\n\n')) == 6
+    # Prompts before V3.37 say nothing about makeup and stay that way.
+    legacy = compose_preview_prompt('korean_minimal', '3:4')
+    assert '妆容按本提示词' not in legacy and makeup_from_prompt(legacy) is None

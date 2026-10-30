@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS projects (
     person_b_right_image_id TEXT REFERENCES image_assets(id),
     selected_style_id TEXT REFERENCES style_presets(id),
     selected_preview_version_id TEXT REFERENCES photo_versions(id),
+    makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(makeup_level IN ('light','natural','refined')),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS image_assets (
@@ -147,6 +148,7 @@ class Database:
             add_column('projects', 'person_a_right_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_b_left_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_b_right_image_id TEXT REFERENCES image_assets(id)')
+            add_column('projects', "makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(makeup_level IN ('light','natural','refined'))")
             add_column('generation_batches', 'reference_preview_version_id TEXT REFERENCES photo_versions(id)')
             add_column('photo_slots', 'pose_id TEXT')
             add_column('photo_slots', 'pose_name TEXT')

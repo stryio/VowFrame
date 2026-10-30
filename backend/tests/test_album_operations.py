@@ -533,3 +533,25 @@ def test_previous_generation_task_schema_migrates_without_losing_rows_or_version
         assert conn.execute('SELECT 1 FROM generation_tasks WHERE id=?', (task_id,)).fetchone() is not None
         assert conn.execute('PRAGMA foreign_key_check').fetchall() == []
 
+
+
+def test_project_makeup_level_shapes_new_prompts_and_regenerations_keep_theirs(app_factory):
+    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
+        project = create_project(client)
+        assert project['makeup_level'] == 'natural'
+        assert client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'heavy'}).status_code == 422
+        assert client.patch(f"/api/projects/{project['id']}", json={'makeup_level': None}).status_code == 422
+        patched = client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
+        assert patched.status_code == 200 and patched.json()['makeup_level'] == 'refined'
+        preview = ready_preview(client, project['id'])
+        first = task_for_batch(client, preview['batch_id'])
+        assert '新娘化精致的新娘妆' in first['prompt']
+        # A later change only affects new shots; regenerating keeps the makeup the photo was shot with.
+        client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'light'})
+        result = client.post(f"/api/slots/{preview['id']}/regenerate", json={
+            'client_request_id': 'makeup-boost', 'mode': 'identity_boost',
+        })
+        assert result.status_code == 201, result.text
+        wait_batch(client, result.json()['id'])
+        boosted = task_for_batch(client, result.json()['id'])
+        assert '新娘化精致的新娘妆' in boosted['prompt'] and '新娘化淡妆' not in boosted['prompt']
