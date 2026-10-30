@@ -86,6 +86,7 @@ def test_style_scene_text_has_no_lens_frame_or_separate_face_light_terms():
     assert all('mm 镜头' not in style['scene_prompt'] for style in STYLES)
     assert all('占画面' not in style['scene_prompt'] for style in STYLES)
     assert all('照亮两人面部' not in style['scene_prompt'] for style in STYLES)
+    assert all('照亮两人的面部' not in style['scene_prompt'] for style in STYLES)
 
 
 def test_draft_and_photo_batch_store_moments(app_factory):
