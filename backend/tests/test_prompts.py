@@ -100,6 +100,7 @@ def test_styled_shot_prompts_copy_the_styled_photos_and_match_docs():
 def test_look_prompts_cover_every_hairstyle_level_and_colour_and_match_docs():
     assert doc_block('新娘正面照，`low_bun`') == compose_look_prompt('bride', 'low_bun', 'natural', 'classic_red')
     assert doc_block('新郎脸朝画面左侧，`keep`') == compose_look_prompt('groom', 'keep', 'natural', facing='left')
+    assert '头发按第二张图的发型重新画，不要照搬第一张图里的头发。' in compose_look_prompt('bride', 'low_bun', 'natural', 'milk_tea', facing='right')
     for hairstyle in HAIRSTYLES:
         assert f"| `{hairstyle.id}` {hairstyle.name} | {'、'.join(f'`{length}`' for length in hairstyle.lengths)} | " \
                f"{'是' if hairstyle.updo else '否'} | `{hairstyle.text}` |" in DOC
@@ -112,6 +113,10 @@ def test_look_prompts_cover_every_hairstyle_level_and_colour_and_match_docs():
                 assert ('妆容颜色：' + color.text in prompt) if color else '妆容颜色' not in prompt
                 # Looks do not reshape the face (V4.0, first version).
                 assert not any(term in prompt for term in ('瘦脸', '收窄', '补低', '鼻梁', '苹果肌'))
+                # V5.1: the photo fixes the face only; nothing asks the edit to keep the photo's hair.
+                assert '头发按下面的发型重新做，不要照搬原照片里的头发。' in paragraphs[0]
+                assert not any(term in prompt for term in ('头肩构图', '长短与原照片一致', '保留少量细软的碎发'))
+                assert paragraphs[1].endswith('没有乱翘的碎发。') and '头发的状态不沿用原照片' in paragraphs[1]
                 assert paragraphs[2].split('。')[0].removeprefix('皮肤和妆容：') in DOC
     for color in MAKEUP_COLORS:
         assert f'| `{color.id}` {color.name} | `{color.text}` |' in DOC

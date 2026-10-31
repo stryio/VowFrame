@@ -718,7 +718,13 @@ _HAIR_FINISH = {
     'groom': {'light': '干净整齐，光泽克制', 'natural': '干净整齐，定型自然，发束不结块',
               'refined': '干净整齐，定型清楚，带有克制的光泽'},
 }
-_STYLING_AVOID = '避免：网红脸、整容脸、幼态脸、过度磨皮的塑料皮肤、厚重结块的底妆、面部大面积油光、头盔一样僵硬的头发、生硬的贴片状发际线、文字和水印。'
+_STYLING_AVOID = '避免：照搬原照片的头发状态、毛躁乱翘的头发、油腻扁塌的头发、网红脸、整容脸、幼态脸、过度磨皮的塑料皮肤、厚重结块的底妆、面部大面积油光、头盔一样僵硬的头发、生硬的贴片状发际线、文字和水印。'
+
+
+# Written after every hairstyle (V5.1): the photo's hair is not kept, only its length limits the hairstyle.
+_HAIR_RULES = ('头发的状态不沿用原照片：原照片里的毛躁、乱翘、碎发、扁塌、油腻、打结和发丝走向凌乱的地方都不保留，'
+               '按造型师洗吹、梳理、定型后的样子重新画，发丝干净顺滑，有健康的光泽，蓬松度和轮廓按这个发型重新塑造。'
+               '不凭空加长头发。头发有真实的重量，以整齐的发束为主；发际线边缘用细软的绒发自然过渡，没有乱翘的碎发。')
 
 
 class Hairstyle(NamedTuple):
@@ -732,13 +738,13 @@ class Hairstyle(NamedTuple):
 
 # A few common wedding hairstyles (V5.0); keeping the photo's own hairstyle changes the face least.
 HAIRSTYLES = (
-    Hairstyle('keep', '保留原发型', 'bride', BRIDE_HAIR_LENGTHS, False, '保持原照片的发型和长短，只把碎发和毛躁整理干净'),
-    Hairstyle('low_bun', '低盘发', 'bride', ('long', 'medium'), True, '光洁整齐的低盘发，发髻盘在脑后偏低的位置'),
-    Hairstyle('soft_waves', '披发微卷', 'bride', ('long', 'medium'), False, '披发，发尾做柔和的微卷，蓬松有光泽'),
-    Hairstyle('side_braid', '侧编发', 'bride', ('long', 'medium'), False, '从一侧编起的编发，编发自然松散，发尾垂在一侧'),
-    Hairstyle('high_bun', '高盘发', 'bride', ('long',), True, '饱满的高盘发，轮廓光洁利落'),
-    Hairstyle('keep', '保留原发型', 'groom', GROOM_HAIR_LENGTHS, False, '保持原照片的发型和长短，只修整得干净利落'),
-    Hairstyle('side_part', '侧分短发', 'groom', ('short', 'medium'), False, '侧分短发，梳理服帖，顶部有自然的蓬松度'),
+    Hairstyle('keep', '保留原发型', 'bride', BRIDE_HAIR_LENGTHS, False, '沿用原照片发型的样式，分缝方向、长度和大致轮廓不变'),
+    Hairstyle('low_bun', '低盘发', 'bride', ('long', 'medium'), True, '光洁整齐的低盘发，头发全部向后梳顺收拢，在脑后偏低的位置盘成饱满的发髻'),
+    Hairstyle('soft_waves', '披发微卷', 'bride', ('long', 'medium'), False, '披发，头发梳顺后在发尾做柔和的大弧度微卷，蓬松有光泽'),
+    Hairstyle('side_braid', '侧编发', 'bride', ('long', 'medium'), False, '头发梳顺后从一侧编起，编发均匀饱满、略带松散，发尾垂在一侧肩前'),
+    Hairstyle('high_bun', '高盘发', 'bride', ('long',), True, '饱满的高盘发，头发全部向上梳顺收拢，盘成轮廓光洁利落的发髻'),
+    Hairstyle('keep', '保留原发型', 'groom', GROOM_HAIR_LENGTHS, False, '沿用原照片发型的样式，分缝方向、长度和大致轮廓不变，边缘修整干净利落'),
+    Hairstyle('side_part', '侧分短发', 'groom', ('short', 'medium'), False, '侧分短发，分缝清楚，头发梳理服帖，顶部有自然的蓬松度'),
     Hairstyle('textured', '自然纹理短发', 'groom', ('short', 'medium'), False, '自然的纹理短发，顶部蓬松有层次，两侧修短服帖'),
 )
 HAIRSTYLE_BY_KEY = {(item.role, item.id): item for item in HAIRSTYLES}
@@ -816,18 +822,19 @@ def compose_look_prompt(role: str, hairstyle_id: str, level: str, makeup_color: 
     person's front look as the second image so both carry the same hairstyle and makeup.
     """
     name = _ROLE_NAMES[role]
+    # The edit endpoint keeps whatever the photo shows unless told plainly that the hair is redone (V5.1): the
+    # photo fixes the face, the hair follows the hairstyle, and the head-and-shoulders composition no longer
+    # includes the hair.
     if facing is None:
-        opening = (f'把这张照片修成{name}婚礼当天化好妆、做好发型后的造型照。照片里仍是同一个人：'
+        opening = (f'把这张照片修成{name}婚礼当天化好妆、由造型师重新做好发型后的造型照。原照片用来确定这个人的长相：'
                    '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与原照片一致，不要改变五官；'
-                   '头部的角度、表情和头肩构图保持原照片的样子。')
+                   '头部的角度和表情保持原照片的样子。头发按下面的发型重新做，不要照搬原照片里的头发。')
     else:
         opening = (f'第一张图是要修的照片，{name}脸朝画面{_FACING_NAMES[facing]}侧；第二张图是同一个人已经做好的正面造型照。'
-                   '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。照片里仍是同一个人：'
+                   '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。第一张图用来确定这个人的长相：'
                    '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与第一张图一致，不要改变五官；'
-                   '头部的角度、表情和头肩构图保持第一张图的样子。')
-    hair = (f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。'
-            '头发的长短与原照片一致，不凭空加长或剪短；原来凌乱、翘起、压塌、油腻和毛躁的状态都不保留；头发自然垂落，有真实的重量，'
-            '发丝以自然的发束为主，边缘保留少量细软的碎发。')
+                   '头部的角度和表情保持第一张图的样子。头发按第二张图的发型重新画，不要照搬第一张图里的头发。')
+    hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES
     if role == 'bride':
         makeup = (f'皮肤和妆容：{_BRIDE_STYLING[level]}。妆容颜色：{MAKEUP_COLOR_BY_ID[makeup_color].text}'
                   '照片会把妆吃淡，所以妆色要比日常妆更浓、更清楚，一眼能看出是精心化过的新娘妆。')
