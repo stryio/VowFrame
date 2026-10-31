@@ -44,6 +44,8 @@ class PreviewCreate(InputModel):
     client_request_id: str = Field(min_length=1)
     style_ids: list[str] | None = None
     model: str | None = None
+    # Discard these styles' styled photos first, so the samples are shot from newly edited ones (V4.0).
+    restyle: bool = False
 
     @field_validator('model')
     @classmethod
@@ -218,6 +220,8 @@ class Slot(BaseModel):
     version_count: int
     latest_task: TaskBrief | None
     is_stale: bool
+    # The styled photos the current version was shot from (V4.0); null for older pictures.
+    styled_asset_ids: dict[str, str] | None = None
 
 
 class PhotoSet(BaseModel):

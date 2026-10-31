@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- V4.0: one person's photo edited into their styled photo (hairstyle, skin, makeup, plain background) for a style.
+-- The key is everything the edit depends on; restyling marks the rows discarded so the next shot edits again.
+CREATE TABLE IF NOT EXISTS styled_photos (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    style_id TEXT NOT NULL REFERENCES style_presets(id),
+    role TEXT NOT NULL CHECK(role IN ('bride','groom')), angle TEXT NOT NULL CHECK(angle IN ('front','left','right')),
+    source_asset_id TEXT NOT NULL REFERENCES image_assets(id), makeup_level TEXT NOT NULL, hair_length TEXT NOT NULL,
+    styling_version INTEGER NOT NULL, image_asset_id TEXT NOT NULL REFERENCES image_assets(id), prompt TEXT NOT NULL,
+    created_at TEXT NOT NULL, discarded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS styled_photo_key ON styled_photos(project_id,style_id,role,angle,source_asset_id);
 CREATE TABLE IF NOT EXISTS moment_drafts (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     preview_slot_id TEXT NOT NULL REFERENCES photo_slots(id), style_id TEXT NOT NULL REFERENCES style_presets(id),

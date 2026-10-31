@@ -19,13 +19,14 @@ from starlette.background import BackgroundTask
 
 from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
-from .face_swap import face_scores, face_swap_reference_ids, face_swap_snapshot, face_swap_weight
+from .face_swap import face_scores, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
-from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, has_makeup, Hair, Makeup, scene_from_prompt, shot_text_from_prompt
+from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceSwapCreate, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .photo_prep import PhotoRejected
 from .storage import asset_path, image_format, save_image
+from .styling import reference_slots, styled_face_swap_reference_ids, styling_snapshot, uploaded_asset_id
 
 router = APIRouter(prefix='/api')
 logger = logging.getLogger(__name__)
@@ -117,21 +118,26 @@ def slot_response(conn, slot, project):
         (slot['current_version_id'],),
     ).fetchone() if slot['current_version_id'] else None
     stale = False
+    styled_asset_ids = None
     if version is not None:
         try:
             used_references = json.loads(version['reference_image_ids'])
-            stale = used_references[:2] != current_ids
+            # A styled photo stands in for the uploaded photo it was made from (V4.0).
+            uploaded = [uploaded_asset_id(conn, asset_id) for asset_id in used_references]
+            if uploaded[:2] != used_references[:2]:
+                styled_asset_ids = {'bride': used_references[0], 'groom': used_references[1]}
+            stale = uploaded[:2] != current_ids
             if not stale:
                 side_ids = {project['person_a_left_image_id'], project['person_a_right_image_id'],
                             project['person_b_left_image_id'], project['person_b_right_image_id']}
-                for asset_id in used_references[2:]:
+                for asset_id in uploaded[2:]:
                     if asset_id in current_ids:
                         continue
                     asset = conn.execute('SELECT asset_type FROM image_assets WHERE id=?', (asset_id,)).fetchone()
                     if asset is not None and asset['asset_type'] == 'original' and asset_id not in side_ids:
                         stale = True
                         break
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, IndexError):
             stale = False
     latest = conn.execute(
         'SELECT task.id,task.status,task.error_code,task.error_message,task.model_config_snapshot,task.regenerate_mode,task.pose_id,task.moment_title,task.moment_shot_size FROM generation_tasks task '
@@ -164,7 +170,7 @@ def slot_response(conn, slot, project):
         'pose_id': pose_id, 'pose_name': pose_name, 'shot_size': shot_size,
         'current_version': version_data,
         'version_count': conn.execute('SELECT COUNT(*) FROM photo_versions WHERE photo_slot_id=?', (slot['id'],)).fetchone()[0],
-        'latest_task': latest_data, 'is_stale': stale,
+        'latest_task': latest_data, 'is_stale': stale, 'styled_asset_ids': styled_asset_ids,
     }
 
 
@@ -198,14 +204,6 @@ def batch_response(conn, batch):
         'style_id': style_id, 'style_name': STYLE_BY_ID.get(style_id, {}).get('name') if style_id else None,
         'created_at': batch['created_at'], 'status': status, 'total': sum(counts.values()), 'counts': counts,
     }
-
-
-def project_makeup(project) -> Makeup:
-    return Makeup(project['makeup_level'], project['groom_makeup_level'])
-
-
-def project_hair(project) -> Hair:
-    return Hair(project['bride_hair_length'], project['groom_hair_length'])
 
 
 def project_response(conn, project, *, detail: bool = True):
@@ -382,10 +380,15 @@ def _validate_reference_capacity(model_id: str, references: list[str]):
         invalid_model()
 
 
-def _fresh_snapshot(request: Request, model_id: str, aspect_ratio: str) -> str:
+def _fresh_snapshot(request: Request, model_id: str, aspect_ratio: str, project=None,
+                    side_references: list[tuple[str, str]] = (), with_preview: bool = False) -> str:
+    """project: a shot from styled photos (V4.0) records the project's styling and what each reference image is."""
     snapshot = dict(request.app.state.config.model_config_snapshot)
     snapshot['model'] = model_id
     snapshot['aspect_ratio'] = aspect_ratio
+    if project is not None:
+        snapshot['styling'] = styling_snapshot(project)
+        snapshot['reference_slots'] = reference_slots(list(side_references), with_preview)
     return json.dumps(snapshot, ensure_ascii=False)
 
 
@@ -538,13 +541,8 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         }
 
     style_id = source['style_id']
-    # Changing the pose or the shot is a new shot, so it takes the project's current makeup (V3.39);
-    # only 'same' replays the old prompt as it was.
-    makeup = project_makeup(project)
-    # The hairstyle follows the hair lengths the project states now (V3.45).
-    hair = project_hair(project)
-    # Boosting likeness tones both down to light; prompts before V3.37 stay without makeup.
-    boost_makeup = Makeup('light', 'light') if has_makeup(source['prompt']) else None
+    # Boosting likeness, changing the pose or the shot is a new shot from the styled photos of the project's
+    # current styling (V4.0); only 'same' replays the old prompt and reference images as they were.
     references, side_references = _build_references(project)
     batch_reference_mode = request.app.state.db.get_batch_reference_mode()
     with_preview = slot['kind'] == 'photo' and batch_reference_mode == 'with_preview'
@@ -558,16 +556,16 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         pose_id = source['pose_id']
         prompt = (compose_identity_boost_moment_prompt(style_id, shot_text_from_prompt(source['prompt']), aspect_ratio,
                                                        scene=scene_from_prompt(style_id, source['prompt']), with_preview=with_preview,
-                                                       makeup=boost_makeup, hair=hair)
+                                                       styled=True)
                   if source['moment_shot_size'] else compose_identity_boost_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview,
-                                                                                   makeup=boost_makeup, hair=hair))
+                                                                                   styled=True))
         regenerate_mode = 'identity_boost'
     elif action == 'change_pose':
         if slot['kind'] != 'photo':
             error(409, 'slot_not_ready', f'{slot_label}不是相册作品，不能更换动作')
         if source['moment_title'] is None and selected_pose is not None:
             pose_id = selected_pose
-            prompt = compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=makeup, hair=hair)
+            prompt = compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, styled=True)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = None, None
         else:
@@ -586,7 +584,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
             references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing,
                                                                _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None)
             prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=moment.scene, faces_clear=moment.faces_clear,
-                                           with_preview=with_preview, makeup=makeup, hair=hair, side_references=side_references)
+                                           with_preview=with_preview, side_references=side_references, styled=True)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = moment.title, moment.shot_size
     elif action == 'change_shot':
@@ -607,7 +605,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         # Changing the shot size keeps the scene and whether it is an atmosphere shot.
         prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=scene_from_prompt(style_id, source['prompt']),
                                        faces_clear=not is_faceless_shot(source['prompt']),
-                                       with_preview=with_preview, makeup=makeup, hair=hair, side_references=side_references)
+                                       with_preview=with_preview, side_references=side_references, styled=True)
         regenerate_mode = 'change_shot'
         moment_title, moment_shot_size = moment.title, moment.shot_size
     else:
@@ -620,7 +618,8 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         'moment_title': locals().get('moment_title', source['moment_title']),
         'moment_shot_size': locals().get('moment_shot_size', source['moment_shot_size']),
         'references': json.dumps(references, ensure_ascii=False), 'prompt': prompt,
-        'snapshot': _fresh_snapshot(request, model_id, aspect_ratio), 'regenerate_mode': regenerate_mode,
+        'snapshot': _fresh_snapshot(request, model_id, aspect_ratio, project, side_references, with_preview),
+        'regenerate_mode': regenerate_mode,
     }
 
 
@@ -660,7 +659,9 @@ def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label
 
     if input_task['moment_shot_size'] == DETAIL_SHOT:
         error(409, 'no_faces', f'{slot_label}是局部特写，画面里没有人脸，无需换脸')
-    references = face_swap_reference_ids(project)
+    # The swap uses the styled photos of the shot it fixes (V4.0).
+    references = styled_face_swap_reference_ids(conn, project, input_task['style_id'],
+                                                _parse_snapshot(input_task['model_config_snapshot'], slot_label).get('styling'))
     mode = swap_status['mode']
     snapshot = face_swap_snapshot(mode, face_swap_weight(slot['kind']))
     return {
@@ -903,10 +904,14 @@ def create_previews(project_id: str, body: PreviewCreate, request: Request, resp
         if len(references) > model.max_reference_images:
             error(422, 'invalid_model', '所选模型支持的参考照片数量不足')
         batch_id, now = new_id(), utc_now()
+        if body.restyle:
+            # Restyling: the next shot of these styles edits new styled photos; pictures already made keep theirs.
+            conn.execute(f"UPDATE styled_photos SET discarded_at=? WHERE project_id=? AND discarded_at IS NULL "
+                         f"AND style_id IN ({','.join('?' * len(style_ids))})", (now, project_id, *style_ids))
         conn.execute('INSERT INTO generation_batches (id,project_id,batch_type,client_request_id,created_at) VALUES (?,?,?,?,?)', (batch_id, project_id, 'preview', body.client_request_id, now))
         # Samples are always portrait; the director decides frames only for photo sets.
         preview_ratio = _shot_ratio(request, 'portrait')
-        snapshot = _fresh_snapshot(request, model_id, preview_ratio)
+        snapshot = _fresh_snapshot(request, model_id, preview_ratio, project)
         for style_id in style_ids:
             slot = conn.execute("SELECT id FROM photo_slots WHERE project_id=? AND kind='preview' AND style_id=?", (project_id, style_id)).fetchone()
             slot_id = slot['id'] if slot else new_id()
@@ -915,7 +920,7 @@ def create_previews(project_id: str, body: PreviewCreate, request: Request, resp
             conn.execute(
                 'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
                 (new_id(), project_id, batch_id, slot_id, 'waiting', json.dumps(references), style_id,
-                 compose_preview_prompt(style_id, preview_ratio, makeup=project_makeup(project), hair=project_hair(project)), snapshot, utc_now()),
+                 compose_preview_prompt(style_id, preview_ratio, styled=True), snapshot, utc_now()),
             )
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
         result = batch_response(conn, get_batch(conn, batch_id))
@@ -1066,13 +1071,12 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
         conn.execute('INSERT INTO generation_batches (id,project_id,batch_type,client_request_id,created_at,style_id,reference_preview_version_id) VALUES (?,?,?,?,?,?,?)', (batch_id, project_id, 'photo', body.client_request_id, now, preview['style_id'], preview_version))
         for moment, (references, side_references) in zip(moments, prepared_references):
             aspect_ratio = _shot_ratio(request, moment.orientation)
-            snapshot = _fresh_snapshot(request, model_id, aspect_ratio)
+            snapshot = _fresh_snapshot(request, model_id, aspect_ratio, project, side_references, mode == 'with_preview')
             slot_id, task_id = new_id(), new_id()
             conn.execute('INSERT INTO photo_slots (id,project_id,batch_id,kind,style_id,pose_id,pose_name,shot_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)', (slot_id, project_id, batch_id, 'photo', preview['style_id'], None, moment.title, moment.shot_size, utc_now()))
             prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, scene=moment.scene,
                                            faces_clear=moment.faces_clear, with_preview=mode == 'with_preview',
-                                           makeup=project_makeup(project), hair=project_hair(project),
-                                           side_references=side_references)
+                                           side_references=side_references, styled=True)
             conn.execute('INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (task_id, project_id, batch_id, slot_id, 'waiting', json.dumps(references), preview['style_id'], None, moment.title, moment.shot_size, prompt, snapshot, utc_now()))
         conn.execute('UPDATE moment_drafts SET used_by_batch_id=?,updated_at=? WHERE id=?', (batch_id, now, body.draft_id))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))

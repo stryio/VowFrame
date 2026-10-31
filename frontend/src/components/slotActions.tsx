@@ -16,9 +16,9 @@ import { useGenerateDialog } from "./GenerateDialog";
 
 const ACTION_HINT: Record<SlotAction, string> = {
   same: "沿用原来的参考照片、动作和提示词，再生成一次。",
-  identity_boost: "用当前照片重新生成，并加强「像本人」的要求：长相优先于风格和动作，画面会更朴素、面部更大更正。",
+  identity_boost: "用当前照片和造型重新生成，并加强「像本人」的要求：长相优先于风格和动作，画面会更朴素、面部更大更正。",
   change_pose: "保持风格，由 AI 导演写一个这个风格里还没拍过的新动作。",
-  change_shot: "保持这张照片的动作和互动，由 AI 导演改写成目标景别后重新生成（用原始照片，不以这张生成图为参考）。",
+  change_shot: "保持这张照片的动作和互动，由 AI 导演改写成目标景别后重新生成（用这个风格的造型照，不以这张生成图为参考）。",
 };
 
 /**

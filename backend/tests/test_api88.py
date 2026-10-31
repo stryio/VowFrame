@@ -27,7 +27,7 @@ from app.generator import GeneratorError, MockGenerator, OutcomeKind
 from app.main import create_app
 from app.photo_prep import PassthroughPhotoPreparer
 from app.storage import outgoing_image
-from conftest import PNG, create_project, preview_batch, wait_batch
+from conftest import PNG, create_project, preview_batch, uploaded_ids, wait_batch
 
 TEST_KEY = 'sk-unit-test-secret-never-log'
 PROMPT = '第一张图是新娘，第二张图是新郎'
@@ -480,21 +480,28 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                 assert json.loads(row['model_config_snapshot']) == {
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
                     'aspect_ratio': '3:4', 'resolution': '2K',
+                    # V4.0: the styling the sample was shot with and what each reference image is.
+                    'styling': {'version': 1, 'bride': {'makeup': 'natural', 'hair': 'long'},
+                                'groom': {'makeup': 'natural', 'hair': 'short'}},
+                    'reference_slots': [['bride', 'front'], ['groom', 'front']],
                 }
                 assert TEST_KEY not in repr(dict(row))
                 expected = [project['person_a']['asset_id'], project['person_b']['asset_id']]
-                assert json.loads(row['reference_image_ids']) == (expected if role == 'bride' else expected[::-1])
-                file_names = [part[1] for part in multipart_parts(calls[0]) if part[1] is not None]
+                assert uploaded_ids(app, json.loads(row['reference_image_ids'])) == (expected if role == 'bride' else expected[::-1])
+                # Two styling edits come first (V4.0), each sending one photo; the shot sends the styled photos.
+                assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 2]
+                file_names = [part[1] for part in multipart_parts(calls[2]) if part[1] is not None]
                 ordered = json.loads(row['reference_image_ids'])
                 assert [name.split('.')[0] for name in file_names] == ordered
             assert TEST_KEY not in client.get('/api/tasks').text
-    assert len(calls) == 1
+    assert len(calls) == 3
     assert TEST_KEY not in caplog.text
     assert all(TEST_KEY not in repr(record.__dict__) for record in caplog.records)
 
 
 @pytest.mark.parametrize('failure,expected,calls_expected', [
-    ('connect', 'completed', 2), ('read', 'interrupted', 1),
+    # The first request is the bride's styled photo (V4.0): its outcome follows the same policy as a shot's.
+    ('connect', 'completed', 4), ('read', 'interrupted', 1),
     (502, 'interrupted', 1), (504, 'interrupted', 1),
     (500, 'failed', 1), (503, 'failed', 1),
 ])

@@ -186,8 +186,8 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
         {row("groom_hair_length", "新郎头发", GROOM_HAIR_OPTIONS)}
         <span className="muted">
           头发长度请按照片里的实际长度选，每种风格会按长度配一个发型，长度保持和照片一致。
-          提白、去瑕疵、补发际线、整理头发、轻微瘦脸和化妆都按档位的强度，档位越高修得越多；新郎只在「精致」一档化淡妆，发际线不动。
-          不论照片有没有化妆，都按这里画，不会叠加。可以随时修改，只影响之后的新图（重新生成样片、拍组、换动作、换景别），已经生成的照片不变。
+          每种风格第一次拍摄前，会先把两人的照片修成这个风格的「造型照」：换好发型，按档位提白、去瑕疵、化妆，背景换成纯色；这个风格之后的样片和成片都照着造型照拍。
+          档位越高修得越多；新郎只在「精致」一档化淡妆。可以随时修改，只影响之后的新图，已经生成的照片不变。
         </span>
       </div>
     </div>
@@ -448,6 +448,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
   const { ask, dialog } = useGenerateDialog();
   const styles = usePolledResource(api.styles, []);
   const [viewing, setViewing] = useState<Slot | null>(null);
+  const [viewingStyled, setViewingStyled] = useState<{ assetId: string; caption: string } | null>(null);
   const [versionsFor, setVersionsFor] = useState<Slot | null>(null);
   const [planning, setPlanning] = useState<Slot | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -495,16 +496,18 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
   // Styles that already have a sample; "regenerate all" covers only these, not every built-in style.
   const generatedStyleIds = styles.data.filter((s) => slotByStyle.has(s.id)).map((s) => s.id);
 
-  const regenerate = async (styleIds: string[], label: string) => {
+  const regenerate = async (styleIds: string[], label: string, restyle = false) => {
     const choice = await ask({
       title: label,
-      message: "已有的样片会保留为历史版本。",
+      message: restyle
+        ? "两人的造型照会重新修一次（多 2 次编辑），再用新的造型照重拍样片。已有的样片和已经拍好的照片都会保留。"
+        : "已有的样片会保留为历史版本。",
       taskCount: styleIds.length,
     });
     if (!choice) return;
     setBusy(styleIds.length === 1 ? styleIds[0] : "all");
     try {
-      await api.createPreviews(project.id, { styleIds, model: choice.model });
+      await api.createPreviews(project.id, { styleIds, model: choice.model, restyle });
       await refresh();
     } catch (err) {
       toast.error(err);
@@ -593,6 +596,8 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
               busy={busy === style.id || busy === "all"}
               onView={setViewing}
               onRegenerate={() => regenerate([style.id], `${slotByStyle.get(style.id) ? "重新生成" : "生成"}「${style.name}」样片`)}
+              onRestyle={() => regenerate([style.id], `重做「${style.name}」的造型`, true)}
+              onViewStyled={(assetId, who) => setViewingStyled({ assetId, caption: `${style.name} · ${who}的造型照` })}
               onRetry={retry}
               onShoot={shoot}
               menu={slotByStyle.get(style.id) ? menuFor(slotByStyle.get(style.id)!) : null}
@@ -619,6 +624,9 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
             .join(" · ")}
           onClose={() => setViewing(null)}
         />
+      )}
+      {viewingStyled && (
+        <Lightbox src={assetUrl(viewingStyled.assetId)} caption={viewingStyled.caption} onClose={() => setViewingStyled(null)} />
       )}
       {versionsFor && (
         <VersionsDialog slot={versionsFor} onClose={() => setVersionsFor(null)} onChanged={refresh} />
@@ -703,6 +711,8 @@ function PreviewCard({
   busy,
   onView,
   onRegenerate,
+  onRestyle,
+  onViewStyled,
   onRetry,
   onShoot,
   onOpenAlbum,
@@ -718,6 +728,8 @@ function PreviewCard({
   busy: boolean;
   onView: (slot: Slot) => void;
   onRegenerate: () => void;
+  onRestyle: () => void;
+  onViewStyled: (assetId: string, who: string) => void;
   onRetry: (slot: Slot) => void;
   onShoot: (slot: Slot) => void;
   onOpenAlbum: () => void;
@@ -800,6 +812,29 @@ function PreviewCard({
           {style.description}
         </p>
         <FaceScore scores={version?.face_scores} />
+        {slot?.styled_asset_ids && (
+          <div className="styled-row">
+            {(["bride", "groom"] as const).map((role) => {
+              const who = role === "bride" ? "新娘" : "新郎";
+              return (
+                <button
+                  key={role}
+                  className="styled-thumb"
+                  onClick={() => onViewStyled(slot.styled_asset_ids![role], who)}
+                  title={`查看${who}的造型照`}
+                >
+                  <img src={assetUrl(slot.styled_asset_ids![role])} alt={`${who}的造型照`} />
+                </button>
+              );
+            })}
+            <div className="styled-info">
+              <span className="muted">造型照</span>
+              <button className="btn btn-ghost btn-sm" onClick={onRestyle} disabled={busy || generating}>
+                重做造型
+              </button>
+            </div>
+          </div>
+        )}
         <div className="preview-actions">
           <button className="btn btn-sm" onClick={onRegenerate} disabled={busy || generating}>
             {slot ? "重新生成" : "生成样片"}

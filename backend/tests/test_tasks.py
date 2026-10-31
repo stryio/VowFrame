@@ -258,8 +258,9 @@ def test_version_transaction_rolls_back_on_insert_failure(app_factory):
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
         wait_batch(client, batch['id'], status='needs_attention')
         with app.state.db.connect() as conn:
-            # Two people, each stored as the untouched upload plus the prepared reference; no generated asset.
-            assert conn.execute('SELECT COUNT(*) FROM image_assets').fetchone()[0] == 4
+            # Two people, each stored as the untouched upload plus the prepared reference, and a styled photo each
+            # (V4.0); no generated asset.
+            assert conn.execute('SELECT COUNT(*) FROM image_assets').fetchone()[0] == 6
             assert conn.execute('SELECT COUNT(*) FROM photo_versions').fetchone()[0] == 0
             task = conn.execute('SELECT * FROM generation_tasks').fetchone()
             assert task['status'] == 'failed' and task['output_asset_id'] is None
@@ -390,7 +391,8 @@ def test_file_is_fsynced_and_moved_before_database_completion(app_factory):
         with patch('app.storage.os.fsync', side_effect=fsync), patch('app.storage.os.replace', side_effect=replace), patch.object(TaskManager, '_commit_result', new=commit):
             batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
             wait_batch(client, batch['id'])
-        assert events == ['fsync', 'replace', 'fsync', 'commit']
+        # The two styled photos (V4.0) are saved the same way before the shot itself.
+        assert events == ['fsync', 'replace', 'fsync'] * 3 + ['commit']
 
 
 def test_missing_reference_fails_without_provider_request(app_factory):

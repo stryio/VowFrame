@@ -10,7 +10,7 @@ from app.face_swap import HELPER_PATH, FaceFusionSwapper, FaceSwapError, FaceSwa
 from app.task_manager import TaskManager
 from app.storage import asset_path
 from facefusion_helper.swap import _cuda_face_swapper_used, _face_turn, _facing, _scores, _similarity
-from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
+from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, preview_batch, uploaded_ids, wait_batch, wait_until
 
 
 # What the FaceFusion helper reports for a groom turned toward the picture's left.
@@ -170,7 +170,10 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
 
         with app.state.db.connect() as conn:
             row = conn.execute('SELECT * FROM generation_tasks WHERE id=?', (first_task['id'],)).fetchone()
-            assert json.loads(row['reference_image_ids']) == [
+            # The fronts are the styled photos of the sample (V4.0).
+            references = json.loads(row['reference_image_ids'])
+            assert references[:2] == [slots['korean_minimal']['styled_asset_ids'][role] for role in ('bride', 'groom')]
+            assert uploaded_ids(app, references) == [
                 project['person_a']['asset_id'], project['person_b']['asset_id'], None, None, None, None]
             snapshot = json.loads(row['model_config_snapshot'])
             assert snapshot == {
@@ -296,7 +299,8 @@ def test_missing_reference_asset_fails_without_retry(app_factory):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'], request_id='missing-reference-source')
         with app.state.db.connect() as conn:
-            reference_id = project['person_a']['asset_id']
+            # The swap uses the bride's styled photo (V4.0).
+            reference_id = slots['korean_minimal']['styled_asset_ids']['bride']
             row = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (reference_id,)).fetchone()
         asset_path(app.state.config, row['file_path']).unlink()
         batch = client.post(
@@ -557,9 +561,11 @@ def test_face_swap_passes_side_photos_by_role_and_slot(app_factory):
         with app.state.db.connect() as conn:
             references = json.loads(conn.execute(
                 'SELECT reference_image_ids FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()[0])
-        # [bride front, groom front, bride left, bride right, groom left, groom right]
-        assert references == [project['person_b']['asset_id'], project['person_a']['asset_id'],
-                              None, uploads[('b', 'right')], uploads[('a', 'left')], None]
+        # [bride front, groom front, bride left, bride right, groom left, groom right]; the fronts are styled photos,
+        # the side photos the sample never needed stay as uploaded (V4.0).
+        assert uploaded_ids(app, references) == [project['person_b']['asset_id'], project['person_a']['asset_id'],
+                                                 None, uploads[('b', 'right')], uploads[('a', 'left')], None]
+        assert references[2:] == [None, uploads[('b', 'right')], uploads[('a', 'left')], None]
         bride, groom = swapper.calls[-1][0], swapper.calls[-1][1]
         assert bride.left is None and bride.right is not None
         assert groom.left is not None and groom.right is None

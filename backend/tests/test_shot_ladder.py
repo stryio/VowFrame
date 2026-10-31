@@ -84,7 +84,7 @@ def test_change_shot_keeps_the_scene_of_the_source_photo(app_factory):
 
 
 def test_change_shot_takes_the_project_makeup_now(app_factory):
-    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
+    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
         preview_slot = preview_batch(client, project['id'], style_ids=['korean_minimal'])
@@ -97,5 +97,8 @@ def test_change_shot_takes_the_project_makeup_now(app_factory):
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'light'})
         changed = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'makeup-close', 'shot_size': 'close'})
         assert changed.status_code == 201, changed.text
+        wait_batch(client, changed.json()['id'])
+        # V4.0: the new shot is made from a styled photo edited at the current level.
+        assert '皮肤和妆容：新娘化清透的新娘妆' in app.state.stylist.calls[-1][1]
         task = client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json()[0]
-        assert '新娘化清透的新娘妆' in task['prompt'] and '新娘化精致的影楼新娘妆' not in task['prompt']
+        assert task['prompt'].split('\n\n')[1].startswith('图片角色：第一张图是新娘的造型照')

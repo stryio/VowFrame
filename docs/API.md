@@ -86,7 +86,8 @@
   "current_version": VersionRef | null,
   "version_count": 1,
   "latest_task": TaskBrief | null,
-  "is_stale": false
+  "is_stale": false,
+  "styled_asset_ids": {"bride": "…", "groom": "…"} | null
 }
 ```
 
@@ -95,7 +96,8 @@
 - `pose_name`：相册中显示的动作名称。AI 导演写的瞬间为其 `title`，旧版固定动作为动作名；样片为 null。均取自生成当前版本的任务（无版本时取最新任务）。
 - `shot_size`：`"wide" | "full" | "three_quarter" | "half" | "close" | "medium" | "extreme_close" | "detail" | null`，同样取自对应任务；旧版固定动作与样片为 null。`wide`（远景）自 V3.14 起重新启用；`medium`（中景）、`extreme_close`（特写）、`detail`（局部特写）是 V3.4～V3.11 的停用景别，只会出现在旧作品上。
 - `batch_id`：创建该位置的批次。
-- `is_stale`（由后端计算）：当前版本是用旧照片生成的，即生成它的任务的正面照或所用侧面照已不再是项目当前对应照片。样片参考图不参与侧照 stale 判断。没有当前版本时为 false。
+- `is_stale`（由后端计算）：当前版本是用旧照片生成的，即生成它的任务的正面照或所用侧面照已不再是项目当前对应照片。造型照按它来自的上传照片判断（V4.0）。样片参考图不参与侧照 stale 判断。没有当前版本时为 false。
+- `styled_asset_ids`（V4.0）：当前版本所用的两人正面造型照（图片用 `GET /api/assets/{id}` 读取）；V4.0 以前的作品和没有当前版本时为 null。
 
 ### PhotoSet（按风格汇总的「一组」，由后端计算）
 
@@ -337,7 +339,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail`；先检查人脸并裁到头肩（见下文），不合格时 422 `unusable_photo`，无法读取时 422 `invalid_image` |
 | DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |
 | GET | `/api/assets/{id}` | — | 图片文件 |
-| POST | `/api/projects/{id}/previews` | `{"client_request_id": string, "style_ids"?: string[], "model"?: string}` | `Batch`（201）；`model` 缺省用默认模型，不在列表中时 422 `invalid_model` |
+| POST | `/api/projects/{id}/previews` | `{"client_request_id": string, "style_ids"?: string[], "model"?: string, "restyle"?: boolean}` | `Batch`（201）；`model` 缺省用默认模型，不在列表中时 422 `invalid_model` |
 | POST | `/api/projects/{id}/moment-drafts` | `{"preview_slot_id": string, "count": 4 \| 8 \| 12 \| 20}` | `MomentDraft`（201）；同步调用 AI 导演 |
 | GET | `/api/moment-drafts/{id}` | — | `MomentDraft` |
 | PATCH | `/api/moment-drafts/{id}/moments/{index}` | `{"title"?: string, "shot_size"?: string, "orientation"?: string, "bride_facing"?: string, "groom_facing"?: string, "text"?: string, "faces_clear"?: boolean}` | `MomentDraft`；用户手动修改第 `index`（从 0 开始）个瞬间 |
@@ -379,7 +381,8 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - 502/504：保持现有文字，`error_code = "unknown_outcome"`。
 - **真实生成错误**：未建立连接为 `not_sent`，可自动重试；请求发送后读取、写入、协议异常以及生成成功后的图片下载失败为 `unknown_outcome`，任务保持 `interrupted`，不能自动重发。鉴权或余额不足为 `auth_or_quota`，暂停同批等待任务；HTTP 429 为 `rate_limited`，按 `Retry-After` 全局退避；审核/参数拒绝、服务端 HTTP 5xx、成功响应没有图片为 `rejected`。用户只看到中文提示，服务商原始错误只写入脱敏日志。真实调用与用户主动重试均可能收费。
 - **上传照片**：替换照片不删除、不清除任何已有内容；用旧照片生成的样片和作品通过 `is_stale` 标出（PRD 15.3）。旧图片文件不删除，因为可能仍被任务引用。
-- **生成样片**：两张照片齐全才允许，否则 409 `photos_missing`。`style_ids` 缺省为默认风格（`Style.default_preview` 为 true 的前 6 种）；前端在用户未选风格时不传该字段，「重新生成全部」只传已有样片的风格。每种风格复用该项目已有的样片位置（没有则新建），所以重生样片会产生新版本。
+- **生成样片**：两张照片齐全才允许，否则 409 `photos_missing`。`style_ids` 缺省为默认风格（`Style.default_preview` 为 true 的前 6 种）；前端在用户未选风格时不传该字段，「重新生成全部」只传已有样片的风格。每种风格复用该项目已有的样片位置（没有则新建），所以重生样片会产生新版本。`restyle: true`（「重做造型」）先作废这些风格现有的造型照，样片会用重新编辑的造型照拍摄。
+- **造型照（V4.0，docs/prompts.md 第 8 节）**：每个镜头（样片、拍组、换动作、换景别、加强长相）的任务在模型快照里记录创建时的造型 `styling`（两人的档位和头发长度）和每张参考图是谁的哪个角度 `reference_slots`；参考图先记上传照片，任务开始生成时换成这个风格对应的造型照（没有就先编辑一张，图片类型 `styled`，`source_asset_id` 指向上传照片），并写回任务的 `reference_image_ids`。同一风格、同一个人、同样的照片和造型只编辑一次，并行的镜头等它完成后复用。造型照的编辑失败按生成失败的同一套规则处理（自动重试、`interrupted`、暂停同批等），失败的镜头重试时复用已经做好的造型照。作品的「重新生成」原样重放任务记录的造型照。换脸使用该作品所用造型的造型照，没有造型照的侧面照用原照片。人脸相似度：单独打分的图与上传照片比较；换脸任务顺带测出的换脸前后分数由换脸程序与它收到的来源照片（即造型照）比较。
 - **防重复提交**：同一 `client_request_id` 再次提交，返回已存在的批次（200），不新建任务。
 - **手动重试**：任务只能成功手动重试一次。原任务行永不修改，新任务通过 `retry_of_task_id` 指向原任务；再次重试已被替代的任务返回 409 `task_already_retried`（`该任务已经重试过，请查看最新的任务`）。批次统计、项目任务统计和 `Slot.latest_task` 均只考虑重试链中最新的任务。
 - **AI 导演（moment-drafts）**（PRD 3.3）：

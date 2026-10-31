@@ -761,6 +761,46 @@ button:disabled {
   gap: 8px;
 }
 
+/* The couple's styled photos (V4.0) under a sample. */
+.styled-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.styled-thumb {
+  width: 44px;
+  height: 58px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-muted);
+  cursor: zoom-in;
+  flex: none;
+}
+
+.styled-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.styled-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.styled-info .btn {
+  padding: 0;
+  height: auto;
+  color: var(--accent-strong);
+}
+
 .preview-actions .btn {
   flex: 1;
 }

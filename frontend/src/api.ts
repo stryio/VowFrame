@@ -65,6 +65,8 @@ export interface Slot {
   latest_task: TaskBrief | null;
   /** Current version was generated from photos that have since been replaced. */
   is_stale: boolean;
+  /** The couple's styled photos the current version was shot from (V4.0); null for older pictures. */
+  styled_asset_ids: { bride: string; groom: string } | null;
 }
 
 export interface PhotoSet {
@@ -312,13 +314,14 @@ export const api = {
   deleteSideImage: (id: string, person: "a" | "b", angle: Exclude<Facing, "front">) =>
     request<void>(`/projects/${id}/images/${person}/${angle}`, { method: "DELETE" }),
 
-  createPreviews: (id: string, options: { styleIds?: string[]; model?: string } = {}) =>
+  createPreviews: (id: string, options: { styleIds?: string[]; model?: string; restyle?: boolean } = {}) =>
     request<Batch>(
       `/projects/${id}/previews`,
       json("POST", {
         client_request_id: crypto.randomUUID(),
         style_ids: options.styleIds,
         model: options.model,
+        restyle: options.restyle,
       }),
     ),
   createDraft: (projectId: string, previewSlotId: string, count: number) =>
