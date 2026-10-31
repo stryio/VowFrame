@@ -14,15 +14,17 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
+from PIL import Image
 from starlette.background import BackgroundTask
 
 from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
-from .face_swap import face_swap_reference_ids, face_swap_snapshot, face_swap_weight
+from .face_swap import face_scores, face_swap_reference_ids, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
 from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, compose_identity_boost_moment_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, makeup_from_prompt, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceSwapCreate, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
+from .photo_prep import PhotoRejected
 from .storage import asset_path, image_format, save_image
 
 router = APIRouter(prefix='/api')
@@ -83,12 +85,20 @@ def version_response(row):
     if row is None:
         return None
     result = dict(row)
+    result['face_scores'] = stored_face_scores(result.get('face_scores'))
     try:
         result['model'] = json.loads(result.pop('model_config_snapshot')).get('model')
     except (TypeError, ValueError, AttributeError):
         result['model'] = None
         result.pop('model_config_snapshot', None)
     return result
+
+
+def stored_face_scores(value):
+    try:
+        return face_scores(json.loads(value)) if value else None
+    except ValueError:
+        return None
 
 
 def invalid_model():
@@ -100,7 +110,7 @@ def slot_response(conn, slot, project):
     if project['person_a_role'] == 'groom':
         current_ids.reverse()
     version = conn.execute(
-        'SELECT version.id,version.image_asset_id AS asset_id,version.version_number,version.created_at,'
+        'SELECT version.id,version.image_asset_id AS asset_id,version.version_number,version.created_at,version.face_scores,'
         'task.model_config_snapshot,task.reference_image_ids,task.pose_id,task.moment_title,task.moment_shot_size,'
         'task.source_version_id FROM photo_versions version '
         'JOIN generation_tasks task ON task.id=version.generation_task_id WHERE version.id=?',
@@ -132,7 +142,7 @@ def slot_response(conn, slot, project):
     style = STYLE_BY_ID.get(slot['style_id'], {'name': slot['style_id']})
     version_data = None
     if version is not None:
-        version_data = version_response({key: version[key] for key in ('id', 'asset_id', 'version_number', 'created_at', 'model_config_snapshot', 'source_version_id')})
+        version_data = version_response({key: version[key] for key in ('id', 'asset_id', 'version_number', 'created_at', 'model_config_snapshot', 'source_version_id', 'face_scores')})
     latest_data = {key: latest[key] for key in ('id', 'status', 'error_code', 'error_message', 'model_config_snapshot', 'regenerate_mode')} if latest else None
     if latest_data is not None:
         try:
@@ -804,15 +814,28 @@ def upload_image(project_id: str, request: Request, person: Literal['a', 'b'] = 
         image_format(content)
     except ValueError as exc:
         error(422, 'invalid_image', str(exc))
-    asset_id, now = new_id(), utc_now()
+    # Check the face and crop to head and shoulders before anything is stored (app/photo_prep.py).
+    try:
+        prepared = request.app.state.photo_preparer.prepare(content)
+    except PhotoRejected as exc:
+        error(422, 'unusable_photo', exc.message)
+    except (OSError, ValueError, Image.DecompressionBombError):
+        error(422, 'invalid_image', '无法读取这张照片，请换一张后重试')
+    upload_id, asset_id, now = new_id(), new_id(), utc_now()
     with request.app.state.db.connect(write=True) as conn:
         project = get_project(conn, project_id)
         try:
-            relative = save_image(request.app.state.config, project_id, asset_id, content, original=True)
+            # The untouched upload is kept so photos can be prepared again if the rules change.
+            upload_path = save_image(request.app.state.config, project_id, upload_id, content, original=True)
+            relative = save_image(request.app.state.config, project_id, asset_id, prepared, original=True)
         except OSError:
             logger.exception('Upload storage failed for project %s', project_id)
             error(507, 'storage_error', '照片保存失败，请检查存储空间及目录权限')
-        conn.execute('INSERT INTO image_assets VALUES (?,?,?,?,?)', (asset_id, project_id, relative, 'original', now))
+        conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at) VALUES (?,?,?,?,?)',
+                     (upload_id, project_id, upload_path, 'upload', now))
+        # 'original' marks a person photo used as a reference (stale-photo checks rely on it).
+        conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at,source_asset_id) VALUES (?,?,?,?,?,?)',
+                     (asset_id, project_id, relative, 'original', now, upload_id))
         column = f'person_{person}_image_id' if angle == 'front' else f'person_{person}_{angle}_image_id'
         conn.execute(f'UPDATE projects SET {column}=?,updated_at=? WHERE id=?', (asset_id, now, project_id))
         return project_response(conn, get_project(conn, project_id))
@@ -1183,7 +1206,7 @@ def slot_versions(slot_id: str, request: Request):
     with request.app.state.db.connect() as conn:
         slot = get_slot(conn, slot_id)
         rows = conn.execute(
-            'SELECT version.id,version.image_asset_id AS asset_id,version.version_number,version.created_at,'
+            'SELECT version.id,version.image_asset_id AS asset_id,version.version_number,version.created_at,version.face_scores,'
             'task.model_config_snapshot,task.pose_id,task.moment_title,task.moment_shot_size,task.regenerate_mode,'
             'task.source_version_id '
             'FROM photo_versions version JOIN generation_tasks task ON task.id=version.generation_task_id '
@@ -1203,6 +1226,7 @@ def slot_versions(slot_id: str, request: Request):
                 'pose_name': value.get('moment_title') or (POSE_BY_ID.get(pose_id, {}).get('name') if pose_id else None),
                 'shot_size': value.get('moment_shot_size'),
                 'is_current': value['id'] == slot['current_version_id'],
+                'face_scores': stored_face_scores(value['face_scores']),
             })
             if result[-1]['shot_size'] is None:
                 result[-1].pop('shot_size')

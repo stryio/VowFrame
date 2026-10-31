@@ -21,6 +21,12 @@ export interface Person {
   role: Role;
 }
 
+/** Similarity to each person's uploaded front photo (FaceFusion's ArcFace); null when that face was not found. */
+export interface FaceScores {
+  bride: number | null;
+  groom: number | null;
+}
+
 export interface VersionRef {
   id: string;
   asset_id: string;
@@ -29,6 +35,8 @@ export interface VersionRef {
   model: string | null;
   /** Face-swap versions point at the version they were swapped from (same composition). */
   source_version_id: string | null;
+  /** Null until measured (and for pictures without faces to measure). */
+  face_scores?: FaceScores | null;
 }
 
 export interface TaskBrief {
@@ -184,6 +192,7 @@ export interface VersionDetail {
   regenerate_mode: VersionMode | null;
   source_version_id: string | null;
   is_current: boolean;
+  face_scores?: FaceScores | null;
 }
 
 export interface Style {

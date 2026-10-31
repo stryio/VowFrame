@@ -18,6 +18,7 @@ os.environ['VOWFRAME_LOCAL_CONFIG'] = str(Path(__file__).resolve().parent / 'con
 
 from app.config import Config
 from app.main import create_app
+from app.photo_prep import PassthroughPhotoPreparer
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/EcAAAAASUVORK5CYII=')
 
@@ -76,7 +77,8 @@ def app_factory(tmp_path):
     @contextmanager
     def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_swap=False):
         config = Config(data_dir or tmp_path / 'data', concurrency, 'mock', 0)
-        app = create_app(config, generator, face_swapper)
+        # Test photos are tiny placeholders without faces; photo preparation has its own tests.
+        app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer())
         # uvicorn[standard] uses uvloop on this Linux/Python 3.14 environment.
         # Match that loop in TestClient to avoid the stdlib portal wake-up stall.
         with TestClient(app, backend_options={'use_uvloop': True}) as client:

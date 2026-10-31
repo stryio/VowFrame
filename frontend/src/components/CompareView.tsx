@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { assetUrl } from "../api";
+import { assetUrl, type FaceScores } from "../api";
+import { FaceScore } from "./FaceScore";
 import { useCurrentProject } from "./Layout";
 
 export interface CompareAction {
@@ -14,6 +15,7 @@ export interface CompareItem {
   assetId: string;
   title: string;
   subtitle?: string;
+  scores?: FaceScores | null;
   actions?: CompareAction[];
 }
 
@@ -23,11 +25,10 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 
 /**
- * Full-screen comparison (PRD 4.6). Same composition (a face swap and its source) defaults
- * to "flip": one image in place, hold Space to see the other, with a shared zoom so the
- * same eye can be compared. Different compositions default to side by side. The
- * uploaded photos stay visible, because "像不像" is judged against them, not against
- * another generated image.
+ * Full-screen comparison (PRD 4.6). Always opens side by side, each image with its face
+ * similarity; "flip" (one image in place, hold Space to see the other, shared zoom) stays
+ * available for two images of the same composition. The uploaded photos stay visible,
+ * because "像不像" is judged against them, not against another generated image.
  */
 export function CompareView({
   title,
@@ -42,7 +43,7 @@ export function CompareView({
   onClose: () => void;
 }) {
   const canFlip = items.length === 2;
-  const [mode, setMode] = useState<Mode>(aligned && canFlip ? "flip" : "side");
+  const [mode, setMode] = useState<Mode>("side");
   const [base, setBase] = useState(0);
   const [peek, setPeek] = useState(false);
   const [showRefs, setShowRefs] = useState(true);
@@ -113,6 +114,7 @@ export function CompareView({
                   <button className="compare-chip-label" onClick={() => setBase(index)} title="设为默认显示">
                     <span>{item.title}</span>
                     {item.subtitle && <span className="compare-sub">{item.subtitle}</span>}
+                    <FaceScore scores={item.scores} />
                   </button>
                   <Actions actions={item.actions} />
                 </div>
@@ -134,6 +136,7 @@ export function CompareView({
                 <div className="compare-cell-title">
                   <span>{item.title}</span>
                   {item.subtitle && <span className="compare-sub">{item.subtitle}</span>}
+                  <FaceScore scores={item.scores} />
                 </div>
                 <ZoomPane layers={[item.assetId]} shown={0} />
                 <Actions actions={item.actions} />

@@ -38,6 +38,9 @@ def face_swap_weight(slot_kind: str) -> float:
 # (FaceFusion averages the identities of several source photos).
 FRONT_FACE_MODEL = 'hyperswap_1c_256'
 SIDE_FACE_MODEL = 'hyperswap_1b_256'
+# Face scoring loads FaceFusion once per call, then reads each picture.
+SCORE_TIMEOUT_SECONDS = 120
+SCORE_SECONDS_PER_IMAGE = 5
 # How far the nose sits from the eye midpoint, along the eye line, in eye distances. Calibrated on 146 faces
 # of real generated photos on 2026-10-28: ~0.12–0.16 is a slight turn (~15–20°), from ~0.19 a clear side
 # view; 0.18 sits between a frontal face and the ~45° side photos.
@@ -57,6 +60,28 @@ class FaceSwapResult:
     content: bytes
     # Per role ('bride' / 'groom'): turn, facing, model and the number of source photos actually used.
     faces: dict = field(default_factory=dict)
+    # Face similarity of the picture before and after the swap, each as face_scores() returns it.
+    scores: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ScoreItem:
+    """A finished picture and the two front photos it is compared with."""
+    bride: Path
+    groom: Path
+    target: Path
+
+
+def face_scores(value) -> dict | None:
+    """{'bride': x, 'groom': y}: cosine similarity of FaceFusion's ArcFace embeddings between the person's front
+    photo and their face in the picture; None for a person whose face was not found. None when not measured."""
+    if not isinstance(value, dict):
+        return None
+    result = {}
+    for role in ('bride', 'groom'):
+        score = value.get(role)
+        result[role] = round(float(score), 3) if isinstance(score, (int, float)) and not isinstance(score, bool) else None
+    return result
 
 
 def face_swap_reference_ids(project) -> list[str | None]:
@@ -91,6 +116,8 @@ class FaceSwapper(Protocol):
 
     def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult: ...
 
+    def score(self, items: list[ScoreItem]) -> list[dict | None]: ...
+
 
 class MockFaceSwapper:
     @property
@@ -99,6 +126,9 @@ class MockFaceSwapper:
 
     def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
         return FaceSwapResult(target.read_bytes())
+
+    def score(self, items: list[ScoreItem]) -> list[dict | None]:
+        return [None] * len(items)
 
 
 class UnavailableFaceSwapper:
@@ -110,6 +140,9 @@ class UnavailableFaceSwapper:
         return {'available': False, 'mode': None, 'reason': self.reason}
 
     def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
+        raise FaceSwapError('face_swap_failed')
+
+    def score(self, items: list[ScoreItem]) -> list[dict | None]:
         raise FaceSwapError('face_swap_failed')
 
 
@@ -155,52 +188,7 @@ class FaceFusionSwapper:
                 'side_model': SIDE_FACE_MODEL,
                 'side_turn': SIDE_FACE_TURN,
             }
-            environment = os.environ.copy()
-            site_packages = self.facefusion_dir / '.venv' / 'lib'
-            python_sites = sorted(
-                site_packages.glob('python*/site-packages/nvidia'),
-                key=lambda path: tuple(int(part) for part in path.parts[-3].removeprefix('python').split('.')),
-            )
-            cuda_library_dirs = []
-            if python_sites:
-                cuda_library_dirs.extend(
-                    str(candidate) for candidate in (
-                        python_sites[-1] / 'cu13' / 'lib',
-                        python_sites[-1] / 'cudnn' / 'lib',
-                    ) if candidate.is_dir()
-                )
-            if Path('/usr/lib/wsl/lib').is_dir():
-                cuda_library_dirs.append('/usr/lib/wsl/lib')
-            inherited = environment.get('LD_LIBRARY_PATH', '')
-            environment['LD_LIBRARY_PATH'] = os.pathsep.join(
-                cuda_library_dirs + ([inherited] if inherited else [])
-            )
-            environment['PYTHONPATH'] = os.pathsep.join(
-                [str(self.facefusion_dir), environment.get('PYTHONPATH', '')]
-            ).rstrip(os.pathsep)
-            environment['PYTHONDONTWRITEBYTECODE'] = '1'
-            try:
-                completed = subprocess.run(
-                    [str(self.python_path), str(self.helper_path)],
-                    input=json.dumps(payload),
-                    text=True,
-                    capture_output=True,
-                    timeout=self.timeout_seconds,
-                    cwd=self.facefusion_dir,
-                    env=environment,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning('FaceFusion helper timed out after %s seconds', self.timeout_seconds)
-                raise FaceSwapError('face_swap_failed') from None
-            except OSError as exc:
-                logger.warning('FaceFusion helper could not start (%s)', type(exc).__name__)
-                raise FaceSwapError('face_swap_failed') from None
-            try:
-                result = json.loads(completed.stdout)
-            except (TypeError, ValueError):
-                logger.warning('FaceFusion helper returned invalid JSON (exit_status=%s)', completed.returncode)
-                raise FaceSwapError('face_swap_failed') from None
+            completed, result = self._call_helper(payload, self.timeout_seconds)
             if completed.returncode != 0 or not isinstance(result, dict) or not result.get('ok'):
                 code = result.get('error_code') if isinstance(result, dict) else None
                 if code == 'roles_swapped':
@@ -225,10 +213,79 @@ class FaceFusionSwapper:
                 logger.warning('FaceFusion helper did not report the per-face models')
                 raise FaceSwapError('face_swap_failed')
             try:
-                return FaceSwapResult(output.read_bytes(), faces)
+                scores = result.get('scores') if isinstance(result.get('scores'), dict) else {}
+                return FaceSwapResult(output.read_bytes(), faces,
+                                      {key: face_scores(scores.get(key)) for key in ('before', 'after')})
             except OSError:
                 logger.warning('FaceFusion output could not be read')
                 raise FaceSwapError('face_swap_failed') from None
+
+    def _call_helper(self, payload: dict, timeout: float) -> tuple[subprocess.CompletedProcess, object]:
+        """Run the helper in FaceFusion's own venv; returns the process and its decoded JSON answer."""
+        environment = os.environ.copy()
+        site_packages = self.facefusion_dir / '.venv' / 'lib'
+        python_sites = sorted(
+            site_packages.glob('python*/site-packages/nvidia'),
+            key=lambda path: tuple(int(part) for part in path.parts[-3].removeprefix('python').split('.')),
+        )
+        cuda_library_dirs = []
+        if python_sites:
+            cuda_library_dirs.extend(
+                str(candidate) for candidate in (
+                    python_sites[-1] / 'cu13' / 'lib',
+                    python_sites[-1] / 'cudnn' / 'lib',
+                ) if candidate.is_dir()
+            )
+        if Path('/usr/lib/wsl/lib').is_dir():
+            cuda_library_dirs.append('/usr/lib/wsl/lib')
+        inherited = environment.get('LD_LIBRARY_PATH', '')
+        environment['LD_LIBRARY_PATH'] = os.pathsep.join(
+            cuda_library_dirs + ([inherited] if inherited else [])
+        )
+        environment['PYTHONPATH'] = os.pathsep.join(
+            [str(self.facefusion_dir), environment.get('PYTHONPATH', '')]
+        ).rstrip(os.pathsep)
+        environment['PYTHONDONTWRITEBYTECODE'] = '1'
+        try:
+            completed = subprocess.run(
+                [str(self.python_path), str(self.helper_path)],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                cwd=self.facefusion_dir,
+                env=environment,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning('FaceFusion helper timed out after %s seconds', timeout)
+            raise FaceSwapError('face_swap_failed') from None
+        except OSError as exc:
+            logger.warning('FaceFusion helper could not start (%s)', type(exc).__name__)
+            raise FaceSwapError('face_swap_failed') from None
+        try:
+            return completed, json.loads(completed.stdout)
+        except (TypeError, ValueError):
+            logger.warning('FaceFusion helper returned invalid JSON (exit_status=%s)', completed.returncode)
+            raise FaceSwapError('face_swap_failed') from None
+
+    def score(self, items: list[ScoreItem]) -> list[dict | None]:
+        with tempfile.TemporaryDirectory(prefix='vowframe-face-score-') as directory:
+            payload = {
+                'action': 'score',
+                'facefusion_dir': str(self.facefusion_dir),
+                'work_dir': directory,
+                'items': [{'bride': str(Path(item.bride).resolve()), 'groom': str(Path(item.groom).resolve()),
+                           'target': str(Path(item.target).resolve())} for item in items],
+            }
+            completed, result = self._call_helper(payload, SCORE_TIMEOUT_SECONDS + SCORE_SECONDS_PER_IMAGE * len(items))
+        scores = result.get('scores') if isinstance(result, dict) and result.get('ok') else None
+        if completed.returncode != 0 or not isinstance(scores, list) or len(scores) != len(items):
+            diagnostic = result.get('diagnostic') if isinstance(result, dict) else None
+            logger.warning('FaceFusion face scoring failed (exit_status=%s, diagnostic=%s)',
+                           completed.returncode, diagnostic if isinstance(diagnostic, str) else 'unavailable')
+            raise FaceSwapError('face_swap_failed')
+        return [face_scores(value) for value in scores]
 
 
 def create_face_swapper(config: Config) -> FaceSwapper:

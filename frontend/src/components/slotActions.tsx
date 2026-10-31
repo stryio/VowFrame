@@ -10,6 +10,7 @@ import {
   type VersionDetail,
 } from "../api";
 import { CompareView } from "./CompareView";
+import { FaceScore } from "./FaceScore";
 import { useConfirm, useToast } from "./feedback";
 import { useGenerateDialog } from "./GenerateDialog";
 
@@ -255,6 +256,7 @@ function VersionPairCompare({
         assetId: v.asset_id,
         title: versionTitle(v),
         subtitle: v.is_current ? "当前版本" : (v.model ?? undefined),
+        scores: v.face_scores,
         actions: [
           {
             label: v.is_current ? "当前版本" : "设为当前",
@@ -411,6 +413,7 @@ export function VersionsDialog({
                     )}
                     {v.pose_name && <span className="muted">{v.pose_name}</span>}
                     {v.model && <span className="muted">{v.model}</span>}
+                    <FaceScore scores={v.face_scores} />
                     <span className="muted">{new Date(v.created_at).toLocaleString("zh-CN")}</span>
                   </div>
                   <div className="version-actions">

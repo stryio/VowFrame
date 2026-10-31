@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { AttemptNotice } from "../components/AttemptNotice";
 import { CompareView } from "../components/CompareView";
+import { FaceScore, faceScoreText } from "../components/FaceScore";
 import { EmptyState, Lightbox, useToast } from "../components/feedback";
 import { useGenerateDialog } from "../components/GenerateDialog";
 import { useCurrentProject } from "../components/Layout";
@@ -199,6 +200,7 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
           <li>半身照效果优于证件照；证件照可以用，但效果可能较弱</li>
           <li>侧面照可选：约 45° 侧脸，只在脸朝同一侧的镜头里使用</li>
           <li>素颜照也可以，妆容按下面选的强度统一画；不要用美颜或修过图的照片</li>
+          <li>上传后会自动裁到头部和肩膀，缩略图就是实际使用的照片；照片里只能有本人</li>
         </ul>
       </div>
 
@@ -565,6 +567,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
             viewing.style_name,
             `V${viewing.current_version.version_number}`,
             viewing.current_version.model,
+            faceScoreText(viewing.current_version.face_scores),
           ]
             .filter(Boolean)
             .join(" · ")}
@@ -606,6 +609,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
             return {
               key: slot.id,
               assetId: slot.current_version!.asset_id,
+              scores: slot.current_version!.face_scores,
               title: slot.style_name,
               subtitle: [`V${slot.current_version!.version_number}`, slot.current_version!.model]
                 .filter(Boolean)
@@ -749,6 +753,7 @@ function PreviewCard({
         <p className="muted" style={{ fontSize: 12 }}>
           {style.description}
         </p>
+        <FaceScore scores={version?.face_scores} />
         <div className="preview-actions">
           <button className="btn btn-sm" onClick={onRegenerate} disabled={busy || generating}>
             {slot ? "重新生成" : "生成样片"}

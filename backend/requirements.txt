@@ -4,3 +4,5 @@ python-multipart
 httpx
 pytest
 pillow
+numpy
+opencv-python-headless

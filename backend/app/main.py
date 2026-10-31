@@ -17,6 +17,7 @@ from .db import Database
 from .director import Api88Director, MockDirector
 from .generator import ImageGenerator, MockGenerator
 from .face_swap import FaceSwapper, create_face_swapper
+from .photo_prep import FacePhotoPreparer, PhotoPreparer
 from .task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ def _configure_file_logging(data_dir: Path):
 
 
 def create_app(config: Config | None = None, generator: ImageGenerator | None = None,
-               face_swapper: FaceSwapper | None = None) -> FastAPI:
+               face_swapper: FaceSwapper | None = None, photo_preparer: PhotoPreparer | None = None) -> FastAPI:
     config = config if config is not None else load_config()
     if generator is None:
         if config.generator == 'mock':
@@ -81,6 +82,7 @@ def create_app(config: Config | None = None, generator: ImageGenerator | None = 
     application.state.generator = generator
     application.state.face_swapper = face_swapper
     application.state.director = director
+    application.state.photo_preparer = photo_preparer or FacePhotoPreparer()
 
     @application.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException):

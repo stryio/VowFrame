@@ -9,7 +9,7 @@ from app.config import load_config
 from app.face_swap import HELPER_PATH, FaceFusionSwapper, FaceSwapError, FaceSwapResult, MockFaceSwapper, create_face_swapper
 from app.task_manager import TaskManager
 from app.storage import asset_path
-from facefusion_helper.swap import _cuda_face_swapper_used, _face_turn, _facing
+from facefusion_helper.swap import _cuda_face_swapper_used, _face_turn, _facing, _scores, _similarity
 from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
 
 
@@ -20,10 +20,14 @@ SCRIPTED_FACES = {
 }
 
 
+SCRIPTED_SCORES = {'before': {'bride': 0.41, 'groom': 0.38}, 'after': {'bride': 0.72, 'groom': None}}
+
+
 class ScriptedFaceSwapper:
     def __init__(self, outcomes=()):
         self.outcomes = list(outcomes)
         self.calls = []
+        self.scored = []
 
     @property
     def status(self):
@@ -34,7 +38,11 @@ class ScriptedFaceSwapper:
         outcome = self.outcomes.pop(0) if self.outcomes else None
         if isinstance(outcome, Exception):
             raise outcome
-        return FaceSwapResult(target.read_bytes(), SCRIPTED_FACES)
+        return FaceSwapResult(target.read_bytes(), SCRIPTED_FACES, SCRIPTED_SCORES)
+
+    def score(self, items):
+        self.scored.extend(items)
+        return [{'bride': 0.55, 'groom': 0.61} for _ in items]
 
 
 class BlockingAuthGenerator:
@@ -576,3 +584,61 @@ def test_back_view_and_silhouette_shots_are_not_swapped_automatically(app_factor
                             json={'client_request_id': 'faceless', 'draft_id': draft['id']}).json()
         wait_batch(client, batch['id'])
         assert len(swapper.calls) == 2  # only the two shots with faces
+
+
+def test_a_swap_records_the_face_similarity_before_and_after(app_factory):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=ScriptedFaceSwapper(), auto_face_swap=True,
+                     concurrency=1) as (client, _app):
+        project = create_project(client)
+        _, slots = ready_preview(client, project['id'])
+        swapped, original = client.get(f"/api/slots/{slots['korean_minimal']['id']}/versions").json()
+        assert original['face_scores'] == SCRIPTED_SCORES['before']
+        assert swapped['face_scores'] == SCRIPTED_SCORES['after']  # null: the groom's face was not found
+        assert slots['korean_minimal']['current_version']['face_scores'] == SCRIPTED_SCORES['after']
+
+
+def test_a_picture_that_is_not_swapped_is_scored_on_its_own(app_factory):
+    swapper = ScriptedFaceSwapper()
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, concurrency=1) as (client, _app):
+        project = create_project(client)
+        _, slots = ready_preview(client, project['id'])
+        slot_id = slots['korean_minimal']['id']
+        version = wait_until(lambda: client.get(f'/api/slots/{slot_id}/versions').json()[0],
+                             lambda value: value['face_scores'] is not None)
+        assert version['face_scores'] == {'bride': 0.55, 'groom': 0.61}
+        assert swapper.calls == []
+        # Compared with the photos the picture was made from, bride first.
+        item = swapper.scored[0]
+        assert item.bride.stem == project['person_a']['asset_id'] and item.groom.stem == project['person_b']['asset_id']
+
+
+def test_pictures_without_a_score_are_scored_after_a_restart(app_factory, tmp_path):
+    data_dir = tmp_path / 'restart'
+    with app_factory(generator=ScriptedGenerator(), face_swapper=MockFaceSwapper(), concurrency=1,
+                     data_dir=data_dir) as (client, _app):
+        project = create_project(client)
+        _, slots = ready_preview(client, project['id'])  # the mock swapper cannot measure faces
+    swapper = ScriptedFaceSwapper()
+    with app_factory(face_swapper=swapper, data_dir=data_dir) as (client, _app):
+        slot_id = slots['korean_minimal']['id']
+        version = wait_until(lambda: client.get(f'/api/slots/{slot_id}/versions').json()[0],
+                             lambda value: value['face_scores'] is not None)
+        assert version['face_scores'] == {'bride': 0.55, 'groom': 0.61}
+
+
+def test_similarity_compares_each_role_with_its_own_photo():
+    class Face:
+        def __init__(self, gender, embedding, size=10):
+            self.gender, self.embedding, self.size = gender, embedding, size
+
+    def order(faces, _direction):
+        return sorted(faces, key=lambda face: face.size, reverse=True)
+
+    bride, groom = Face('female', [1.0, 0.0]), Face('male', [0.0, 2.0])
+    assert _similarity(Face('female', [3.0, 0.0]), bride) == 1.0
+    assert _similarity(Face('female', [1.0, 1.0]), bride) == 0.707
+    assert _similarity(None, bride) is None
+    picture = [Face('female', [1.0, 1.0], 30), Face('female', [1.0, 0.0], 5), Face('male', [0.0, -1.0])]
+    # The largest face of each gender is the person; a missing face scores None.
+    assert _scores(picture, {'bride': bride, 'groom': groom}, order) == {'bride': 0.707, 'groom': -1.0}
+    assert _scores(picture[:2], {'bride': bride, 'groom': groom}, order) == {'bride': 0.707, 'groom': None}

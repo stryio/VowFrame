@@ -52,11 +52,14 @@
 ### VersionRef
 
 ```json
-{ "id": "…", "asset_id": "…", "version_number": 1, "created_at": "…", "model": "gpt-image-2" | null, "source_version_id": "…" | null }
+{ "id": "…", "asset_id": "…", "version_number": 1, "created_at": "…", "model": "gpt-image-2" | null, "source_version_id": "…" | null,
+  "face_scores": { "bride": 0.62, "groom": null } | null }
 ```
 
 - `model`：生成该版本的任务所用模型（取自任务的模型配置快照）；换脸版本为两人实际所用模型「新娘/新郎」，如 `hyperswap_1c_256/hyperswap_1b_256`（2026-10-28 之前的换脸版本为 `hyperswap_1a_256/hyperswap_1c_256`）；模拟生成或无法确定时为 null。既有版本仍按其创建时的快照显示。
 - `source_version_id`：换脸版本的来源版本（换脸时输入的那个版本）；其他版本为 null。
+- `face_scores`：新娘、新郎各自与生成该版本所用正脸照的人脸相似度（FaceFusion ArcFace 余弦相似度，保留 3 位小数，PRD 4.6）。某人为 null 表示画面里没找到这个人的脸；整个字段为 null 表示尚未测量（FaceFusion 不可用、细节特写、或排队中）。
+  - 测量时机：换脸任务在同一次 FaceFusion 调用里测量换脸前后两张图，换脸前的分数写到来源版本（来源版本已有分数时保留原值）；没有排队换脸的生成版本，在换脸通道空闲时单独测量（每次最多 20 张）。后端启动时为所有尚未测量的版本补算。测量失败只记日志，不重试，下次启动再试。
 
 ### TaskBrief
 
@@ -213,13 +216,15 @@ ProjectSummary 加上：
   "pose_name": "新郎从背后拥抱新娘" | null,
   "regenerate_mode": "same" | "identity_boost" | "change_pose" | "change_shot" | "face_swap" | null,
   "source_version_id": "…" | null,
-  "is_current": true
+  "is_current": true,
+  "face_scores": { "bride": 0.62, "groom": 0.55 } | null
 }
 ```
 
 - `pose_id` / `pose_name`：生成该版本的任务所用动作（换动作后各版本可能不同）；样片为 null。
 - `regenerate_mode`：生成该版本的任务属于哪种重生；首次生成为 null；换脸修正为 `face_swap`。
-- `source_version_id`：同 VersionRef。换脸版本与其来源版本构图相同，前端据此默认用「切换」方式对比（PRD 4.6）。
+- `source_version_id`：同 VersionRef。换脸版本与其来源版本构图相同，前端据此允许用「切换」方式对比（PRD 4.6）。
+- `face_scores`：同 VersionRef。
 
 ### Moment（AI 导演写的一个镜头）
 
@@ -324,7 +329,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/projects/{id}` | — | `ProjectDetail` |
 | PATCH | `/api/projects/{id}` | `{"name"?: string, "person_a_role"?: Role, "makeup_level"?: "light" \| "natural" \| "refined"}` | `ProjectDetail`；字段为 null 或档位无效时 422 |
 | DELETE | `/api/projects/{id}` | — | 204；存在 `running` 任务时 409 `project_busy`（先取消剩余任务） |
-| POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail` |
+| POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail`；先检查人脸并裁到头肩（见下文），不合格时 422 `unusable_photo`，无法读取时 422 `invalid_image` |
 | DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |
 | GET | `/api/assets/{id}` | — | 图片文件 |
 | POST | `/api/projects/{id}/previews` | `{"client_request_id": string, "style_ids"?: string[], "model"?: string}` | `Batch`（201）；`model` 缺省用默认模型，不在列表中时 422 `invalid_model` |
@@ -349,6 +354,13 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/tasks` | 查询参数 `project_id`、`batch_id`、`status`（均可选） | `Task[]`，按创建时间倒序 |
 | POST | `/api/tasks/{id}/retry` | — | 新 `Task`（201）；仅 `failed`/`interrupted` 可重试 |
 | POST | `/api/tasks/{id}/cancel` | — | `Task`；仅 `waiting`/`held` 可取消 |
+
+**上传照片的预处理**（`backend/app/photo_prep.py`）：生图模型会把参考图缩到约 1024 像素再看，手机全身照里的脸只剩百余像素，长相还原差；所以上传时先用 YuNet 人脸检测（OpenCV，模型在 `backend/app/assets/`，MIT 许可）检查，再裁到头肩。
+
+- 拒绝（422 `unusable_photo`，`message` 为原因）：没有检测到人脸；有另一张面积不小于主脸 25% 的脸（照片里不止一个人）；主脸的短边小于 120 像素（太小或太模糊）。远处路人的小脸不算。
+- 裁剪：以主脸为中心，宽 3 个脸宽，脸上方 0.7 个脸高、下方 1.3 个脸高，超出照片的部分不补边；长边超过 2048 像素时缩小。按 EXIF 方向转正，透明图保存为 PNG，其余为 JPEG。
+- 不做 AI 放大或人脸修复（会改变长相），也不抠图换背景。
+- 原样的上传另存为 `asset_type = 'upload'`；裁好的照片是 `asset_type = 'original'`，`source_asset_id` 指向原样的上传。项目引用、生图和换脸都用裁好的照片。在此以前上传的照片没有裁剪，保持原样。
 
 ### 规则补充
 

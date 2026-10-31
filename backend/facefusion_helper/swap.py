@@ -16,6 +16,24 @@ def _largest_face(faces, order):
     return ordered[0] if ordered else None
 
 
+def _similarity(face, reference):
+    """Cosine similarity of two faces' ArcFace embeddings (FaceFusion's face recognizer), or None without both."""
+    if face is None or reference is None:
+        return None
+    import numpy
+
+    a = numpy.asarray(face.embedding, dtype=numpy.float64).ravel()
+    b = numpy.asarray(reference.embedding, dtype=numpy.float64).ravel()
+    return round(float(a @ b / (numpy.linalg.norm(a) * numpy.linalg.norm(b))), 3)
+
+
+def _scores(faces, references, order):
+    """Per role: the largest face of that gender in the picture against that person's front photo."""
+    people = {'bride': 'female', 'groom': 'male'}
+    return {role: _similarity(_largest_face([face for face in faces if face.gender == gender], order), references[role])
+            for role, gender in people.items()}
+
+
 def _face_turn(face):
     """Nose offset from the eye midpoint along the eye line, in eye distances (independent of head tilt).
 
@@ -139,10 +157,12 @@ def _run(payload):
             return _largest_face(get_static_faces([frame]), sort_faces_by_order)
 
         people = {'bride': 'female', 'groom': 'male'}
+        references = {}
         for role, gender in people.items():
             face = largest_face(payload[role]['front'])
             if face is None or face.gender != gender:
                 return {'ok': False, 'error_code': 'roles_swapped'}
+            references[role] = face
 
         target_frame = read_static_image(payload['target_path'])
         if target_frame is None:
@@ -206,16 +226,76 @@ def _run(payload):
         final_frame = read_static_image(str(raw_output_path))
         if final_frame is None:
             raise RuntimeError('FaceFusion output image could not be decoded')
+        scores = {'before': _scores(target_faces, references, sort_faces_by_order),
+                  'after': _scores(get_static_faces([final_frame]), references, sort_faces_by_order)}
         from facefusion.vision import write_image
         if not write_image(payload['output_path'], final_frame):
             raise RuntimeError('FaceFusion could not encode the PNG output')
-        return {'ok': True, 'cuda_face_swapper_used': swapper_cuda_used, 'faces': faces}
+        return {'ok': True, 'cuda_face_swapper_used': swapper_cuda_used, 'faces': faces, 'scores': scores}
+
+
+def _score(payload):
+    """Face similarity of finished pictures, without swapping: {'bride': x, 'groom': y} per picture."""
+    facefusion_dir = Path(payload['facefusion_dir']).resolve()
+    sys.path.insert(0, str(facefusion_dir))
+
+    import onnxruntime
+    from facefusion import core, logger, state_manager
+    from facefusion.args import apply_args
+    from facefusion.face_creator import get_static_faces
+    from facefusion.face_selector import sort_faces_by_order
+    from facefusion.program import create_program
+    from facefusion.vision import read_static_image
+
+    work_dir = Path(payload['work_dir']).resolve()
+    items = payload['items']
+    provider = 'cuda' if 'CUDAExecutionProvider' in onnxruntime.get_available_providers() else 'cpu'
+    # Same detector and recognizer as the swap, so scores before and after a swap are comparable.
+    args = [
+        'headless-run',
+        '--config-path', str(facefusion_dir / 'facefusion.ini'),
+        '--jobs-path', str(work_dir / 'jobs'),
+        '--temp-path', str(work_dir / 'facefusion-temp'),
+        '--execution-providers', provider,
+        '--processors', 'face_swapper',
+        '--face-detector-model', 'yolo_face',
+        '-s', items[0]['bride'],
+        '-t', items[0]['target'],
+        '-o', str(work_dir / 'unused.png'),
+    ]
+    sys.argv = [str(facefusion_dir / 'facefusion.py'), *args]
+    state_args = vars(create_program().parse_args(args))
+    with contextlib.redirect_stdout(sys.stderr):
+        logger.init('error')
+        apply_args(state_args, state_manager.init_item)
+        state_manager.set_item('face_detector_model', 'yolo_face')
+        if not core.common_pre_check():
+            raise RuntimeError('FaceFusion content-analyser source validation failed')
+
+        cache = {}
+
+        def faces(path):
+            if path not in cache:
+                frame = read_static_image(path)
+                cache[path] = None if frame is None else get_static_faces([frame])
+            return cache[path]
+
+        def reference(path):
+            found = faces(path)
+            return _largest_face(found, sort_faces_by_order) if found else None
+
+        scores = []
+        for item in items:
+            found = faces(item['target'])
+            scores.append(None if found is None else _scores(
+                found, {'bride': reference(item['bride']), 'groom': reference(item['groom'])}, sort_faces_by_order))
+        return {'ok': True, 'scores': scores}
 
 
 def main():
     try:
         payload = json.load(sys.stdin)
-        result = _run(payload)
+        result = _score(payload) if payload.get('action') == 'score' else _run(payload)
     except Exception as exc:
         result = {'ok': False, 'error_code': 'face_swap_failed', 'diagnostic': type(exc).__name__}
     _emit(result)

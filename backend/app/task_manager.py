@@ -10,13 +10,15 @@ import time
 from .config import Config
 from .db import Database, new_id, utc_now
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
-from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, create_face_swapper, face_swap_applied_snapshot,
-                        face_swap_reference_ids, face_swap_snapshot, face_swap_weight)
+from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, create_face_swapper,
+                        face_swap_applied_snapshot, face_swap_reference_ids, face_swap_snapshot, face_swap_weight)
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, POSE_BY_ID, is_faceless_shot
 from .storage import asset_path, save_image
 
 logger = logging.getLogger(__name__)
+# Pictures per face-scoring run.
+SCORE_CHUNK = 20
 
 
 class TaskManager:
@@ -29,6 +31,8 @@ class TaskManager:
         self._stopping = False
         self._jobs: set[asyncio.Task] = set()
         self._face_jobs: set[asyncio.Task] = set()
+        # Versions waiting for a face-similarity score; scored in the face lane when no swap is waiting.
+        self._score_queue: list[str] = []
         self._dispatcher: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._backoff_until = 0.0
@@ -55,6 +59,14 @@ class TaskManager:
 
     async def start(self):
         self._loop = asyncio.get_running_loop()
+        if self.swapper.status['available']:
+            # Pictures made before scoring existed, or whose scoring was cut short by a restart.
+            with self.db.connect() as conn:
+                self._score_queue = [row['id'] for row in conn.execute(
+                    'SELECT version.id FROM photo_versions version '
+                    'JOIN generation_tasks task ON task.id=version.generation_task_id '
+                    'WHERE version.face_scores IS NULL AND (task.moment_shot_size IS NULL OR task.moment_shot_size<>?) '
+                    'ORDER BY version.created_at DESC', (DETAIL_SHOT,))]
         self._dispatcher = asyncio.create_task(self._dispatch(), name='vowframe-scheduler')
 
     def notify(self):
@@ -107,6 +119,12 @@ class TaskManager:
                     if task is None:
                         break
                     job = asyncio.create_task(self._execute_face_swap(task), name=f"face-swap-{task['id']}")
+                    self._face_jobs.add(job)
+                    job.add_done_callback(lambda completed: self._job_done(completed, self._face_jobs))
+                if not self._face_jobs and self._score_queue and not self._stopping:
+                    # One FaceFusion start per chunk; small chunks keep a waiting swap from queueing behind a long backlog.
+                    chunk, self._score_queue = self._score_queue[:SCORE_CHUNK], self._score_queue[SCORE_CHUNK:]
+                    job = asyncio.create_task(self._execute_scoring(chunk), name='face-score')
                     self._face_jobs.add(job)
                     job.add_done_callback(lambda completed: self._job_done(completed, self._face_jobs))
             except Exception:
@@ -237,7 +255,7 @@ class TaskManager:
         try:
             asset_id = new_id()
             relative_path = await asyncio.to_thread(save_image, self.config, task['project_id'], asset_id, content)
-            self._commit_result(task, asset_id, relative_path)
+            self._commit_result(task, asset_id, relative_path, result.scores)
         except OSError:
             self._fail(task, 'storage_error', '图片保存失败，请检查存储空间及目录权限', hold=False)
         except Exception:
@@ -266,7 +284,42 @@ class TaskManager:
         status = self.swapper.status
         return status['mode'] if status['available'] else None
 
-    def _commit_result(self, task: dict, asset_id: str, relative_path: str):
+    async def _execute_scoring(self, version_ids: list[str]):
+        try:
+            items, scored = [], []
+            with self.db.connect() as conn:
+                for version_id in version_ids:
+                    row = conn.execute(
+                        'SELECT asset.file_path,task.reference_image_ids FROM photo_versions version '
+                        'JOIN image_assets asset ON asset.id=version.image_asset_id '
+                        'JOIN generation_tasks task ON task.id=version.generation_task_id WHERE version.id=?',
+                        (version_id,),
+                    ).fetchone()
+                    if row is None:
+                        continue  # deleted while waiting
+                    # Every task keeps [bride front, groom front] first.
+                    references = json.loads(row['reference_image_ids'])[:2]
+                    paths = [conn.execute('SELECT file_path FROM image_assets WHERE id=?', (asset_id,)).fetchone()
+                             for asset_id in references]
+                    if len(paths) < 2 or None in paths:
+                        continue
+                    bride, groom, target = (asset_path(self.config, item['file_path']) for item in (*paths, row))
+                    if bride.is_file() and groom.is_file() and target.is_file():
+                        items.append(ScoreItem(bride, groom, target))
+                        scored.append(version_id)
+            if not items:
+                return
+            scores = await asyncio.to_thread(self.swapper.score, items)
+            with self.db.connect(write=True) as conn:
+                for version_id, value in zip(scored, scores):
+                    if value is not None:
+                        conn.execute('UPDATE photo_versions SET face_scores=? WHERE id=? AND face_scores IS NULL',
+                                     (json.dumps(value), version_id))
+        except Exception:
+            # A score is only shown to help judge the picture; never retried in a loop, the next start tries again.
+            logger.warning('Face scoring failed for %s versions', len(version_ids), exc_info=True)
+
+    def _commit_result(self, task: dict, asset_id: str, relative_path: str, scores: dict | None = None):
         now = utc_now()
         version_id = new_id()
         swap_mode = self._auto_face_swap_mode(task)
@@ -282,10 +335,17 @@ class TaskManager:
                 (task['target_slot_id'],),
             ).fetchone()[0]
             asset_type = 'preview' if task['pose_id'] is None and task['moment_title'] is None else 'photo'
-            conn.execute('INSERT INTO image_assets VALUES (?,?,?,?,?)',
+            conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at) VALUES (?,?,?,?,?)',
                          (asset_id, task['project_id'], relative_path, asset_type, now))
-            conn.execute('INSERT INTO photo_versions VALUES (?,?,?,?,?,?)',
-                         (version_id, task['target_slot_id'], asset_id, task['id'], number, now))
+            scores = scores or {}
+            conn.execute('INSERT INTO photo_versions (id,photo_slot_id,image_asset_id,generation_task_id,version_number,'
+                         'created_at,face_scores) VALUES (?,?,?,?,?,?,?)',
+                         (version_id, task['target_slot_id'], asset_id, task['id'], number, now,
+                          json.dumps(scores['after']) if scores.get('after') else None))
+            if scores.get('before'):
+                # The swap measured the picture it started from too; keep a score made earlier.
+                conn.execute('UPDATE photo_versions SET face_scores=? WHERE id=? AND face_scores IS NULL',
+                             (json.dumps(scores['before']), task['source_version_id']))
             pose_name = task['moment_title'] or (POSE_BY_ID.get(task['pose_id'], {}).get('name') if task['pose_id'] else None)
             conn.execute(
                 'UPDATE photo_slots SET current_version_id=?,pose_id=?,pose_name=?,shot_size=? WHERE id=?',
@@ -307,6 +367,11 @@ class TaskManager:
                      task['moment_title'], task['moment_shot_size'], face_swap_snapshot(swap_mode, face_swap_weight(slot_kind)), version_id, now),
                 )
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, task['project_id']))
+        if (swap_mode is None and task['regenerate_mode'] != 'face_swap' and task['moment_shot_size'] != DETAIL_SHOT
+                and self.swapper.status['available']):
+            # A queued swap measures this picture itself; otherwise score it on its own.
+            self._score_queue.append(version_id)
+            self._wake.set()
 
     def _fail(self, task: dict, code: str, message: str, *, hold: bool = False, status: str = 'failed'):
         with self.db.connect(write=True) as conn:

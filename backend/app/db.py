@@ -144,6 +144,8 @@ class Database:
                     connection.execute(f'ALTER TABLE {table} ADD COLUMN {definition}')
 
             add_column('generation_batches', 'style_id TEXT REFERENCES style_presets(id)')
+            add_column('image_assets', 'source_asset_id TEXT REFERENCES image_assets(id)')
+            add_column('photo_versions', 'face_scores TEXT')
             add_column('projects', 'person_a_left_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_a_right_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_b_left_image_id TEXT REFERENCES image_assets(id)')

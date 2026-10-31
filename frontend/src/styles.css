@@ -1724,6 +1724,17 @@ button.status-chip {
   color: #9a938a;
 }
 
+.face-score {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.compare .face-score {
+  color: #c9c2b8;
+}
+
 .zoom-pane {
   position: relative;
   flex: 1;

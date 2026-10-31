@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, assetUrl, hasFaces, isBroken, isFaceSwapped, isGenerating, SHOT_LABEL, type Slot, type SlotAction } from "../api";
 import { AttemptNotice } from "../components/AttemptNotice";
 import { CompareView } from "../components/CompareView";
+import { FaceScore, faceScoreText } from "../components/FaceScore";
 import { EmptyState, useToast } from "../components/feedback";
 import { useCurrentProject } from "../components/Layout";
 import {
@@ -331,6 +332,7 @@ export function AlbumPage() {
           items={chosenViewable.slice(0, MAX_COMPARE).map((slot) => ({
             key: slot.id,
             assetId: slot.current_version!.asset_id,
+            scores: slot.current_version!.face_scores,
             title: `${String(visible.indexOf(slot) + 1).padStart(2, "0")} ${slot.pose_name ?? slot.style_name}`,
             subtitle: [slot.shot_size ? SHOT_LABEL[slot.shot_size] : null, active === ALL ? slot.style_name : null]
               .filter(Boolean)
@@ -456,6 +458,7 @@ function PhotoCard({
               .filter(Boolean)
               .join(" · ")}
           </span>
+          <FaceScore scores={version?.face_scores} />
         </div>
         {!selecting && <SlotMenu items={menu} />}
       </div>
@@ -523,7 +526,9 @@ function PhotoViewer({
         <img src={assetUrl(version.asset_id)} alt={slot.pose_name ?? ""} />
         <div className="lightbox-bar">
           <span className="lightbox-caption">
-            {[slot.style_name, slot.pose_name, `V${version.version_number}`, version.model].filter(Boolean).join(" · ")}
+            {[slot.style_name, slot.pose_name, `V${version.version_number}`, version.model, faceScoreText(version.face_scores)]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
           {items
             .filter((item) => !item.danger && item.label !== "下载")

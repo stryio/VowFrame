@@ -7,6 +7,12 @@
 .venv/bin/python -m pytest -q
 ```
 
+依赖见 `requirements.txt`。上传照片的人脸检测和裁剪用到 `numpy` 和 `opencv-python-headless`，更新代码后需要安装：
+
+```bash
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
 HTTP 契约见 `../docs/API.md`。本轮实现项目、上传、样片、按风格拍组及任务控制；
 模拟生成器原样返回第一张
 参考照片，不会生成新的摄影作品。测试可以通过

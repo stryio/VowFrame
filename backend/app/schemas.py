@@ -160,6 +160,12 @@ class Person(BaseModel):
     role: Role
 
 
+class FaceScores(BaseModel):
+    """Similarity to each person's front photo (FaceFusion's ArcFace); null when that face was not found."""
+    bride: float | None
+    groom: float | None
+
+
 class VersionRef(BaseModel):
     id: str
     asset_id: str
@@ -167,6 +173,7 @@ class VersionRef(BaseModel):
     created_at: str
     model: str | None
     source_version_id: str | None
+    face_scores: FaceScores | None = None
 
 
 class VersionDetail(BaseModel):
@@ -181,6 +188,7 @@ class VersionDetail(BaseModel):
     regenerate_mode: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap'] | None
     source_version_id: str | None
     is_current: bool
+    face_scores: FaceScores | None = None
 
 
 class TaskBrief(BaseModel):

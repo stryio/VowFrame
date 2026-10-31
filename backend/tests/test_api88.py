@@ -25,6 +25,7 @@ from app.api88 import (
 from app.config import Config, load_config
 from app.generator import GeneratorError, MockGenerator, OutcomeKind
 from app.main import create_app
+from app.photo_prep import PassthroughPhotoPreparer
 from app.storage import outgoing_image
 from conftest import PNG, create_project, preview_batch, wait_batch
 
@@ -334,8 +335,8 @@ def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handl
     def handler(request):
         raise httpx.ReadError(f'provider echoed {TEST_KEY}', request=request)
 
-    app = create_app(config, make_generator(config, handler))
-    second_app = create_app(config, make_generator(config, handler))
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
+    second_app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     assert app is not second_app
     with TestClient(app, backend_options={'use_uvloop': True}):
         pass
@@ -462,7 +463,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
         calls.append(request)
         return image_response()
 
-    app = create_app(config, make_generator(config, handler))
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     with caplog.at_level(logging.DEBUG):
         with TestClient(app, backend_options={'use_uvloop': True}) as client:
             health = client.get('/api/health')
@@ -509,7 +510,7 @@ def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected,
             raise exception('simulated network failure')
         return image_response()
 
-    app = create_app(config, make_generator(config, handler))
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     with TestClient(app, backend_options={'use_uvloop': True}) as client:
         project = create_project(client)
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])

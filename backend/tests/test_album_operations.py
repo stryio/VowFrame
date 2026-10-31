@@ -302,7 +302,8 @@ def test_versions_restore_pose_and_foreign_version_rejection(app_factory):
         versions = versions.json()
         assert [version['version_number'] for version in versions] == [2, 1]
         assert set(versions[0]) == {'id', 'asset_id', 'version_number', 'created_at', 'model', 'pose_id',
-                                    'pose_name', 'shot_size', 'regenerate_mode', 'source_version_id', 'is_current'}
+                                    'pose_name', 'shot_size', 'regenerate_mode', 'source_version_id', 'is_current',
+                                    'face_scores'}
         assert versions[0]['regenerate_mode'] == 'same' and versions[0]['is_current'] is True
         assert versions[1]['regenerate_mode'] is None and versions[1]['is_current'] is False
         restored = client.post(f"/api/slots/{slot['id']}/restore", json={'version_id': versions[1]['id']})
@@ -464,7 +465,7 @@ def test_previous_generation_task_schema_migrates_without_losing_rows_or_version
     with db.connect(write=True) as conn:
         conn.execute('INSERT INTO projects (id,name,created_at,updated_at) VALUES (?,?,?,?)',
                      (project_id, 'legacy', '2026-01-01', '2026-01-01'))
-        conn.execute('INSERT INTO image_assets VALUES (?,?,?,?,?)',
+        conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at) VALUES (?,?,?,?,?)',
                      (asset_id, project_id, 'projects/legacy.png', 'photo', '2026-01-01'))
         conn.execute('INSERT INTO generation_batches (id,project_id,batch_type,client_request_id,created_at,style_id) '
                      'VALUES (?,?,?,?,?,?)', (batch_id, project_id, 'photo', 'legacy-request', '2026-01-01', 'korean_minimal'))
@@ -482,8 +483,8 @@ def test_previous_generation_task_schema_migrates_without_losing_rows_or_version
             (retry_task_id, project_id, batch_id, slot_id, 'failed', '[]', 'korean_minimal', 'pose_03',
              'legacy retry prompt', json.dumps({'model': 'gpt-image-2'}), task_id, '2026-01-02'),
         )
-        conn.execute('INSERT INTO photo_versions VALUES (?,?,?,?,?,?)',
-                     (version_id, slot_id, asset_id, task_id, 1, '2026-01-01'))
+        conn.execute('INSERT INTO photo_versions (id,photo_slot_id,image_asset_id,generation_task_id,version_number,'
+                     'created_at) VALUES (?,?,?,?,?,?)', (version_id, slot_id, asset_id, task_id, 1, '2026-01-01'))
         conn.execute('UPDATE photo_slots SET current_version_id=? WHERE id=?', (version_id, slot_id))
 
     # Rebuild the task table into its pre-feature shape, including its old slot cascade.
