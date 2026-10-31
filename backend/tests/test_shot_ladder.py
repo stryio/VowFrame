@@ -49,6 +49,8 @@ def test_change_shot_accepts_wide_and_the_studio_framings_only(app_factory):
         for shot in ('half', 'wide'):
             changed = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': shot, 'shot_size': shot})
             assert changed.status_code == 201, changed.text
+            # One task per photo at a time (slot_busy): let this one finish before the next change.
+            wait_batch(client, changed.json()['id'])
 
 
 def test_unshot_drafts_keep_wide_and_move_retired_sizes_to_current_framings(app_factory):
