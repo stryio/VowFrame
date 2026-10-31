@@ -10,15 +10,14 @@ from app.prompts import (
     POSES,
     QUALITY_PARAGRAPH,
     STYLES,
-    _makeup_sentence,
-    _v3_38_makeup_sentence,
     compose_identity_boost_moment_prompt,
     compose_moment_prompt,
     compose_photo_prompt,
     MAKEUP_LEVELS,
+    Makeup,
     compose_preview_prompt,
     is_faceless_shot,
-    makeup_from_prompt,
+    has_makeup,
     scene_from_prompt,
     shot_text_from_prompt,
 )
@@ -61,7 +60,7 @@ def doc_block(heading: str) -> str:
 
 def test_full_example_matches_docs_verbatim():
     expected = doc_block('## 5. 完整示例')
-    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4', scene=2, makeup='natural') == expected
+    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4', scene=2, makeup=Makeup('natural', 'natural')) == expected
 
 
 def test_shared_paragraphs_and_costumes_match_docs_verbatim():
@@ -72,6 +71,8 @@ def test_shared_paragraphs_and_costumes_match_docs_verbatim():
         # Strength comes from the project level; a style only sets the hair and the makeup colors (V3.39).
         assert '淡妆' not in style['costume'] and '妆容方向：' in style['costume']
         assert '不照搬参考照片中的发型' in style['costume'] and '分缝' not in style['costume']
+        # Both heads of hair are tidied, whatever state the reference photo shows (V3.40).
+        assert style['costume'].count('干净整齐') >= 2
 
 
 def test_preview_and_legacy_poses_use_the_first_variant_and_director_shots_their_chosen_one():
@@ -194,35 +195,48 @@ def test_atmosphere_shots_get_their_own_quality_and_drop_conflicting_avoid_terms
         assert '剪影' not in atmosphere[5].replace('、', ' ').split()
         assert atmosphere[:4] == normal[:4]
         assert is_faceless_shot('\n\n'.join(atmosphere)) and not is_faceless_shot('\n\n'.join(normal))
+    # Atmosphere shots stored with an older quality paragraph are still recognised.
+    older = '\n\n'.join(atmosphere).replace('皮肤干净细腻、有自然的光泽。', '皮肤保留真实质感。')
+    assert older != '\n\n'.join(atmosphere) and is_faceless_shot(older)
     # The word alone in the shot does not count.
     assert not is_faceless_shot(compose_moment_prompt('seaside_sunset', '逆光拍摄，不拍剪影。', '3:4', scene=1))
 
 
-def test_makeup_level_is_drawn_in_the_identity_paragraph_and_read_back():
+def test_makeup_and_retouching_are_drawn_in_the_identity_paragraph():
     allowed = '允许改变的只有发型造型、妆容、服装、姿态、场景和光线。'
-    looks = {'light': '新娘化清透的新娘妆', 'natural': '新娘化标准的婚纱照新娘妆', 'refined': '新娘化精致的影楼新娘妆'}
-    for level in MAKEUP_LEVELS:
-        prompts = (
-            compose_preview_prompt('korean_minimal', '3:4', makeup=level),
-            compose_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', scene=1, makeup=level, with_preview=True,
-                                  side_references=[('bride', 'left')]),
-            compose_identity_boost_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', scene=1, makeup=level),
-        )
-        for prompt in prompts:
-            identity = prompt.split('\n\n')[1]
-            assert allowed + '妆容按本提示词重新绘制，不复制参考图的妆容：' + looks[level] in identity
-            assert '假睫毛' in identity and '眼影、腮红和唇色的颜色按「服装与风格」里的妆容方向' in identity
-            assert '底妆保留皮肤的纹理和痣，不是磨皮' in identity
-            assert '不改变脸的宽窄和五官的实际形状、大小与比例；新郎保持干净、自然的面容。' in identity
-            assert '不改变真实的身体比例。' in identity
-            assert '不要瘦脸、磨皮或改变五官。' in identity and '不要美颜' not in identity
-            assert makeup_from_prompt(prompt) == level
-            assert len(prompt.split('\n\n')) == 6
-    # A V3.38 prompt still tells its level, so regenerating an older photo keeps its makeup strength.
-    v3_38 = compose_preview_prompt('korean_minimal', '3:4', makeup='refined').replace(
-        _makeup_sentence('refined'), _v3_38_makeup_sentence('refined'))
-    assert '新娘化精致的新娘妆' in v3_38 and makeup_from_prompt(v3_38) == 'refined'
+    bride = {'light': '新娘化清透的新娘妆，做基础的精修：皮肤比参考照片白半个到一个色号',
+             'natural': '新娘化标准的婚纱照新娘妆，按婚纱照成片精修：皮肤白皙透亮，比参考照片白一到两个色号',
+             'refined': '新娘化精致的影楼新娘妆，按影楼成片精修：皮肤非常白皙透亮，比参考照片白两个色号'}
+    groom = {'light': '新郎不化妆，只修干净', 'natural': '新郎不化妆，按婚纱照成片精修', 'refined': '新郎化淡淡的男士妆'}
+    for bride_level in MAKEUP_LEVELS:
+        for groom_level in MAKEUP_LEVELS:
+            makeup = Makeup(bride_level, groom_level)
+            prompts = (
+                compose_preview_prompt('korean_minimal', '3:4', makeup=makeup),
+                compose_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', scene=1, makeup=makeup, with_preview=True,
+                                      side_references=[('bride', 'left')]),
+                compose_identity_boost_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', scene=1, makeup=makeup),
+            )
+            for prompt in prompts:
+                identity = prompt.split('\n\n')[1]
+                assert allowed + '妆容按本提示词重新绘制，精修按婚纱照成片处理，不复制参考图的妆容和皮肤状态：' + bride[bride_level] in identity
+                assert '；' + groom[groom_level] in identity
+                # Skin tone, hairline and face width are retouched by level; changing the features stays forbidden.
+                assert '脸的基本轮廓、五官比例、眼型、鼻型、唇形和年龄感都与' in identity and '肤色、发际线' not in identity
+                assert '不要改变五官。' in identity and '瘦脸、磨皮' not in identity and '不要美颜' not in identity
+                assert '新郎的发际线与参考照片一致' in identity and '不是塑料感的磨皮' in identity
+                assert '眼影、腮红和唇色的颜色按「服装与风格」里的妆容方向' in identity
+                assert '不改变真实的身体比例。' in identity
+                assert has_makeup(prompt)
+                assert len(prompt.split('\n\n')) == 6
+    # Only the stronger levels slim the face, and only slightly.
+    assert '脸型不做修饰' in compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('light', 'light')).split('\n\n')[1]
+    assert '下颌线和脸颊稍微收窄' in compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('refined', 'light')).split('\n\n')[1]
+    # Any prompt from V3.37 on counts as made up, whatever wording its makeup sentence had.
+    v3_38 = compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('refined', 'natural')).replace(
+        '妆容按本提示词重新绘制，精修按婚纱照成片处理，不复制参考图的妆容和皮肤状态：', '妆容按本提示词重新绘制，不复制参考图的妆容浓度、眼线、睫毛或唇色：')
+    assert has_makeup(v3_38)
     # Prompts before V3.37 say nothing about makeup and stay that way.
     legacy = compose_preview_prompt('korean_minimal', '3:4')
-    assert '妆容按本提示词' not in legacy and makeup_from_prompt(legacy) is None
-    assert '不要美颜、瘦脸、磨皮或改变五官。' in legacy
+    assert '妆容按本提示词' not in legacy and not has_makeup(legacy)
+    assert '不要美颜、瘦脸、磨皮或改变五官。' in legacy and '唇形、肤色、发际线和年龄感' in legacy

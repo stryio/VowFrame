@@ -118,44 +118,61 @@ function RecoveryBanner() {
 
 // ---------- Step 1: upload ----------
 
-const MAKEUP_OPTIONS: [MakeupLevel, string][] = [
+const BRIDE_MAKEUP_OPTIONS: [MakeupLevel, string][] = [
   ["light", "清透新娘妆"],
   ["natural", "标准婚纱妆"],
   ["refined", "精致影楼妆"],
 ];
 
-/** Shown on both steps: the level can change at any time and only affects pictures generated afterwards. */
+const GROOM_MAKEUP_OPTIONS: [MakeupLevel, string][] = [
+  ["light", "清爽"],
+  ["natural", "精修"],
+  ["refined", "精致"],
+];
+
+type MakeupField = "makeup_level" | "groom_makeup_level";
+
+/** Shown on both steps: the levels can change at any time and only affect pictures generated afterwards. */
 function MakeupCard({ project }: { project: ProjectDetail }) {
   const { refresh } = useCurrentProject();
   const toast = useToast();
 
-  const setMakeup = async (makeup_level: MakeupLevel) => {
+  const setLevel = async (field: MakeupField, level: MakeupLevel) => {
     try {
-      await api.updateProject(project.id, { makeup_level });
+      await api.updateProject(project.id, { [field]: level });
       await refresh();
     } catch (err) {
       toast.error(err);
     }
   };
 
+  const row = (field: MakeupField, role: string, options: [MakeupLevel, string][]) => (
+    <div className="makeup-options">
+      <span className="makeup-role">{role}</span>
+      <div className="shot-switch" role="group" aria-label={`${role}妆容与精修`}>
+        {options.map(([level, label]) => (
+          <button
+            key={level}
+            className={`shot-pill ${project[field] === level ? "active" : ""}`}
+            disabled={project[field] === level}
+            onClick={() => setLevel(field, level)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="card tips makeup-card">
-      <h3>新娘妆容</h3>
-      <div className="makeup-options">
-        <div className="shot-switch" role="group" aria-label="新娘妆容">
-          {MAKEUP_OPTIONS.map(([level, label]) => (
-            <button
-              key={level}
-              className={`shot-pill ${project.makeup_level === level ? "active" : ""}`}
-              disabled={project.makeup_level === level}
-              onClick={() => setMakeup(level)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <h3>妆容与精修</h3>
+      <div className="makeup-rows">
+        {row("makeup_level", "新娘", BRIDE_MAKEUP_OPTIONS)}
+        {row("groom_makeup_level", "新郎", GROOM_MAKEUP_OPTIONS)}
         <span className="muted">
-          不论照片有没有化妆，都按这里的强度画，不会叠加。可以随时修改，只影响之后的新图（重新生成样片、拍组、换动作、换景别），已经生成的照片不变。
+          提白、去瑕疵、补发际线、轻微瘦脸和化妆都按档位的强度，档位越高修得越多；新郎只在「精致」一档化淡妆，发际线不动。
+          不论照片有没有化妆，都按这里画，不会叠加。可以随时修改，只影响之后的新图（重新生成样片、拍组、换动作、换景别），已经生成的照片不变。
         </span>
       </div>
     </div>

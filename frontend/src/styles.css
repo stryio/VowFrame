@@ -583,11 +583,22 @@ button:disabled {
   font-size: 15px;
 }
 
+.makeup-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .makeup-options {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
+}
+
+.makeup-role {
+  min-width: 2em;
+  font-weight: 600;
 }
 
 .tips ul {

@@ -26,8 +26,9 @@ class ProjectPatch(InputModel):
     name: str | None = None
     person_a_role: Role | None = None
     makeup_level: MakeupLevel | None = None
+    groom_makeup_level: MakeupLevel | None = None
 
-    @field_validator('name', 'person_a_role', 'makeup_level')
+    @field_validator('name', 'person_a_role', 'makeup_level', 'groom_makeup_level')
     @classmethod
     def reject_null(cls, value):
         if value is None:
@@ -237,6 +238,7 @@ class ProjectSummary(BaseModel):
 
 class ProjectDetail(ProjectSummary):
     makeup_level: MakeupLevel
+    groom_makeup_level: MakeupLevel
     person_a: Person
     person_b: Person
     previews: list[Slot]
