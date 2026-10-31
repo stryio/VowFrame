@@ -544,7 +544,7 @@ function PersonLooks({
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => setItems((prev) => [...prev, prev[prev.length - 1] ?? defaults[0]])}
-            disabled={items.length >= 6}
+            disabled={items.length >= 8}
           >
             + 再加一张
           </button>

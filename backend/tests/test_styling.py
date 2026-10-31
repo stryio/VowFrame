@@ -50,12 +50,31 @@ def batch_tasks(client, batch_id):
 def test_look_options_list_hairstyles_colours_and_the_style_table(client_app):
     client, _app = client_app
     options = client.get('/api/look-options').json()
-    assert [(item['role'], item['id']) for item in options['hairstyles']] == [
-        ('bride', 'keep'), ('bride', 'low_bun'), ('bride', 'soft_waves'), ('bride', 'side_braid'), ('bride', 'high_bun'),
-        ('groom', 'keep'), ('groom', 'side_part'), ('groom', 'textured')]
+    assert [item['id'] for item in options['hairstyles'] if item['role'] == 'bride'] == [
+        'keep', 'low_bun', 'high_bun', 'french_bun', 'chinese_bun', 'finger_waves', 'half_up', 'big_waves', 'soft_waves',
+        'low_ponytail', 'side_braid', 'short_inward', 'short_curls', 'slick_short']
+    assert [item['id'] for item in options['hairstyles'] if item['role'] == 'groom'] == [
+        'keep', 'side_part', 'textured', 'side_back', 'korean_part']
+    assert {item['id'] for item in options['hairstyles'] if item['updo']} == {
+        'low_bun', 'high_bun', 'french_bun', 'chinese_bun', 'finger_waves', 'slick_short'}
     assert len(options['makeup_colors']) == 8 and options['max_selected'] == 3
     assert options['styles']['hanfu'] == {'primary': 'soft_pink', 'alternates': ['classic_red', 'rose_bean'], 'needs_updo': True}
     assert options['styles']['korean_minimal'] == {'primary': 'milk_tea', 'alternates': ['soft_pink'], 'needs_updo': False}
+
+
+def test_six_bride_and_four_groom_candidates_by_default_fitted_to_the_hair_length(client_app):
+    client, _app = client_app
+    project = create_project(client)
+    items = detail(client, project['id'])['default_look_items']
+    assert [(item['hairstyle_id'], item['makeup_color']) for item in items['bride']] == [
+        ('keep', 'milk_tea'), ('low_bun', 'classic_red'), ('soft_waves', 'peach_coral'), ('half_up', 'soft_pink'),
+        ('high_bun', 'rose_bean'), ('french_bun', 'champagne')]
+    assert [item['hairstyle_id'] for item in items['groom']] == ['keep', 'side_part', 'textured', 'side_back']
+    client.patch(f"/api/projects/{project['id']}", json={'bride_hair_length': 'short'})
+    items = detail(client, project['id'])['default_look_items']['bride']
+    # Short hair: short styles first, then her own hairstyle; the colours stay.
+    assert [item['hairstyle_id'] for item in items] == ['keep', 'slick_short', 'short_inward', 'short_curls', 'keep', 'keep']
+    assert [item['makeup_color'] for item in items] == ['milk_tea', 'classic_red', 'peach_coral', 'soft_pink', 'rose_bean', 'champagne']
 
 
 def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_settings(app_factory):
@@ -76,7 +95,7 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         calls = app.state.stylist.calls
         assert len(calls) == 2 and all(len(call[0]) == 1 for call in calls)
         assert all(call[0][0].stem == project['person_a']['asset_id'] for call in calls)
-        assert any('新娘化精致的影楼新娘妆' in call[1] and '发型：饱满的高盘发' in call[1] and '唇色是正红或朱砂红' in call[1] for call in calls)
+        assert any('新娘化精致的影楼新娘妆' in call[1] and '发型：赫本高盘发，' in call[1] and '唇色是正红或朱砂红' in call[1] for call in calls)
         looks = {look['id']: look for look in detail(client, project['id'])['looks']}
         assert [looks[look_id]['status'] for look_id in ids] == ['ready', 'ready']
         assert looks[ids[1]]['makeup_level'] == 'refined' and looks[ids[1]]['makeup_color_name'] == '正红朱砂'

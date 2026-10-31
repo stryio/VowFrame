@@ -23,13 +23,16 @@ from .prompts import HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MA
 FACE_SWAP_SLOTS = (('bride', 'front'), ('groom', 'front'), ('bride', 'left'), ('bride', 'right'),
                    ('groom', 'left'), ('groom', 'right'))
 MAX_SELECTED_LOOKS = 3
-# Candidates offered first: the photo's own hairstyle with the most neutral colours, an updo in classic red
-# for the Chinese styles, and soft waves in peach coral for outdoor styles. Unavailable ones for the stated hair
-# length fall back to the photo's own hairstyle, keeping the colour.
+# Candidates offered first (V5.2: six for the bride, four for the groom). The bride's six cover updos and loose
+# hair and the most recommended colour families, so most styles get a look in their recommended colour.
+# A hairstyle the stated hair length cannot do is replaced by the next one of its length list that is unused.
 DEFAULT_LOOKS = {
-    'bride': (('keep', 'milk_tea'), ('low_bun', 'classic_red'), ('soft_waves', 'peach_coral')),
-    'groom': (('keep', None), ('side_part', None), ('textured', None)),
+    'bride': (('keep', 'milk_tea'), ('low_bun', 'classic_red'), ('soft_waves', 'peach_coral'), ('half_up', 'soft_pink'),
+              ('high_bun', 'rose_bean'), ('french_bun', 'champagne')),
+    'groom': (('keep', None), ('side_part', None), ('textured', None), ('side_back', None)),
 }
+# Replacements for a bride with short hair, in order.
+SHORT_BRIDE_HAIRSTYLES = ('slick_short', 'short_inward', 'short_curls')
 
 
 def person_of(project, role: str) -> str:
@@ -51,12 +54,17 @@ def makeup_level_of(project, role: str) -> str:
 
 
 def default_look_items(project, role: str) -> list[tuple[str, str | None]]:
-    """The default candidates for this person's stated hair length, without duplicates."""
+    """The default candidates for this person's stated hair length, without duplicates.
+
+    A hairstyle the length cannot do becomes the next unused short-hair style (a bride with short hair), else the
+    photo's own hairstyle, keeping the colour; a groom with a buzz cut only keeps his own.
+    """
     length = hair_length_of(project, role)
+    spare = [item for item in SHORT_BRIDE_HAIRSTYLES if role == 'bride' and length in HAIRSTYLE_BY_KEY[(role, item)].lengths]
     items = []
     for hairstyle_id, color in DEFAULT_LOOKS[role]:
         if length not in HAIRSTYLE_BY_KEY[(role, hairstyle_id)].lengths:
-            hairstyle_id = 'keep'
+            hairstyle_id = spare.pop(0) if spare else 'keep'
         if (hairstyle_id, color) not in items:
             items.append((hairstyle_id, color))
     return items

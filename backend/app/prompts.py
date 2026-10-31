@@ -722,9 +722,13 @@ _STYLING_AVOID = '避免：照搬原照片的头发状态、毛躁乱翘的头�
 
 
 # Written after every hairstyle (V5.1): the photo's hair is not kept, only its length limits the hairstyle.
-_HAIR_RULES = ('头发的状态不沿用原照片：原照片里的毛躁、乱翘、碎发、扁塌、油腻、打结和发丝走向凌乱的地方都不保留，'
-               '按造型师洗吹、梳理、定型后的样子重新画，发丝干净顺滑，有健康的光泽，蓬松度和轮廓按这个发型重新塑造。'
-               '不凭空加长头发。头发有真实的重量，以整齐的发束为主；发际线边缘用细软的绒发自然过渡，没有乱翘的碎发。')
+# V5.2: the hair is redrawn boldly, and its outline is spelled out, since the photo's flyaways at the sides survived.
+_HAIR_RULES = ('头发部分完全重新画：形状、体积、分布和轮廓都按上面的发型来；除了发型里写明沿用的地方，可以和原照片完全不同，不保留原照片头发的样子。'
+               '原照片里的毛躁、乱翘、碎发、扁塌、油腻、打结和发丝走向凌乱的地方都不保留；'
+               '头部两侧和头顶的外轮廓是光滑整齐的线条，没有任何翘起的细碎毛发。'
+               '按造型师洗吹、梳理、定型后的样子画，发丝干净顺滑，有健康的光泽。'
+               '不凭空加长头发；盘发和编发把头发收起来，看到的头发变短是正常的。'
+               '头发有真实的重量，以整齐的发束为主；发际线边缘用细软的绒发自然过渡。')
 
 
 class Hairstyle(NamedTuple):
@@ -736,16 +740,38 @@ class Hairstyle(NamedTuple):
     text: str
 
 
-# A few common wedding hairstyles (V5.0); keeping the photo's own hairstyle changes the face least.
+# A few common wedding hairstyles (V5.0); keeping the photo's own hairstyle changes the face least. Each says what
+# a head-and-shoulders photo shows from the front (V5.2): a bun at the back alone left the hair down.
 HAIRSTYLES = (
-    Hairstyle('keep', '保留原发型', 'bride', BRIDE_HAIR_LENGTHS, False, '沿用原照片发型的样式，分缝方向、长度和大致轮廓不变'),
-    Hairstyle('low_bun', '低盘发', 'bride', ('long', 'medium'), True, '光洁整齐的低盘发，头发全部向后梳顺收拢，在脑后偏低的位置盘成饱满的发髻'),
-    Hairstyle('soft_waves', '披发微卷', 'bride', ('long', 'medium'), False, '披发，头发梳顺后在发尾做柔和的大弧度微卷，蓬松有光泽'),
-    Hairstyle('side_braid', '侧编发', 'bride', ('long', 'medium'), False, '头发梳顺后从一侧编起，编发均匀饱满、略带松散，发尾垂在一侧肩前'),
-    Hairstyle('high_bun', '高盘发', 'bride', ('long',), True, '饱满的高盘发，头发全部向上梳顺收拢，盘成轮廓光洁利落的发髻'),
-    Hairstyle('keep', '保留原发型', 'groom', GROOM_HAIR_LENGTHS, False, '沿用原照片发型的样式，分缝方向、长度和大致轮廓不变，边缘修整干净利落'),
-    Hairstyle('side_part', '侧分短发', 'groom', ('short', 'medium'), False, '侧分短发，分缝清楚，头发梳理服帖，顶部有自然的蓬松度'),
-    Hairstyle('textured', '自然纹理短发', 'groom', ('short', 'medium'), False, '自然的纹理短发，顶部蓬松有层次，两侧修短服帖'),
+    Hairstyle('keep', '保留原发型', 'bride', BRIDE_HAIR_LENGTHS, False, '沿用原照片发型的分缝方向和长度，重新吹整：发根蓬松，发丝顺滑有光泽，发尾整齐'),
+    Hairstyle('low_bun', '低盘发', 'bride', ('long', 'medium'), True,
+              '低盘发，头发全部向后梳顺，在脑后低处盘成饱满的发髻；正面看，脸两侧和肩上没有任何垂下的头发，耳朵和脖子完整露出，头顶和两侧的头发光滑地贴着头型向后收'),
+    Hairstyle('high_bun', '赫本高盘发', 'bride', ('long',), True,
+              '赫本高盘发，头发全部向上梳顺，在头顶偏后的位置盘成饱满的发髻，正面能看到头顶上方的发髻轮廓；脸两侧、耳后和肩上没有任何垂下的头发，脖子完整露出'),
+    Hairstyle('french_bun', '法式慵懒低盘发', 'bride', ('long', 'medium'), True,
+              '法式慵懒低盘发，头发松松地向后挽起，在脑后低处盘成蓬松柔软的发髻，脸两侧各垂下一两缕修饰脸型的细发丝；正面看，肩上没有垂下的头发，耳朵和脖子露出'),
+    Hairstyle('chinese_bun', '中式发髻', 'bride', ('long', 'medium'), True,
+              '中式发髻，头发中分后全部向后梳得光洁服帖，在脑后盘成端庄饱满的发髻；正面看，脸两侧和肩上没有任何垂下的头发，耳朵和脖子完整露出'),
+    Hairstyle('finger_waves', '复古手推波纹', 'bride', ('long', 'medium'), True,
+              '复古手推波纹，头发侧分，头顶到耳侧的头发推出规则的 S 形波纹，贴着头型、有光泽，其余头发在脑后低处挽起；正面看，肩上没有垂下的头发，脖子露出'),
+    Hairstyle('half_up', '半扎公主头', 'bride', ('long', 'medium'), False,
+              '半扎公主头，头顶和两侧耳上的头发向后挽起，在脑后固定，下半部分头发顺滑地垂在背后和肩后；正面看，两侧耳上的头发收起，脸周干净'),
+    Hairstyle('big_waves', '披发大波浪', 'bride', ('long',), False, '披发大波浪，头发梳顺后从耳朵以下做饱满的大波浪卷，蓬松有光泽，垂在肩前和背后'),
+    Hairstyle('soft_waves', '披发微卷', 'bride', ('long', 'medium'), False, '披发微卷，头发梳顺后从耳朵以下做柔和的大弧度微卷，垂在肩前和背后，蓬松有光泽'),
+    Hairstyle('low_ponytail', '低马尾', 'bride', ('long', 'medium'), False,
+              '低马尾，头发全部向后梳顺，在后颈处扎成光洁的低马尾，马尾垂在一侧肩前，发尾微卷；正面看，头顶和两侧光滑贴服，耳朵露出'),
+    Hairstyle('side_braid', '侧编发', 'bride', ('long', 'medium'), False,
+              '侧编发，头发全部梳到一侧，编成一条饱满的麻花辫垂在这一侧肩前；另一侧没有垂下的头发，耳朵露出'),
+    Hairstyle('short_inward', '短发内扣', 'bride', ('short',), False, '短发内扣，头发梳顺后吹出弧度，发尾整齐地向内扣，头顶蓬松，轮廓圆润'),
+    Hairstyle('short_curls', '复古短卷', 'bride', ('short',), False, '复古短卷，头发侧分，吹出饱满有光泽的复古卷度，轮廓蓬松有型'),
+    # Sleek enough for the Chinese styles' headwear, like an updo.
+    Hairstyle('slick_short', '后梳光洁短发', 'bride', ('short',), True, '后梳光洁短发，头发全部向后梳得光滑服帖，露出额头和耳朵，轮廓利落'),
+    Hairstyle('keep', '保留原发型', 'groom', GROOM_HAIR_LENGTHS, False, '沿用原照片发型的分缝方向和长度，重新修剪吹整：两侧和后颈修得短而干净，头顶发丝整齐有型'),
+    Hairstyle('side_part', '侧分短发', 'groom', ('short', 'medium'), False, '侧分短发，清楚的侧分线，头发从分线向一侧梳顺，顶部有蓬松度，两侧修短贴服'),
+    Hairstyle('textured', '自然纹理短发', 'groom', ('short', 'medium'), False, '自然纹理短发，顶部抓出蓬松有层次的纹理，两侧和后颈修短贴服'),
+    # Side-swept at most, never a full slicked-back look (V3.9).
+    Hairstyle('side_back', '侧背头', 'groom', ('short', 'medium'), False, '侧背头，头发从侧分线向一侧后方梳顺，露出部分额头，顶部有蓬松度，两侧修短贴服'),
+    Hairstyle('korean_part', '韩式三七分', 'groom', ('short', 'medium'), False, '韩式三七分，刘海按三七分自然分开垂在额前，顶部蓬松有层次，两侧修短'),
 )
 HAIRSTYLE_BY_KEY = {(item.role, item.id): item for item in HAIRSTYLES}
 
@@ -828,12 +854,12 @@ def compose_look_prompt(role: str, hairstyle_id: str, level: str, makeup_color: 
     if facing is None:
         opening = (f'把这张照片修成{name}婚礼当天化好妆、由造型师重新做好发型后的造型照。原照片用来确定这个人的长相：'
                    '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与原照片一致，不要改变五官；'
-                   '头部的角度和表情保持原照片的样子。头发按下面的发型重新做，不要照搬原照片里的头发。')
+                   '头部的角度和表情保持原照片的样子。头发按下面的发型大胆地重新做，画面里的头发可以和原照片完全不同。')
     else:
         opening = (f'第一张图是要修的照片，{name}脸朝画面{_FACING_NAMES[facing]}侧；第二张图是同一个人已经做好的正面造型照。'
                    '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。第一张图用来确定这个人的长相：'
                    '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与第一张图一致，不要改变五官；'
-                   '头部的角度和表情保持第一张图的样子。头发按第二张图的发型重新画，不要照搬第一张图里的头发。')
+                   '头部的角度和表情保持第一张图的样子。头发按第二张图的发型重新画，不照搬第一张图里的头发。')
     hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES
     if role == 'bride':
         makeup = (f'皮肤和妆容：{_BRIDE_STYLING[level]}。妆容颜色：{MAKEUP_COLOR_BY_ID[makeup_color].text}'

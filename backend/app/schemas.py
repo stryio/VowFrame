@@ -126,7 +126,7 @@ class LookItem(InputModel):
 class LookCreate(InputModel):
     client_request_id: str = Field(min_length=1)
     person: Literal['a', 'b']
-    items: list[LookItem] = Field(min_length=1, max_length=6)
+    items: list[LookItem] = Field(min_length=1, max_length=8)
 
 
 class RestoreCreate(InputModel):
