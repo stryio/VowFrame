@@ -171,7 +171,7 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
         {row("makeup_level", "新娘", BRIDE_MAKEUP_OPTIONS)}
         {row("groom_makeup_level", "新郎", GROOM_MAKEUP_OPTIONS)}
         <span className="muted">
-          提白、去瑕疵、补发际线、轻微瘦脸和化妆都按档位的强度，档位越高修得越多；新郎只在「精致」一档化淡妆，发际线不动。
+          提白、去瑕疵、补发际线、整理头发、轻微瘦脸和化妆都按档位的强度，档位越高修得越多；新郎只在「精致」一档化淡妆，发际线不动。
           不论照片有没有化妆，都按这里画，不会叠加。可以随时修改，只影响之后的新图（重新生成样片、拍组、换动作、换景别），已经生成的照片不变。
         </span>
       </div>

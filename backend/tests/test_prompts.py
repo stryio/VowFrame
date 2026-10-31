@@ -70,9 +70,12 @@ def test_shared_paragraphs_and_costumes_match_docs_verbatim():
         assert doc_block(f" `{style['id']}`\n") == style['costume']
         # Strength comes from the project level; a style only sets the hair and the makeup colors (V3.39).
         assert '淡妆' not in style['costume'] and '妆容方向：' in style['costume']
-        assert '不照搬参考照片中的发型' in style['costume'] and '分缝' not in style['costume']
-        # Both heads of hair are tidied, whatever state the reference photo shows (V3.40).
-        assert style['costume'].count('干净整齐') >= 2
+        # A style names the bride's hairstyle only; tidying both heads of hair is retouching, set by level (V3.41).
+        assert '新娘发型：' in style['costume'] and '分缝' not in style['costume']
+        assert '新郎的头发' not in style['costume'] and '参考照片' not in style['costume']
+        # A style sets makeup colours only, never anything that reshapes the face (V3.41).
+        direction = style['costume'].split('妆容方向：')[1]
+        assert not any(term in direction for term in ('眉', '眼线', '修容', '上挑', '卧蚕', '鼻影'))
 
 
 def test_preview_and_legacy_poses_use_the_first_variant_and_director_shots_their_chosen_one():
@@ -229,6 +232,20 @@ def test_makeup_and_retouching_are_drawn_in_the_identity_paragraph():
                 assert '不改变真实的身体比例。' in identity
                 assert has_makeup(prompt)
                 assert len(prompt.split('\n\n')) == 6
+    # Levels whiten and clean the skin; none of them reshapes eyes, brows or nose (V3.41).
+    for level in MAKEUP_LEVELS:
+        identity = compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup(level, level)).split('\n\n')[1]
+        looks = identity.split('不复制参考图的妆容和皮肤状态：')[1].split('两人的精修和妆容都按')[0]
+        assert not any(term in looks for term in ('卧蚕', '眼线', '修容', '鼻影', '高光', '眉形'))
+        assert '不画卧蚕，不拉长或加粗眼线，不做鼻影和改变脸部立体结构的修容' in identity
+        assert '妆面的质感跟着这张照片的光线' in identity
+        # Hair is not likeness, so a messy reference loses to the level's grooming.
+        assert '头发不算长相' in identity and '凌乱、翘起、压塌、油腻和毛躁的状态都不保留' in identity
+        assert '新郎的发际线与参考照片一致，头发的长短大致不变' in identity
+    groom_hair = {'light': '头发梳理整齐，没有乱翘的发丝', 'natural': '头发修剪打理成干净利落的发型',
+                  'refined': '头发做精致的造型，用发胶定型'}
+    for level, text in groom_hair.items():
+        assert text in compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('light', level)).split('\n\n')[1]
     # Only the stronger levels slim the face, and only slightly.
     assert '脸型不做修饰' in compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('light', 'light')).split('\n\n')[1]
     assert '下颌线和脸颊稍微收窄' in compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('refined', 'light')).split('\n\n')[1]
