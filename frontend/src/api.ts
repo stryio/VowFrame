@@ -108,7 +108,7 @@ export interface LookItem {
 }
 
 export interface LookOptions {
-  hairstyles: { id: string; name: string; role: Role; lengths: string[]; updo: boolean }[];
+  hairstyles: { id: string; name: string; role: Role; lengths: string[]; updo: boolean; default_color: string | null }[];
   makeup_colors: { id: string; name: string; text: string }[];
   styles: Record<string, { primary: string; alternates: string[]; needs_updo: boolean }>;
   max_selected: number;

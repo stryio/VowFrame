@@ -55,6 +55,9 @@ def test_look_options_list_hairstyles_colours_and_the_style_table(client_app):
         'low_ponytail', 'side_braid', 'short_inward', 'short_curls', 'slick_short']
     assert [item['id'] for item in options['hairstyles'] if item['role'] == 'groom'] == [
         'keep', 'side_part', 'textured', 'side_back', 'korean_part']
+    colors = {color['id'] for color in options['makeup_colors']}
+    assert all(item['default_color'] in colors for item in options['hairstyles'] if item['role'] == 'bride')
+    assert all(item['default_color'] is None for item in options['hairstyles'] if item['role'] == 'groom')
     assert {item['id'] for item in options['hairstyles'] if item['updo']} == {
         'low_bun', 'high_bun', 'french_bun', 'chinese_bun', 'finger_waves', 'slick_short'}
     assert len(options['makeup_colors']) == 8 and options['max_selected'] == 3

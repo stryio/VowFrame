@@ -1953,6 +1953,9 @@ button.status-chip {
   font-size: 13px;
 }
 .look-hint { flex: 1 1 240px; min-width: 0; }
+.look-check { display: flex; align-items: center; gap: 8px; width: 190px; font-size: 13px; cursor: pointer; }
+.look-check input { accent-color: var(--accent-strong); }
+.look-form-row.off .look-check span, .look-form-row.off select, .look-form-row.off .look-hint { opacity: 0.5; }
 .look-form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .look-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
 .look-tile {

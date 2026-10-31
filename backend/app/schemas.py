@@ -126,7 +126,7 @@ class LookItem(InputModel):
 class LookCreate(InputModel):
     client_request_id: str = Field(min_length=1)
     person: Literal['a', 'b']
-    items: list[LookItem] = Field(min_length=1, max_length=8)
+    items: list[LookItem] = Field(min_length=1, max_length=16)
 
 
 class RestoreCreate(InputModel):
@@ -272,6 +272,8 @@ class HairstyleOption(BaseModel):
     role: Role
     lengths: list[str]
     updo: bool
+    # The bride's suggested colour family next to this hairstyle; null for the groom.
+    default_color: str | None
 
 
 class MakeupColorOption(BaseModel):

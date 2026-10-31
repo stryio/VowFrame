@@ -26,7 +26,7 @@ from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES,
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .photo_prep import PhotoRejected
 from .storage import asset_path, image_format, save_image
-from .styling import (LOOK_PROBLEM_MESSAGES, MAX_SELECTED_LOOKS, default_assignment, default_look_items, fits_style, hair_length_of,
+from .styling import (LOOK_PROBLEM_MESSAGES, MAX_SELECTED_LOOKS, SUGGESTED_COLORS, default_assignment, default_look_items, fits_style, hair_length_of,
                       look_problem, look_response, look_snapshot, makeup_level_of, reference_slots, role_of,
                       task_face_swap_reference_ids, uploaded_asset_id)
 
@@ -806,7 +806,8 @@ def styles():
 @router.get('/look-options', response_model=LookOptions)
 def look_options():
     return {
-        'hairstyles': [{'id': item.id, 'name': item.name, 'role': item.role, 'lengths': list(item.lengths), 'updo': item.updo}
+        'hairstyles': [{'id': item.id, 'name': item.name, 'role': item.role, 'lengths': list(item.lengths), 'updo': item.updo,
+                        'default_color': SUGGESTED_COLORS[item.id] if item.role == 'bride' else None}
                        for item in HAIRSTYLES],
         'makeup_colors': [item._asdict() for item in MAKEUP_COLORS],
         'styles': {style_id: {'primary': primary, 'alternates': list(alternates), 'needs_updo': style_id in UPDO_STYLES}

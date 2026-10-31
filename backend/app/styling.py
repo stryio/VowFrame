@@ -31,6 +31,13 @@ DEFAULT_LOOKS = {
               ('high_bun', 'rose_bean'), ('french_bun', 'champagne')),
     'groom': (('keep', None), ('side_part', None), ('textured', None), ('side_back', None)),
 }
+# The colour family suggested next to each bride hairstyle when all of them are listed for picking (V5.2).
+SUGGESTED_COLORS = {
+    'keep': 'milk_tea', 'low_bun': 'classic_red', 'high_bun': 'rose_bean', 'french_bun': 'champagne',
+    'chinese_bun': 'classic_red', 'finger_waves': 'classic_red', 'half_up': 'soft_pink', 'big_waves': 'berry',
+    'soft_waves': 'peach_coral', 'low_ponytail': 'rose_bean', 'side_braid': 'terracotta', 'short_inward': 'peach_coral',
+    'short_curls': 'berry', 'slick_short': 'classic_red',
+}
 # Replacements for a bride with short hair, in order.
 SHORT_BRIDE_HAIRSTYLES = ('slick_short', 'short_inward', 'short_curls')
 

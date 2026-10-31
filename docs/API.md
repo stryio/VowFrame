@@ -159,7 +159,7 @@ ProjectSummary 加上：
 
 - `looks`（V5.0）：两人的正面造型候选（不含已删除的和侧面造型），按创建时间排列。
 - `default_looks`：每个风格生成新样片时默认使用的造型，规则见下文「造型」；某人没有适合这个风格的已选用造型时为 null。
-- `default_look_items`：按项目里两人的头发长度给出的默认候选。
+- `default_look_items`：按项目里两人的头发长度给出的默认候选。造型页列出这个人能做的全部发型（`look-options` 里每个新娘发型带建议妆色 `default_color`），默认勾选这些候选。
 
 ### Look（V5.0 造型候选）
 
@@ -382,8 +382,8 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail`；先检查人脸并裁到头肩（见下文），不合格时 422 `unusable_photo`，无法读取时 422 `invalid_image` |
 | DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |
 | GET | `/api/assets/{id}` | — | 图片文件 |
-| GET | `/api/look-options` | — | `{"hairstyles": [{"id", "name", "role", "lengths", "updo"}], "makeup_colors": [{"id", "name", "text"}], "styles": {style_id: {"primary", "alternates", "needs_updo"}}, "max_selected": 3}`（docs/prompts.md 第 8 节） |
-| POST | `/api/projects/{id}/looks` | `{"client_request_id": string, "person": "a" \| "b", "items": [LookItem]}`（1～8 项） | `Look[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；这个编号已用于别的项目或另一个人时 409 `request_id_reused`）；没有这个人的正面照时 409 `photos_missing`，发型不适合当前头发长度时 422 `invalid_hairstyle`，新娘没有妆色或新郎带妆色时 422 `invalid_makeup_color` |
+| GET | `/api/look-options` | — | `{"hairstyles": [{"id", "name", "role", "lengths", "updo", "default_color"}], "makeup_colors": [{"id", "name", "text"}], "styles": {style_id: {"primary", "alternates", "needs_updo"}}, "max_selected": 3}`（docs/prompts.md 第 8 节） |
+| POST | `/api/projects/{id}/looks` | `{"client_request_id": string, "person": "a" \| "b", "items": [LookItem]}`（1～16 项） | `Look[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；这个编号已用于别的项目或另一个人时 409 `request_id_reused`）；没有这个人的正面照时 409 `photos_missing`，发型不适合当前头发长度时 422 `invalid_hairstyle`，新娘没有妆色或新郎带妆色时 422 `invalid_makeup_color` |
 | POST | `/api/looks/{id}/retry` | — | `Look`；只有 `failed` / `interrupted` 可以重试，否则 409 `look_not_retryable`；照片已更换时 409 `look_unusable` |
 | POST | `/api/looks/{id}/select` | — | `Look`；不能用于新照片时 409 `look_unusable`，已选用 3 套时 409 `too_many_looks` |
 | POST | `/api/looks/{id}/unselect` | — | `Look` |

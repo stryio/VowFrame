@@ -461,7 +461,15 @@ function PersonLooks({
   const length = role === "bride" ? project.bride_hair_length : project.groom_hair_length;
   const hairstyles = options.hairstyles.filter((item) => item.role === role && item.lengths.includes(length));
   const defaults = project.default_look_items[role];
-  const [items, setItems] = useState<LookItem[]>(defaults);
+  // Every hairstyle the stated length allows, each with its colour; the default candidates start checked.
+  const initialPicks = () =>
+    Object.fromEntries(
+      hairstyles.map((hairstyle) => {
+        const preset = defaults.find((item) => item.hairstyle_id === hairstyle.id);
+        return [hairstyle.id, { on: Boolean(preset), color: preset?.makeup_color ?? hairstyle.default_color }];
+      }),
+    ) as Record<string, { on: boolean; color: string | null }>;
+  const [picks, setPicks] = useState(initialPicks);
   const [submitting, setSubmitting] = useState(false);
   const [viewing, setViewing] = useState<Look | null>(null);
   const looks = project.looks.filter((look) => look.person === which);
@@ -470,9 +478,17 @@ function PersonLooks({
     .sort((x, y) => (x.selected_order ?? 0) - (y.selected_order ?? 0))
     .map((look) => look.id);
 
-  // Defaults follow the stated hair length and role; reset the form when they change.
-  const defaultsKey = JSON.stringify(defaults);
-  useEffect(() => setItems(JSON.parse(defaultsKey)), [defaultsKey]);
+  // Defaults follow the stated hair length and role; reset the list when they change.
+  const defaultsKey = JSON.stringify([defaults, hairstyles.map((item) => item.id)]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setPicks(initialPicks()), [defaultsKey]);
+  const chosen: LookItem[] = hairstyles
+    .filter((hairstyle) => picks[hairstyle.id]?.on)
+    .map((hairstyle) => ({ hairstyle_id: hairstyle.id, makeup_color: role === "bride" ? picks[hairstyle.id].color : null }));
+  const setPick = (id: string, patch: Partial<{ on: boolean; color: string | null }>) =>
+    setPicks((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  const checkAll = (on: (id: string) => boolean) =>
+    setPicks((prev) => Object.fromEntries(Object.entries(prev).map(([id, pick]) => [id, { ...pick, on: on(id) }])));
 
   const act = async (operation: () => Promise<unknown>) => {
     try {
@@ -489,8 +505,6 @@ function PersonLooks({
     setSubmitting(false);
   };
 
-  const setItem = (index: number, patch: Partial<LookItem>) =>
-    setItems((prev) => prev.map((item, position) => (position === index ? { ...item, ...patch } : item)));
 
   return (
     <div className="card looks-card">
@@ -500,56 +514,56 @@ function PersonLooks({
       </div>
 
       <div className="look-form">
-        {items.map((item, index) => (
-          <div className="look-form-row" key={index}>
-            <select
-              value={item.hairstyle_id}
-              onChange={(event) => setItem(index, { hairstyle_id: event.target.value })}
-              aria-label="发型"
-            >
-              {hairstyles.map((hairstyle) => (
-                <option key={hairstyle.id} value={hairstyle.id}>
+        {hairstyles.map((hairstyle) => {
+          const pick = picks[hairstyle.id];
+          if (!pick) return null;
+          return (
+            <div className={`look-form-row ${pick.on ? "" : "off"}`} key={hairstyle.id}>
+              <label className="look-check">
+                <input type="checkbox" checked={pick.on} onChange={(event) => setPick(hairstyle.id, { on: event.target.checked })} />
+                <span>
                   {hairstyle.name}
-                  {hairstyle.updo ? "（盘发）" : ""}
-                </option>
-              ))}
-            </select>
-            {role === "bride" && (
-              <select
-                value={item.makeup_color ?? ""}
-                onChange={(event) => setItem(index, { makeup_color: event.target.value })}
-                aria-label="妆色"
-              >
-                {options.makeup_colors.map((color) => (
-                  <option key={color.id} value={color.id}>
-                    {color.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setItems((prev) => prev.filter((_, position) => position !== index))}
-              disabled={items.length === 1}
-              aria-label="删掉这一行"
-            >
-              ×
-            </button>
-            {role === "bride" && item.makeup_color && (
-              <span className="field-hint look-hint">{colorHint(options, styles, item.makeup_color)}</span>
-            )}
-          </div>
-        ))}
+                  {hairstyle.updo && <span className="muted">（盘发）</span>}
+                </span>
+              </label>
+              {role === "bride" && (
+                <select
+                  value={pick.color ?? ""}
+                  onChange={(event) => setPick(hairstyle.id, { color: event.target.value, on: true })}
+                  aria-label={`${hairstyle.name}的妆色`}
+                >
+                  {options.makeup_colors.map((color) => (
+                    <option key={color.id} value={color.id}>
+                      {color.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {role === "bride" && pick.color && (
+                <span className="field-hint look-hint">{colorHint(options, styles, pick.color)}</span>
+              )}
+            </div>
+          );
+        })}
         <div className="look-form-actions">
+          <button className="btn btn-ghost btn-sm" onClick={() => checkAll(() => true)}>
+            全选（{hairstyles.length} 种）
+          </button>
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() => setItems((prev) => [...prev, prev[prev.length - 1] ?? defaults[0]])}
-            disabled={items.length >= 8}
+            onClick={() => checkAll((id) => defaults.some((item) => item.hairstyle_id === id))}
           >
-            + 再加一张
+            只选默认
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => generate(items)} disabled={submitting}>
-            生成 {items.length} 张候选（{items.length} 次修图）
+          <button className="btn btn-ghost btn-sm" onClick={() => checkAll(() => false)}>
+            清空
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => generate(chosen)}
+            disabled={submitting || chosen.length === 0}
+          >
+            生成已勾选的 {chosen.length} 张（{chosen.length} 次修图）
           </button>
         </div>
       </div>
