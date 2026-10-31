@@ -536,7 +536,7 @@ def test_previous_generation_task_schema_migrates_without_losing_rows_or_version
 
 
 
-def test_project_makeup_level_shapes_new_prompts_and_regenerations_keep_theirs(app_factory):
+def test_project_makeup_level_shapes_new_prompts_and_regenerations(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
         project = create_project(client)
         assert project['makeup_level'] == 'natural'
@@ -546,8 +546,8 @@ def test_project_makeup_level_shapes_new_prompts_and_regenerations_keep_theirs(a
         assert patched.status_code == 200 and patched.json()['makeup_level'] == 'refined'
         preview = ready_preview(client, project['id'])
         first = task_for_batch(client, preview['batch_id'])
-        assert '新娘化精致的新娘妆' in first['prompt']
-        # A later change only affects new shots; boosting likeness tones the photo's makeup down to light.
+        assert '新娘化精致的影楼新娘妆' in first['prompt']
+        # A later change leaves existing photos alone; boosting likeness tones the photo's makeup down to light.
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'natural'})
         result = client.post(f"/api/slots/{preview['id']}/regenerate", json={
             'client_request_id': 'makeup-boost', 'mode': 'identity_boost',
@@ -555,4 +555,13 @@ def test_project_makeup_level_shapes_new_prompts_and_regenerations_keep_theirs(a
         assert result.status_code == 201, result.text
         wait_batch(client, result.json()['id'])
         boosted = task_for_batch(client, result.json()['id'])
-        assert '新娘化淡妆' in boosted['prompt'] and '精致' not in boosted['prompt'].split('\n\n')[1]
+        assert '新娘化清透的新娘妆' in boosted['prompt'] and '精致' not in boosted['prompt'].split('\n\n')[1]
+        # 'same' replays the latest prompt as it was, makeup included, even though the project now uses natural.
+        same = client.post(f"/api/slots/{preview['id']}/regenerate", json={'client_request_id': 'makeup-same', 'mode': 'same'})
+        assert same.status_code == 201, same.text
+        wait_batch(client, same.json()['id'])
+        assert task_for_batch(client, same.json()['id'])['prompt'] == boosted['prompt']
+        # Regenerating a sample shoots it again with the current level.
+        again = preview_batch(client, project['id'], request_id='makeup-again', style_ids=['korean_minimal'])
+        wait_batch(client, again['id'])
+        assert '新娘化标准的婚纱照新娘妆' in task_for_batch(client, again['id'])['prompt']

@@ -529,10 +529,11 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         }
 
     style_id = source['style_id']
-    # A regenerated photo keeps the makeup it was shot with, whatever the project uses now.
-    makeup = makeup_from_prompt(source['prompt'])
+    # Changing the pose or the shot is a new shot, so it takes the project's current makeup (V3.39);
+    # only 'same' replays the old prompt as it was.
+    makeup = project['makeup_level']
     # Boosting likeness tones makeup down to light; prompts before V3.37 stay without makeup.
-    boost_makeup = 'light' if makeup else None
+    boost_makeup = 'light' if makeup_from_prompt(source['prompt']) else None
     references, side_references = _build_references(project)
     batch_reference_mode = request.app.state.db.get_batch_reference_mode()
     with_preview = slot['kind'] == 'photo' and batch_reference_mode == 'with_preview'

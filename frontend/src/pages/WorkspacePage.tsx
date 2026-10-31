@@ -119,10 +119,48 @@ function RecoveryBanner() {
 // ---------- Step 1: upload ----------
 
 const MAKEUP_OPTIONS: [MakeupLevel, string][] = [
-  ["light", "淡妆"],
-  ["natural", "自然新娘妆"],
-  ["refined", "精致新娘妆"],
+  ["light", "清透新娘妆"],
+  ["natural", "标准婚纱妆"],
+  ["refined", "精致影楼妆"],
 ];
+
+/** Shown on both steps: the level can change at any time and only affects pictures generated afterwards. */
+function MakeupCard({ project }: { project: ProjectDetail }) {
+  const { refresh } = useCurrentProject();
+  const toast = useToast();
+
+  const setMakeup = async (makeup_level: MakeupLevel) => {
+    try {
+      await api.updateProject(project.id, { makeup_level });
+      await refresh();
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
+  return (
+    <div className="card tips makeup-card">
+      <h3>新娘妆容</h3>
+      <div className="makeup-options">
+        <div className="shot-switch" role="group" aria-label="新娘妆容">
+          {MAKEUP_OPTIONS.map(([level, label]) => (
+            <button
+              key={level}
+              className={`shot-pill ${project.makeup_level === level ? "active" : ""}`}
+              disabled={project.makeup_level === level}
+              onClick={() => setMakeup(level)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="muted">
+          不论照片有没有化妆，都按这里的强度画，不会叠加。可以随时修改，只影响之后的新图（重新生成样片、拍组、换动作、换景别），已经生成的照片不变。
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () => void }) {
   const { refresh } = useCurrentProject();
@@ -139,15 +177,6 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
       await api.updateProject(project.id, {
         person_a_role: project.person_a.role === "bride" ? "groom" : "bride",
       });
-      await refresh();
-    } catch (err) {
-      toast.error(err);
-    }
-  };
-
-  const setMakeup = async (makeup_level: MakeupLevel) => {
-    try {
-      await api.updateProject(project.id, { makeup_level });
       await refresh();
     } catch (err) {
       toast.error(err);
@@ -204,24 +233,7 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
         </ul>
       </div>
 
-      <div className="card tips makeup-card">
-        <h3>新娘妆容</h3>
-        <div className="makeup-options">
-          <div className="shot-switch" role="group" aria-label="新娘妆容">
-            {MAKEUP_OPTIONS.map(([level, label]) => (
-              <button
-                key={level}
-                className={`shot-pill ${project.makeup_level === level ? "active" : ""}`}
-                disabled={project.makeup_level === level}
-                onClick={() => setMakeup(level)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <span className="muted">不论照片有没有化妆，都按这里的强度画，不会叠加；只影响之后生成的照片。</span>
-        </div>
-      </div>
+      <MakeupCard project={project} />
 
       {!hasPreviews && styles.data && (
         <div className="card style-picker">
@@ -518,6 +530,8 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           </button>
         </div>
       </div>
+
+      <MakeupCard project={project} />
 
       {anyStale && (
         <div className="notice">

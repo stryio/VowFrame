@@ -81,7 +81,7 @@ def test_change_shot_keeps_the_scene_of_the_source_photo(app_factory):
         assert task['prompt'].split('\n\n')[2] == source['prompt'].split('\n\n')[2]
 
 
-def test_change_shot_keeps_the_makeup_the_photo_was_shot_with(app_factory):
+def test_change_shot_takes_the_project_makeup_now(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
         project = create_project(client)
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
@@ -96,4 +96,4 @@ def test_change_shot_keeps_the_makeup_the_photo_was_shot_with(app_factory):
         changed = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'makeup-close', 'shot_size': 'close'})
         assert changed.status_code == 201, changed.text
         task = client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json()[0]
-        assert '新娘化精致的新娘妆' in task['prompt'] and '新娘化淡妆' not in task['prompt']
+        assert '新娘化清透的新娘妆' in task['prompt'] and '新娘化精致的影楼新娘妆' not in task['prompt']
