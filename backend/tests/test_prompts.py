@@ -10,9 +10,14 @@ from app.prompts import (
     POSES,
     QUALITY_PARAGRAPH,
     STYLES,
+    STYLE_BY_ID,
+    BUZZ_HAIR,
     compose_identity_boost_moment_prompt,
     compose_moment_prompt,
     compose_photo_prompt,
+    BRIDE_HAIR_LENGTHS,
+    GROOM_HAIR_LENGTHS,
+    Hair,
     MAKEUP_LEVELS,
     Makeup,
     compose_preview_prompt,
@@ -60,7 +65,7 @@ def doc_block(heading: str) -> str:
 
 def test_full_example_matches_docs_verbatim():
     expected = doc_block('## 5. 完整示例')
-    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4', scene=2, makeup=Makeup('natural', 'natural')) == expected
+    assert compose_moment_prompt('cinematic_light', expected.split('\n\n')[3].removeprefix('镜头：'), '3:4', scene=2, makeup=Makeup('natural', 'natural'), hair=Hair('long', 'short')) == expected
 
 
 def test_shared_paragraphs_and_costumes_match_docs_verbatim():
@@ -70,12 +75,16 @@ def test_shared_paragraphs_and_costumes_match_docs_verbatim():
         assert doc_block(f" `{style['id']}`\n") == style['costume']
         # Strength comes from the project level; a style only sets the hair and the makeup colors (V3.39).
         assert '淡妆' not in style['costume'] and '妆容方向：' in style['costume']
-        # A style names a concrete hairstyle for both; how tidy it gets is set by level (V3.41, V3.44).
-        assert '新娘发型：' in style['costume'] and '新郎发型：' in style['costume'] and '分缝' not in style['costume']
-        assert '参考照片' not in style['costume']
-        # V3.9: never a slicked-back or fully bared forehead for the groom.
-        groom_hair = style['costume'].split('新郎发型：')[1].split('。')[0]
-        assert not any(term in groom_hair for term in ('背头', '露额', '露出额头'))
+        # Hairstyles live in the per-length table, not in the costume; how tidy they get is set by level (V3.45).
+        assert '发型' not in style['costume'] and '参考照片' not in style['costume']
+        assert set(style['hair']['bride']) == set(BRIDE_HAIR_LENGTHS) and set(style['hair']['groom']) == set(GROOM_HAIR_LENGTHS)
+        # V3.9: side-swept at most for the groom, never a full slicked-back look or a fully bared forehead.
+        for text in style['hair']['groom'].values():
+            assert not any(term in text for term in ('大背头', '油头', '露出额头', '全露额')), text
+            assert '背头' not in text.replace('侧背头', ''), text
+        for person in ('bride', 'groom'):
+            for text in style['hair'][person].values():
+                assert text in DOC, text
         # A style sets makeup colours only, never anything that reshapes the face (V3.41).
         direction = style['costume'].split('妆容方向：')[1]
         assert not any(term in direction for term in ('眉', '眼线', '修容', '上挑', '卧蚕', '鼻影'))
@@ -247,9 +256,10 @@ def test_makeup_and_retouching_are_drawn_in_the_identity_paragraph():
         assert '看不到' not in looks and '一丝不乱' not in looks
         assert '不是整齐生硬的贴片边缘' in identity
         assert '妆面的质感跟着这张照片的光线' in identity
-        # Both follow the costume's hairstyle; only the groom's hairline stays locked (V3.44).
-        assert '两人的发型都按「服装与风格」里写的造型重新打理，不照搬参考照片里的发型' in identity
-        assert '凌乱、翘起、压塌、油腻和毛躁的状态都不保留' in identity and '不凭空增加长发' in identity
+        # Both follow the style's hairstyle at the length the photos show; only the groom's hairline stays locked.
+        assert '两人的发型都按「服装与风格」里写的造型重新打理，不照搬参考照片里的发型样式' in identity
+        assert '凌乱、翘起、压塌、油腻和毛躁的状态都不保留' in identity
+        assert '两人头发的长短和参考照片一致，不凭空加长或剪短' in identity
         assert '新郎的发际线位置与参考照片一致' in identity
         assert not any(lock in identity for lock in ('以参考照片中可见的发长为上限', '原有发量', '额头露出程度接近参考照片', '头发的长短大致不变'))
     # Nose shadow, cheek shine and eye sparkle: bride only, from the standard level up; never the groom (V3.42).
@@ -274,3 +284,20 @@ def test_makeup_and_retouching_are_drawn_in_the_identity_paragraph():
     legacy = compose_preview_prompt('korean_minimal', '3:4')
     assert '妆容按本提示词' not in legacy and not has_makeup(legacy)
     assert '不要美颜、瘦脸、磨皮或改变五官。' in legacy and '唇形、肤色、发际线和年龄感' in legacy
+
+
+def test_hairstyle_follows_the_stated_hair_length_after_the_costume():
+    style = STYLE_BY_ID['republic_qipao']
+    for bride in BRIDE_HAIR_LENGTHS:
+        for groom in GROOM_HAIR_LENGTHS:
+            paragraph = compose_preview_prompt('republic_qipao', '3:4', makeup=Makeup('natural', 'natural'),
+                                               hair=Hair(bride, groom)).split('\n\n')[2]
+            assert paragraph.startswith('服装与风格：' + style['costume'] + '新娘发型（')
+            assert style['hair']['bride'][bride] + '。新郎发型（' in paragraph
+            assert style['hair']['groom'][groom] + '。' + style['look'] in paragraph
+    assert '新娘发型（及肩）：民国手推波纹' in compose_preview_prompt('republic_qipao', '3:4', hair=Hair('medium', 'buzz'))
+    assert '新郎发型（寸头）：' + BUZZ_HAIR in compose_preview_prompt('republic_qipao', '3:4', hair=Hair('medium', 'buzz'))
+    # Hanfu keeps its Song-dynasty headwear instead of a modern buzz cut.
+    assert '幞头' in STYLE_BY_ID['hanfu']['hair']['groom']['buzz']
+    # Prompts without a stated length (before V3.45) name no hairstyle.
+    assert '发型（' not in compose_preview_prompt('republic_qipao', '3:4')

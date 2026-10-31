@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS projects (
     selected_preview_version_id TEXT REFERENCES photo_versions(id),
     makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(makeup_level IN ('light','natural','refined')),
     groom_makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(groom_makeup_level IN ('light','natural','refined')),
+    bride_hair_length TEXT NOT NULL DEFAULT 'long' CHECK(bride_hair_length IN ('long','medium','short')),
+    groom_hair_length TEXT NOT NULL DEFAULT 'short' CHECK(groom_hair_length IN ('buzz','short','medium')),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS image_assets (
@@ -153,6 +155,8 @@ class Database:
             add_column('projects', 'person_b_right_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', "makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(makeup_level IN ('light','natural','refined'))")
             add_column('projects', "groom_makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(groom_makeup_level IN ('light','natural','refined'))")
+            add_column('projects', "bride_hair_length TEXT NOT NULL DEFAULT 'long' CHECK(bride_hair_length IN ('long','medium','short'))")
+            add_column('projects', "groom_hair_length TEXT NOT NULL DEFAULT 'short' CHECK(groom_hair_length IN ('buzz','short','medium'))")
             add_column('generation_batches', 'reference_preview_version_id TEXT REFERENCES photo_versions(id)')
             add_column('photo_slots', 'pose_id TEXT')
             add_column('photo_slots', 'pose_name TEXT')

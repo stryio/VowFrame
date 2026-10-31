@@ -140,6 +140,8 @@ ProjectSummary 加上：
 {
   "makeup_level": "natural",
   "groom_makeup_level": "natural",
+  "bride_hair_length": "long",
+  "groom_hair_length": "short",
   "person_a": Person,
   "person_b": Person,
   "previews": [Slot],
@@ -150,6 +152,7 @@ ProjectSummary 加上：
 
 - `makeup_level`：新娘的妆容强度，`light`（清透新娘妆）、`natural`（标准婚纱妆，默认）或 `refined`（精致影楼妆），可随时修改，只影响之后的新图：新建和重新生成的样片、新拍组、换动作、换景别都用当前档位；作品的「重新生成」原样重放原提示词，加强长相一律用 `light`（docs/prompts.md 第 2.2 节）。
 - `groom_makeup_level`：新郎的精修强度，`light`（清爽）、`natural`（精修，默认）或 `refined`（精致，化淡淡的男士妆），规则与 `makeup_level` 相同。两个档位都同时决定提白、去瑕疵、轻微瘦脸和化妆的强度，新娘的档位还决定补发际线的程度。
+- `bride_hair_length` / `groom_hair_length`：两人头发的实际长度，新娘 `long`（长发，默认）/ `medium`（及肩）/ `short`（短发），新郎 `buzz`（寸头）/ `short`（短发，默认）/ `medium`（中长发）。每个风格按长度选一个发型写进提示词，长度保持和照片一致；规则与 `makeup_level` 相同，只影响之后的新图（docs/prompts.md 第 2.3 节）。
 - `previews`：按内置风格顺序排列，只包含已创建的样片位置。
 - `photo_sets`：按该风格第一次拍组的时间正序。
 - `photos`：全部 `kind = "photo"` 的作品位置，按创建时间正序（同一批次内按动作分配顺序）。
@@ -329,7 +332,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/projects` | — | `ProjectSummary[]`，按 `updated_at` 倒序 |
 | POST | `/api/projects` | `{"name"?: string}` | `ProjectDetail`（201），默认名「我的婚纱照」 |
 | GET | `/api/projects/{id}` | — | `ProjectDetail` |
-| PATCH | `/api/projects/{id}` | `{"name"?: string, "person_a_role"?: Role, "makeup_level"?: "light" \| "natural" \| "refined", "groom_makeup_level"?: "light" \| "natural" \| "refined"}` | `ProjectDetail`；字段为 null 或档位无效时 422 |
+| PATCH | `/api/projects/{id}` | `{"name"?: string, "person_a_role"?: Role, "makeup_level"?: "light" \| "natural" \| "refined", "groom_makeup_level"?: "light" \| "natural" \| "refined", "bride_hair_length"?: "long" \| "medium" \| "short", "groom_hair_length"?: "buzz" \| "short" \| "medium"}` | `ProjectDetail`；字段为 null 或档位无效时 422 |
 | DELETE | `/api/projects/{id}` | — | 204；存在 `running` 任务时 409 `project_busy`（先取消剩余任务） |
 | POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail`；先检查人脸并裁到头肩（见下文），不合格时 422 `unusable_photo`，无法读取时 422 `invalid_image` |
 | DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |

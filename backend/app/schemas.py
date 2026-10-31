@@ -20,6 +20,8 @@ class ProjectCreate(InputModel):
 
 
 MakeupLevel = Literal['light', 'natural', 'refined']
+BrideHairLength = Literal['long', 'medium', 'short']
+GroomHairLength = Literal['buzz', 'short', 'medium']
 
 
 class ProjectPatch(InputModel):
@@ -27,8 +29,10 @@ class ProjectPatch(InputModel):
     person_a_role: Role | None = None
     makeup_level: MakeupLevel | None = None
     groom_makeup_level: MakeupLevel | None = None
+    bride_hair_length: BrideHairLength | None = None
+    groom_hair_length: GroomHairLength | None = None
 
-    @field_validator('name', 'person_a_role', 'makeup_level', 'groom_makeup_level')
+    @field_validator('name', 'person_a_role', 'makeup_level', 'groom_makeup_level', 'bride_hair_length', 'groom_hair_length')
     @classmethod
     def reject_null(cls, value):
         if value is None:
@@ -239,6 +243,8 @@ class ProjectSummary(BaseModel):
 class ProjectDetail(ProjectSummary):
     makeup_level: MakeupLevel
     groom_makeup_level: MakeupLevel
+    bride_hair_length: BrideHairLength
+    groom_hair_length: GroomHairLength
     person_a: Person
     person_b: Person
     previews: list[Slot]

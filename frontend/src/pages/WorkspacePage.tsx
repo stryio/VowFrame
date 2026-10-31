@@ -6,7 +6,7 @@ import {
   isBroken,
   isFaceSwapped,
   isGenerating,
-  type Facing, type MakeupLevel, type Person,
+  type BrideHairLength, type Facing, type GroomHairLength, type MakeupLevel, type Person,
   type ProjectDetail,
   type Role,
   type Slot,
@@ -130,34 +130,46 @@ const GROOM_MAKEUP_OPTIONS: [MakeupLevel, string][] = [
   ["refined", "精致"],
 ];
 
-type MakeupField = "makeup_level" | "groom_makeup_level";
+const BRIDE_HAIR_OPTIONS: [BrideHairLength, string][] = [
+  ["long", "长发"],
+  ["medium", "及肩"],
+  ["short", "短发"],
+];
 
-/** Shown on both steps: the levels can change at any time and only affect pictures generated afterwards. */
+const GROOM_HAIR_OPTIONS: [GroomHairLength, string][] = [
+  ["buzz", "寸头"],
+  ["short", "短发"],
+  ["medium", "中长发"],
+];
+
+type LookField = "makeup_level" | "groom_makeup_level" | "bride_hair_length" | "groom_hair_length";
+
+/** Shown on both steps: these settings can change at any time and only affect pictures generated afterwards. */
 function MakeupCard({ project }: { project: ProjectDetail }) {
   const { refresh } = useCurrentProject();
   const toast = useToast();
 
-  const setLevel = async (field: MakeupField, level: MakeupLevel) => {
+  const setValue = async (field: LookField, value: string) => {
     try {
-      await api.updateProject(project.id, { [field]: level });
+      await api.updateProject(project.id, { [field]: value });
       await refresh();
     } catch (err) {
       toast.error(err);
     }
   };
 
-  const row = (field: MakeupField, role: string, options: [MakeupLevel, string][]) => (
+  const row = (field: LookField, label: string, options: [string, string][]) => (
     <div className="makeup-options">
-      <span className="makeup-role">{role}</span>
-      <div className="shot-switch" role="group" aria-label={`${role}妆容与精修`}>
-        {options.map(([level, label]) => (
+      <span className="makeup-role">{label}</span>
+      <div className="shot-switch" role="group" aria-label={label}>
+        {options.map(([value, text]) => (
           <button
-            key={level}
-            className={`shot-pill ${project[field] === level ? "active" : ""}`}
-            disabled={project[field] === level}
-            onClick={() => setLevel(field, level)}
+            key={value}
+            className={`shot-pill ${project[field] === value ? "active" : ""}`}
+            disabled={project[field] === value}
+            onClick={() => setValue(field, value)}
           >
-            {label}
+            {text}
           </button>
         ))}
       </div>
@@ -166,11 +178,14 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
 
   return (
     <div className="card tips makeup-card">
-      <h3>妆容与精修</h3>
+      <h3>造型与精修</h3>
       <div className="makeup-rows">
-        {row("makeup_level", "新娘", BRIDE_MAKEUP_OPTIONS)}
-        {row("groom_makeup_level", "新郎", GROOM_MAKEUP_OPTIONS)}
+        {row("makeup_level", "新娘妆容", BRIDE_MAKEUP_OPTIONS)}
+        {row("groom_makeup_level", "新郎精修", GROOM_MAKEUP_OPTIONS)}
+        {row("bride_hair_length", "新娘头发", BRIDE_HAIR_OPTIONS)}
+        {row("groom_hair_length", "新郎头发", GROOM_HAIR_OPTIONS)}
         <span className="muted">
+          头发长度请按照片里的实际长度选，每种风格会按长度配一个发型，长度保持和照片一致。
           提白、去瑕疵、补发际线、整理头发、轻微瘦脸和化妆都按档位的强度，档位越高修得越多；新郎只在「精致」一档化淡妆，发际线不动。
           不论照片有没有化妆，都按这里画，不会叠加。可以随时修改，只影响之后的新图（重新生成样片、拍组、换动作、换景别），已经生成的照片不变。
         </span>

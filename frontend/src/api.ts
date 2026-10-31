@@ -2,6 +2,8 @@
 
 export type Role = "bride" | "groom";
 export type MakeupLevel = "light" | "natural" | "refined";
+export type BrideHairLength = "long" | "medium" | "short";
+export type GroomHairLength = "buzz" | "short" | "medium";
 export type Stage = "upload" | "style" | "shooting";
 export type TaskStatus =
   | "waiting"
@@ -88,6 +90,8 @@ export interface ProjectSummary {
 export interface ProjectDetail extends ProjectSummary {
   makeup_level: MakeupLevel;
   groom_makeup_level: MakeupLevel;
+  bride_hair_length: BrideHairLength;
+  groom_hair_length: GroomHairLength;
   person_a: Person;
   person_b: Person;
   previews: Slot[];
@@ -292,6 +296,8 @@ export const api = {
     person_a_role?: Role;
     makeup_level?: MakeupLevel;
     groom_makeup_level?: MakeupLevel;
+    bride_hair_length?: BrideHairLength;
+    groom_hair_length?: GroomHairLength;
   }) =>
     request<ProjectDetail>(`/projects/${id}`, json("PATCH", patch)),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),

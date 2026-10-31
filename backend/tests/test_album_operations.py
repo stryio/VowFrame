@@ -540,6 +540,11 @@ def test_project_makeup_level_shapes_new_prompts_and_regenerations(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
         project = create_project(client)
         assert project['makeup_level'] == 'natural' and project['groom_makeup_level'] == 'natural'
+        assert project['bride_hair_length'] == 'long' and project['groom_hair_length'] == 'short'
+        assert client.patch(f"/api/projects/{project['id']}", json={'groom_hair_length': 'long'}).status_code == 422
+        assert client.patch(f"/api/projects/{project['id']}", json={'bride_hair_length': None}).status_code == 422
+        hair = client.patch(f"/api/projects/{project['id']}", json={'bride_hair_length': 'short', 'groom_hair_length': 'buzz'})
+        assert hair.status_code == 200 and hair.json()['bride_hair_length'] == 'short' and hair.json()['groom_hair_length'] == 'buzz'
         assert client.patch(f"/api/projects/{project['id']}", json={'groom_makeup_level': 'heavy'}).status_code == 422
         assert client.patch(f"/api/projects/{project['id']}", json={'groom_makeup_level': None}).status_code == 422
         assert client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'heavy'}).status_code == 422
@@ -550,6 +555,7 @@ def test_project_makeup_level_shapes_new_prompts_and_regenerations(app_factory):
         preview = ready_preview(client, project['id'])
         first = task_for_batch(client, preview['batch_id'])
         assert '新娘化精致的影楼新娘妆' in first['prompt'] and '新郎不化妆，只修干净' in first['prompt']
+        assert '新娘发型（短发）：' in first['prompt'] and '新郎发型（寸头）：' in first['prompt']
         # A later change leaves existing photos alone; boosting likeness tones the photo's makeup down to light.
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'natural'})
         result = client.post(f"/api/slots/{preview['id']}/regenerate", json={

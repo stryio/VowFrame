@@ -9,7 +9,7 @@ _STYLE_DATA = (
         'id': 'korean_minimal',
         'name': '韩系极简',
         'description': '纯色影棚、落地窗光、白色纱帘、简约花束',
-        'costume': '新娘穿简约的白色缎面婚纱，新郎穿黑色西装。新娘发型：盘成光洁整齐的低发髻。新郎发型：自然蓬松的纹理短发，顶部有层次，额前头发自然地梳向一侧，两侧修短服帖。妆容方向：韩式水光肌，浅棕或粉棕色眼影，珊瑚或水粉色的唇。',
+        'costume': '新娘穿简约的白色缎面婚纱，新郎穿黑色西装。妆容方向：韩式水光肌，浅棕或粉棕色眼影，珊瑚或水粉色的唇。',
         'look': '韩式高端人像的干净克制，白色与浅灰的室内空间，只摆一两件简约的家具或花艺，大面积留白；柔和通透的大面积自然光，色温中性，阴影浅而干净，画面像精修的人物肖像。',
         'variants': (
             ('纯色影棚', '白色的无缝背景墙与地面自然衔接，看不到转角线，旁边只放一张简约的白色木凳；大面积柔和的光从侧前方均匀照来，背景上只有很浅的明暗过渡。'),
@@ -24,7 +24,7 @@ _STYLE_DATA = (
         'id': 'french_vintage',
         'name': '城市街拍',
         'description': '梧桐街道、咖啡馆街角、斑马线、城市天台',
-        'costume': '新娘穿简约利落的缎面轻婚纱，新郎穿深色西装。新娘发型：盘成松散的低发髻，带一点自然的蓬松感。新郎发型：自然的纹理短发，顶部微微蓬松，额前头发随意地梳向一侧，两侧修短。妆容方向：干净的奶油肌，暖棕色眼影，玫瑰豆沙色的唇。',
+        'costume': '新娘穿简约利落的缎面轻婚纱，新郎穿深色西装。妆容方向：干净的奶油肌，暖棕色眼影，玫瑰豆沙色的唇。',
         'look': '现代摩登的城市纪实感，浅灰白色与灰褐色的历史建筑、梧桐树和干净的街道，色温中性，明亮柔和的自然光，像都市爱情电影里的一个瞬间；街道整洁，没有杂乱的招牌、车辆和行人。',
         'variants': (
             ('梧桐街道', '上海老城区安静的梧桐街道，两侧是浅灰白色与灰褐色的老洋房，立面有精致的窗框和铁艺阳台，高大的梧桐树枝在路面上方交织，街道干净；上午的阳光透过树叶在路面落下清晰的光影。'),
@@ -39,7 +39,7 @@ _STYLE_DATA = (
         'id': 'forest_natural',
         'name': '森林森系',
         'description': '林间草地、森林光影、白桦林、林中小径',
-        'costume': '新娘穿轻纱婚纱，头戴不遮挡额头的小花环，新郎穿浅灰色西装。新娘发型：长发编成松散的发辫，垂在一侧肩前。新郎发型：清爽的纹理短发，自然蓬松，发丝干净不乱翘。妆容方向：粉嫩的色调，浅粉色眼影，蜜桃色腮红，水润的粉色唇。',
+        'costume': '新娘穿轻纱婚纱，头戴不遮挡额头的小花环，新郎穿浅灰色西装。妆容方向：粉嫩的色调，浅粉色眼影，蜜桃色腮红，水润的粉色唇。',
         'look': '清新通透的森林空气感，嫩绿、墨绿与白色的配色，色温中性，阳光透过树冠形成有方向的柔和光束；林地干净整齐，草地短而平整、是春夏季节鲜嫩的青绿色，没有杂草、杂乱的灌木和落枝。',
         'variants': (
             ('林间草地', '高大的树木围出一片平整的林间空地，地面是短而整齐的绿草，四周的树干笔直、间距疏朗，背景是层层后退的绿色树林；阳光从侧后方透过树冠，在草地上形成柔和的光束和轮廓光。'),
@@ -54,7 +54,7 @@ _STYLE_DATA = (
         'id': 'seaside_sunset',
         'name': '海岸海岛',
         'description': '蔚蓝海岸、海边悬崖、礁石海湾',
-        'costume': '新娘穿轻盈飘逸的婚纱，配一条长头纱；新郎穿浅色西装。新娘发型：半扎发，下半部分是自然的大波浪，头纱固定在脑后。新郎发型：清爽的纹理短发，自然蓬松，发丝干净不乱翘。妆容方向：通透有光泽的底妆，香槟色细闪眼影，珊瑚色的腮红和唇。',
+        'costume': '新娘穿轻盈飘逸的婚纱，配一条长头纱；新郎穿浅色西装。妆容方向：通透有光泽的底妆，香槟色细闪眼影，珊瑚色的腮红和唇。',
         'look': '清透开阔的海岸，白色、蔚蓝与浅灰岩石的配色，色温中性，明亮通透的自然光，画面干净。',
         'variants': (
             ('蔚蓝海岸', '干净开阔的海岸线，层次分明的蔚蓝海水推着细白的浪花涌上浅色沙滩，湿润的沙面映着天光，远处是平直的海平线；上午明亮的阳光在海面上闪着细碎的光。'),
@@ -69,7 +69,7 @@ _STYLE_DATA = (
         'id': 'chinese_traditional',
         'name': '中式国风',
         'description': '红墙宫门、府邸庭院、雕花窗棂、木回廊',
-        'costume': '新娘穿红色金绣秀禾服，头饰简洁、不遮挡额头和脸型；新郎穿中式长袍马褂。新娘发型：梳成端庄光洁的低发髻，头饰别在发髻两侧。新郎发型：两侧修短的侧分短发，梳理服帖，端正整齐。妆容方向：端庄的中式新娘妆，暖棕色眼影，正红色的唇。',
+        'costume': '新娘穿红色金绣秀禾服，头饰简洁、不遮挡额头和脸型；新郎穿中式长袍马褂。妆容方向：端庄的中式新娘妆，暖棕色眼影，正红色的唇。',
         'look': '端庄喜庆的东方仪式感，朱红与金色点缀青灰色的古建筑，色温中性，明朗柔和的日光，画面干净；新娘的秀禾服是画面里主要的红色，场景里的红色只做点缀，不堆砌灯笼、喜字和彩绸。',
         'variants': (
             ('红墙宫门', '一面高大完整的朱红色宫墙，墙顶是深灰色的传统瓦檐，地面是整齐的浅灰色石砖，画面里没有多余的装饰；阳光沿着高墙投下清晰的斜向光影。'),
@@ -83,7 +83,7 @@ _STYLE_DATA = (
         'id': 'cinematic_light',
         'name': '高级光影',
         'description': '光影塑形、明暗对比、背景简洁',
-        'costume': '新娘穿缎面婚纱，新郎穿黑色西装。新娘发型：盘成轮廓简洁的光洁低发髻。新郎发型：两侧修短的侧分短发，梳理服帖，带自然光泽。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。',
+        'costume': '新娘穿缎面婚纱，新郎穿黑色西装。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。',
         'look': '光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。',
         'variants': (
             ('窗格投影', '上午的硬质阳光从房间一侧的窗户射入，在白色墙面、水泥地面和两人的衣服上投出清晰的窗格影子。'),
@@ -98,7 +98,7 @@ _STYLE_DATA = (
         'id': 'new_chinese',
         'name': '新中式园林',
         'description': '江南园林、宋式庭院、月洞门、禅意空间',
-        'costume': '新娘穿白色缎面婚纱，现代的修身廓形，领口是简洁的中式小立领，胸前点缀一两颗盘扣和淡雅的同色刺绣；新郎穿剪裁利落的黑色西装，配白衬衫。新娘发型：盘成简洁的低发髻，侧边别一支素雅的珍珠发簪。新郎发型：两侧修短的侧分短发，梳理服帖，干净利落。妆容方向：温润的底妆，浅棕色眼影，砖红或豆沙红的唇。',
+        'costume': '新娘穿白色缎面婚纱，现代的修身廓形，领口是简洁的中式小立领，胸前点缀一两颗盘扣和淡雅的同色刺绣；新郎穿剪裁利落的黑色西装，配白衬衫。妆容方向：温润的底妆，浅棕色眼影，砖红或豆沙红的唇。',
         'look': '克制雅致的东方美学，白墙、黛瓦、原木与墨绿的素雅配色，大面积留白，柔和的散射天光，画面干净通透。',
         'variants': (
             ('苏式月洞门', '素白墙面上开着一扇圆形月洞门，门后是一丛修竹和一株枝形舒展的白色花树，脚下是青石板路，旁边一方浅浅的小池；阴天柔和的天光。'),
@@ -113,7 +113,7 @@ _STYLE_DATA = (
         'id': 'hongkong_retro',
         'name': '港风复古',
         'description': '90 年代港片色调、老街、霓虹',
-        'costume': '新娘穿复古缎面婚纱，配一条短头纱；新郎穿宽肩的深色复古西装。新娘发型：复古的大波浪卷发，蓬松有光泽。新郎发型：带复古感的侧分短发，梳理服帖，带自然光泽。妆容方向：港风复古妆，暖棕色眼影，正红色的唇。',
+        'costume': '新娘穿复古缎面婚纱，配一条短头纱；新郎穿宽肩的深色复古西装。妆容方向：港风复古妆，暖棕色眼影，正红色的唇。',
         'look': '上世纪 90 年代港片般的怀旧氛围，偏暖的胶片色调和轻微颗粒，复古的红绿色彩对比。',
         'variants': (
             ('老街招牌', '密集的竖排招牌和旧唐楼，傍晚的天光与刚亮起的霓虹混在一起。'),
@@ -127,7 +127,7 @@ _STYLE_DATA = (
         'id': 'city_night',
         'name': '城市夜景',
         'description': '天台、城市灯火、虚化光斑',
-        'costume': '新娘穿带细闪的缎面婚纱，新郎穿黑色西装。新娘发型：盘成优雅的法式低发髻。新郎发型：两侧修短的侧分短发，梳理服帖，带自然光泽。妆容方向：带光泽的底妆，香槟金细闪眼影，浓郁的红唇。',
+        'costume': '新娘穿带细闪的缎面婚纱，新郎穿黑色西装。妆容方向：带光泽的底妆，香槟金细闪眼影，浓郁的红唇。',
         'look': '现代都市的浪漫夜晚，深蓝的夜空与暖金色的城市灯火，背景是柔和的虚化光斑，人物由近处的暖光照亮。',
         'variants': (
             ('城市天台', '高楼天台的栏杆边，身后是城市天际线和蓝调时刻的天空，天台上的暖色串灯照亮两人。'),
@@ -141,7 +141,7 @@ _STYLE_DATA = (
         'id': 'flower_field',
         'name': '草原旷野',
         'description': '辽阔草原、草原坡地、孤树、那拉提、薰衣草花田',
-        'costume': '新娘穿轻盈的薄纱婚纱，新郎穿浅色西装。新娘发型：长发编成松散的低发辫，发间点缀几朵白色小花。新郎发型：清爽的纹理短发，自然蓬松，发丝干净不乱翘。妆容方向：粉嫩的色调，蜜桃色腮红，水润的粉橘色唇。',
+        'costume': '新娘穿轻盈的薄纱婚纱，新郎穿浅色西装。妆容方向：粉嫩的色调，蜜桃色腮红，水润的粉橘色唇。',
         'look': '自由开阔的草原，平缓起伏的山丘和占据大半画面的天空，天空里飘着几朵白云。整体是低饱和、克制的调色，画面以墨绿和灰蓝两种颜色为主：草地是自然生长的、沉稳的深绿色，天空是沉稳的深蓝色；暗部微微偏冷，色温中性，肤色自然；白色婚纱是画面里最干净、最突出的颜色。光有方向、有质感：上午的太阳还不高，低角度的阳光从侧前方照在两人和周围的草地上，草叶和起伏的山丘都有清晰的受光面和背光面，地面上拉出长长的影子。按白色婚纱和白云的亮部曝光：婚纱的面料和白云的亮部保留清晰的纹理。草地高低略有起伏，两人脚下干净，没有杂乱的杂草和碎石；远景要拍出人在天地之间的辽阔感。',
         'variants': (
             ('辽阔草原', '一望无际的草原，地势平缓起伏，远方是低缓的山丘和一线森林，天空占据大半画面，飘着几朵白云；上午低角度的阳光从侧前方照来，起伏的草地一道道分出明暗。'),
@@ -156,7 +156,7 @@ _STYLE_DATA = (
         'id': 'snow_winter',
         'name': '冬日雪景',
         'description': '雪地、松林、冬日暖阳',
-        'costume': '新娘穿长袖缎面婚纱，披一条白色毛绒披肩；新郎穿深色大衣和西装。新娘发型：盘成饱满整齐的低发髻。新郎发型：两侧修短的纹理短发，顶部蓬松，梳理整齐。妆容方向：白皙透亮的底妆，粉色腮红晕在脸颊，莓果色的唇。',
+        'costume': '新娘穿长袖缎面婚纱，披一条白色毛绒披肩；新郎穿深色大衣和西装。妆容方向：白皙透亮的底妆，粉色腮红晕在脸颊，莓果色的唇。',
         'look': '纯净安静的冬日，大面积白雪与深色松林的对比，冷色调的环境里有暖色的阳光照在人物身上。',
         'variants': (
             ('雪中松林', '积雪的松林，阳光从树间斜射进来，空中飘着细雪。'),
@@ -170,7 +170,7 @@ _STYLE_DATA = (
         'id': 'european_church',
         'name': '欧式教堂',
         'description': '拱廊、彩窗、石柱、庄重浪漫',
-        'costume': '新娘穿长拖尾的蕾丝婚纱和长头纱，新郎穿黑色燕尾服。新娘发型：盘成典雅的低发髻，头纱固定在发髻上方。新郎发型：两侧修短的侧分短发，梳理服帖，带自然光泽。妆容方向：典雅的底妆，大地色眼影，玫瑰色的唇。',
+        'costume': '新娘穿长拖尾的蕾丝婚纱和长头纱，新郎穿黑色燕尾服。妆容方向：典雅的底妆，大地色眼影，玫瑰色的唇。',
         'look': '庄重浪漫的欧式古典氛围，石材的暖灰色调，高大空间里柔和的自然光。',
         'variants': (
             ('教堂通道', '教堂中殿的长通道和两侧的木长椅，高窗的天光洒在通道上。'),
@@ -184,7 +184,7 @@ _STYLE_DATA = (
         'id': 'black_white',
         'name': '黑白经典',
         'description': '黑白影像、光影与情绪',
-        'costume': '新娘穿简约的缎面婚纱，新郎穿黑色西装。新娘发型：盘成光洁利落的低发髻。新郎发型：两侧修短的侧分短发，梳理服帖，轮廓清晰。妆容方向：干净有光泽的底妆，深色的唇，在黑白画面里也有明暗层次。',
+        'costume': '新娘穿简约的缎面婚纱，新郎穿黑色西装。妆容方向：干净有光泽的底妆，深色的唇，在黑白画面里也有明暗层次。',
         'look': '黑白影像，丰富的灰阶层次和细腻的颗粒，靠光影、线条和情绪打动人，画面中没有任何彩色。',
         'variants': (
             ('影棚侧光', '简洁的纯色影棚，侧光塑造出清晰的明暗。'),
@@ -198,7 +198,7 @@ _STYLE_DATA = (
         'id': 'daily_life',
         'name': '生活日常',
         'description': '咖啡馆、书店、家中，自然纪实',
-        'costume': '新娘穿简约轻便的短款婚纱，新郎穿白衬衫和西裤，不打领带。新娘发型：自然的半扎发，发尾微卷。新郎发型：自然蓬松的纹理短发，发丝干净不乱翘。妆容方向：浅粉色调，浅粉色眼影，蜜桃色的唇。',
+        'costume': '新娘穿简约轻便的短款婚纱，新郎穿白衬衫和西裤，不打领带。妆容方向：浅粉色调，浅粉色眼影，蜜桃色的唇。',
         'look': '自然松弛的生活纪实感，温暖柔和的室内光和真实的生活细节，像被朋友抓拍到的瞬间。',
         'variants': (
             ('窗边咖啡馆', '咖啡馆靠窗的座位，桌上放着两杯咖啡，窗外的日光照进来。'),
@@ -212,7 +212,7 @@ _STYLE_DATA = (
         'id': 'snow_mountain',
         'name': '玉龙雪山',
         'description': '云南玉龙雪山、甘海子、蓝月谷、云杉坪',
-        'costume': '新娘穿简约的白色缎面婚纱，配长拖尾和长头纱；新郎穿黑色西装。新娘发型：盘成紧实的低发髻，头纱固定在发髻上。新郎发型：清爽的纹理短发，自然蓬松，发丝干净不乱翘。妆容方向：白皙透亮的底妆，粉色腮红，玫瑰豆沙色的唇。',
+        'costume': '新娘穿简约的白色缎面婚纱，配长拖尾和长头纱；新郎穿黑色西装。妆容方向：白皙透亮的底妆，粉色腮红，玫瑰豆沙色的唇。',
         'look': '云南玉龙雪山的晴朗高原风光，灰白色的岩峰与白雪、湖水和草甸，天空里飘着几朵白云。整体是低饱和、克制的调色，画面以墨绿和灰蓝两种颜色为主：草甸是沉稳的墨绿色，天空是沉稳的深蓝色，湖水是偏灰的青蓝色；暗部微微偏冷，色温中性，肤色自然；白色婚纱是画面里最干净、最突出的颜色。光有方向、有质感：上午的太阳还不高，低角度的阳光从侧前方照在两人和周围的草甸上，岩峰、雪面和草叶都有清晰的受光面和背光面，地面上拉出长长的影子。按白色婚纱和积雪的亮部曝光：婚纱缎面、积雪和白云的亮部保留清晰的纹理。机位要有变化：低机位仰拍让两人挺拔地衬在天空和雪峰前，高机位俯拍让两人和草甸、湖水、山谷一起入画；远景要拍出人在天地之间的辽阔感。',
         'variants': (
             ('甘海子草甸', '玉龙雪山东麓山脚下的甘海子，一大片开阔的草甸，草自然生长、高低略有起伏，两人脚下的草地干净；远处是玉龙雪山连绵的灰白色岩峰，主峰扇子陡像一面陡峭的扇子，峰顶覆着白雪，山体纹理清晰；上午低角度的阳光从侧前方照来，山体的沟壑和雪面的起伏清晰可见。'),
@@ -227,7 +227,7 @@ _STYLE_DATA = (
         'id': 'lawn_floral',
         'name': '草坪花艺',
         'description': '花艺拱门、仪式通道、古树、白色纱幔',
-        'costume': '新娘穿简约的白色缎面婚纱，配一条长头纱；新郎穿黑色西装。新娘发型：盘成柔和的低发髻，头纱固定在发髻上方。新郎发型：两侧修短的纹理短发，顶部有层次，额前头发自然地梳向一侧。妆容方向：柔和的粉棕色眼影，蜜桃色腮红，玫瑰粉色的唇。',
+        'costume': '新娘穿简约的白色缎面婚纱，配一条长头纱；新郎穿黑色西装。妆容方向：柔和的粉棕色眼影，蜜桃色腮红，玫瑰粉色的唇。',
         'look': '高定户外婚礼布景，开阔平整的草坪上只有少量精心设计的花艺，花艺克制、少而精，轮廓清晰、边缘利落，周围留出大片短而整齐的草坪；白色花艺与鲜嫩青绿色草坪的清爽配色，色温中性，明亮柔和的自然光，画面干净通透。',
         'variants': (
             ('花艺拱门', '修剪整齐的开阔青绿色草坪中央立着一座造型简洁的圆弧形花艺拱门，拱形轮廓清晰圆润，花材以白玫瑰和少量浅绿叶为主，排列紧密整齐，拱门底部两侧各有一组低矮的同色花艺；拱门后是开阔干净的草坪和远处整齐的树林；柔和明亮的天光。'),
@@ -241,7 +241,7 @@ _STYLE_DATA = (
         'id': 'white_floral',
         'name': '花园花房',
         'description': '玻璃花房、绣球花园、樱花花园、镜面花艺',
-        'costume': '新娘穿一字肩的白色缎面婚纱，新郎穿白色西装上衣和黑色西裤。新娘发型：盘成优雅的低发髻，露出肩颈线条。新郎发型：两侧修短的纹理短发，顶部有层次，额前头发自然地梳向一侧。妆容方向：柔和的粉色调，淡粉色眼影，玫瑰粉色的唇。',
+        'costume': '新娘穿一字肩的白色缎面婚纱，新郎穿白色西装上衣和黑色西裤。妆容方向：柔和的粉色调，淡粉色眼影，玫瑰粉色的唇。',
         'look': '精心打理的高定花园，花卉成排成片、修剪整齐、秩序分明，白色、浅粉与鲜嫩的青绿色为主，大面积干净的步道和短而整齐的草地留白；柔和明亮的自然光，色温中性，画面干净通透。',
         'variants': (
             ('玻璃花房', '一座高挑的玻璃温室，白色细金属框架构成整齐的拱形玻璃穹顶，室内两侧是修剪整齐的绿植和成排的白色玫瑰，中央一条干净的浅色石质步道；柔和的日光穿过玻璃洒下，地面落着淡淡的几何格影。'),
@@ -255,7 +255,7 @@ _STYLE_DATA = (
         'id': 'french_estate',
         'name': '法式庄园',
         'description': '古典庄园、修剪花园、玫瑰庭院、露台、玻璃花房',
-        'costume': '新娘穿复古蕾丝长袖婚纱和长头纱，新郎穿深色西装。新娘发型：盘成柔和蓬松的复古低发髻，头纱固定在发髻上。新郎发型：两侧修短的侧分短发，梳理服帖，带自然光泽。妆容方向：法式复古妆，暖棕色眼影，雾面质感的红唇。',
+        'costume': '新娘穿复古蕾丝长袖婚纱和长头纱，新郎穿深色西装。妆容方向：法式复古妆，暖棕色眼影，雾面质感的红唇。',
         'look': '法式私人庄园的秩序与贵气，浅色石材、深绿绿篱与白色花艺的配色，草坪短而整齐、是春夏季节鲜嫩的青绿色，明亮柔和的日光，色温中性，画面干净。',
         'variants': (
             ('庄园草坪', '一栋白色的古典庄园建筑，外墙有细腻的石雕、对称的拱形窗和铁艺阳台；建筑前是大面积修剪整齐的青绿色草坪，两侧排列低矮的绿篱、白色玫瑰花坛和古典石质花盆；上午明亮柔和的阳光。'),
@@ -271,7 +271,7 @@ _STYLE_DATA = (
         'id': 'minimal_architecture',
         'name': '极简建筑',
         'description': '白色建筑、弧形拱门、清水混凝土、天空之镜',
-        'costume': '新娘穿极简剪裁的白色缎面婚纱，新郎穿黑色西装。新娘发型：盘成利落光洁的高发髻。新郎发型：两侧修短的利落短发，顶部有纹理，梳理整齐。妆容方向：干净利落的妆面，大地色眼影，裸粉或豆沙色的唇。',
+        'costume': '新娘穿极简剪裁的白色缎面婚纱，新郎穿黑色西装。妆容方向：干净利落的妆面，大地色眼影，裸粉或豆沙色的唇。',
         'look': '现代极简建筑的几何秩序，白、浅灰与少量黑色，大面积留白，清晰而柔和的自然光影，色温中性，画面干净利落。',
         'variants': (
             ('白色几何建筑', '现代极简建筑前，大面积纯白墙面、简洁的几何体块和浅灰白石质地面，几级不同高度的台阶和墙体转角，上方是开阔的天空；日光在白墙上投下清晰柔和的阴影。'),
@@ -285,7 +285,7 @@ _STYLE_DATA = (
         'id': 'luxury_interior',
         'name': '酒店教堂',
         'description': '酒店大堂、宫廷楼梯、教堂通道、婚礼礼堂',
-        'costume': '新娘穿长拖尾的白色缎面婚纱和长头纱，新郎穿黑色礼服。新娘发型：盘成饱满端庄的低发髻，头纱固定在发髻上。新郎发型：两侧修短的侧分短发，梳理服帖，带自然光泽。妆容方向：精致典雅的妆面，香槟色细闪眼影，玫瑰红色的唇。',
+        'costume': '新娘穿长拖尾的白色缎面婚纱和长头纱，新郎穿黑色礼服。妆容方向：精致典雅的妆面，香槟色细闪眼影，玫瑰红色的唇。',
         'look': '高挑庄重的古典室内空间，石柱、拱窗、大理石与水晶吊灯，白色、浅灰与少量金属色的配色；以高窗的自然光为主光，室内灯光只作点缀，画面明亮干净，庄重华丽但不堆砌。',
         'variants': (
             ('酒店大堂', '高端酒店的挑空大堂，巨大的水晶艺术吊灯，浅色大理石地面和深色金属线条，背景是一座优雅的旋转楼梯；高窗的自然光照亮大堂。'),
@@ -300,7 +300,7 @@ _STYLE_DATA = (
         'id': 'lakeside',
         'name': '湖畔洱海',
         'description': '洱海湖岸、水上栈桥、湖边花艺、镜面湖泊',
-        'costume': '新娘穿轻盈的缎面婚纱，配一条长头纱；新郎穿浅灰色西装。新娘发型：盘成松散的低发髻，头纱固定在脑后。新郎发型：清爽的纹理短发，自然蓬松，发丝干净不乱翘。妆容方向：通透的底妆，浅棕色眼影，珊瑚粉色的唇。',
+        'costume': '新娘穿轻盈的缎面婚纱，配一条长头纱；新郎穿浅灰色西装。妆容方向：通透的底妆，浅棕色眼影，珊瑚粉色的唇。',
         'look': '清透开阔的湖畔，蓝天、碧蓝的湖水与远处层叠的青灰色山峦，色温中性，明亮通透的自然光，画面干净；湖岸整洁，草地短而整齐、是春夏季节鲜嫩的青绿色。',
         'variants': (
             ('洱海湖岸', '云南洱海边，平静的湖面延伸到远方，倒映着蓝天、白云和对岸层叠的苍山，近处是一片修剪整齐的绿色草岸，湖边干净；晴朗的上午，阳光从侧面照来，湖面闪着细碎的光。'),
@@ -315,7 +315,7 @@ _STYLE_DATA = (
         'id': 'vintage_interior',
         'name': '复古油画',
         'description': '壁炉客厅、私人图书馆、丝绒窗边、油画长廊',
-        'costume': '新娘穿复古缎面长袖婚纱，新郎穿深色西装。新娘发型：盘成蓬松饱满的复古低发髻。新郎发型：带复古感的侧分短发，梳理服帖，带自然光泽。妆容方向：古典油画感的妆面，暖棕色眼影，酒红或砖红的唇。',
+        'costume': '新娘穿复古缎面长袖婚纱，新郎穿深色西装。妆容方向：古典油画感的妆面，暖棕色眼影，酒红或砖红的唇。',
         'look': '古典油画般的室内，白色雕花墙面、深色木家具与丝绒，白色、深棕与墨绿的配色；窗边方向明确的柔和侧光，明暗过渡细腻，色彩沉稳干净。',
         'variants': (
             ('壁炉客厅', '古老宅邸的宽敞客厅，白色石膏线条装饰的墙面，中央是浅色大理石壁炉，壁炉上方挂着一幅古典油画，旁边只摆着一张深色丝绒沙发；高大的落地窗挂着浅色窗帘，明亮的窗光从侧面照进来。'),
@@ -329,7 +329,7 @@ _STYLE_DATA = (
         'id': 'dark_studio',
         'name': '黑色影棚',
         'description': '哑光黑背景、侧光塑形、轮廓光、雕塑感明暗',
-        'costume': '新娘穿白色缎面婚纱，新郎穿黑色高定礼服。新娘发型：盘成光洁利落的低发髻，露出完整的肩颈线条。新郎发型：两侧修短的侧分短发，梳理服帖，轮廓清晰。妆容方向：有光泽的底妆，深棕色眼影，浓郁的正红唇。',
+        'costume': '新娘穿白色缎面婚纱，新郎穿黑色高定礼服。妆容方向：有光泽的底妆，深棕色眼影，浓郁的正红唇。',
         'look': '整组照片都在同一个纯黑的影棚里拍摄：背景是没有反光的哑光黑色，地面是深灰黑色，两者连成一片，画面里没有任何道具和装饰；精准的影棚灯光塑造雕塑般的明暗：侧前方的主光把两人的面部照亮、照清楚，轮廓光只用来勾出头发、肩颈和婚纱裙摆的边缘；白色婚纱在黑色背景中轮廓清晰，色温中性，画面冷艳、沉稳；灯具本身不出现在画面里。',
         'variants': (
             ('侧光塑形', '纯黑的背景前，一盏柔光从侧前方照亮两人的面部和身体，明暗过渡细腻，另一侧身体渐渐沉入暗部，身后一道轮廓光勾出头发和肩膀的亮边。'),
@@ -343,7 +343,7 @@ _STYLE_DATA = (
         'id': 'japanese_film',
         'name': '日系清新',
         'description': '海边道口、乡间小站、夏日田野、窗边木屋',
-        'costume': '新娘穿轻盈简约的白色薄纱短款婚纱，新郎穿白衬衫和浅灰色西裤，不打领带。新娘发型：自然的低马尾，发尾微卷。新郎发型：自然蓬松的纹理短发，额前头发自然地垂下一点，发丝干净。妆容方向：通透的妆面质感，浅粉色腮红横向晕开，水润的粉色唇。',
+        'costume': '新娘穿轻盈简约的白色薄纱短款婚纱，新郎穿白衬衫和浅灰色西裤，不打领带。妆容方向：通透的妆面质感，浅粉色腮红横向晕开，水润的粉色唇。',
         'look': '日系胶片的清新感：明亮的高调画面，低对比，高光柔和，偏青偏蓝的清透色调，带一点细腻的胶片颗粒；像夏天里一个安静寻常的瞬间，场景干净、留白多，地面和背景整洁。',
         'variants': (
             ('海边道口', '海边小镇一处安静的铁路道口，细长的铁轨延伸向远处，铁轨另一侧是蓝色的大海和平直的海平线，路边是低矮的白色围栏；上午明亮的阳光，天空清澈。'),
@@ -357,7 +357,7 @@ _STYLE_DATA = (
         'id': 'republic_qipao',
         'name': '民国旗袍',
         'description': '老洋房、石库门弄堂、复古客厅、旋转楼梯',
-        'costume': '新娘穿合身的白色缎面长旗袍，高领、盘扣，裙长及踝，面料有细腻的暗纹；新郎穿深色的三件套西装。新娘发型：盘成复古的低发髻，发髻上方梳出柔和的波纹。新郎发型：带复古感的侧分短发，梳理服帖，带自然光泽。妆容方向：民国复古妆，暖棕色眼影，正红色的唇。',
+        'costume': '新娘穿合身的白色缎面长旗袍，高领、盘扣，裙长及踝，面料有细腻的暗纹；新郎穿深色的三件套西装。妆容方向：民国复古妆，暖棕色眼影，正红色的唇。',
         'look': '民国老上海的典雅：青灰与砖红色的老建筑、深色木家具和复古的铁艺与彩色花砖，色温中性，柔和明亮的自然光；色彩清晰干净，像今天用现代相机实地拍摄的民国场景，而不是泛黄的老照片；场景整洁，不堆砌老物件。',
         'variants': (
             ('老洋房', '一栋保存完好的老洋房门前，浅灰色的外墙、红砖装饰线条和深色木门，门前几级石阶，旁边一棵高大的梧桐树，街道安静干净；上午的阳光透过梧桐叶落在墙面上。'),
@@ -371,7 +371,7 @@ _STYLE_DATA = (
         'id': 'hanfu',
         'name': '汉服古韵',
         'description': '宋制汉服、竹林小径、湖畔亭台、古寺石阶',
-        'costume': '新娘穿宋制汉服：浅色的交领上衣外罩一件长褙子，配素雅的百迭裙，面料是有垂感的真丝，绣花淡雅；新郎穿同色系的宋制圆领袍。新娘发型：梳成简洁的发髻，只插一两支素雅的发簪，不遮挡额头和脸型。新郎发型：头发向上束起，戴简洁的小发冠。妆容方向：宋代雅致的妆面，浅杏色眼影，柔和的胭脂色腮红，胭脂红的唇。',
+        'costume': '新娘穿宋制汉服：浅色的交领上衣外罩一件长褙子，配素雅的百迭裙，面料是有垂感的真丝，绣花淡雅；新郎穿同色系的宋制圆领袍。妆容方向：宋代雅致的妆面，浅杏色眼影，柔和的胭脂色腮红，胭脂红的唇。',
         'look': '宋代美学的清雅：浅青、月白、浅杏与墨绿的低调配色，面料和建筑都精致考究，画面留白，色温中性，柔和的散射天光；像一幅清淡的宋画，场景干净整洁，服装真实合体，不像影视剧的戏服。',
         'variants': (
             ('竹林小径', '一条干净的青石板小径穿过高大的竹林，竹竿笔直、疏密有致，地面整洁，小径向深处延伸；阳光从竹叶间柔和地透下来，空气里有淡淡的薄雾。'),
@@ -385,7 +385,7 @@ _STYLE_DATA = (
         'id': 'northwest_desert',
         'name': '西北大漠',
         'description': '沙丘脊线、雅丹地貌、戈壁公路、沙漠绿洲、盐湖天空之镜',
-        'costume': '新娘穿轻盈的白色薄纱婚纱，配一条很长的头纱，在风中自然飘起；新郎穿浅灰色西装。新娘发型：盘成紧实的低发髻，头纱固定在发髻上。新郎发型：清爽的纹理短发，自然蓬松，发丝干净不乱翘。妆容方向：有光泽的底妆，暖金色细闪眼影，砖红色的唇。',
+        'costume': '新娘穿轻盈的白色薄纱婚纱，配一条很长的头纱，在风中自然飘起；新郎穿浅灰色西装。妆容方向：有光泽的底妆，暖金色细闪眼影，砖红色的唇。',
         'look': '辽阔苍茫的西北大漠：沙丘是自然的沙色，天空是清澈的深蓝色，远处的地平线开阔干净；色温中性，上午的低角度侧光让沙丘和地貌有清晰的明暗起伏；沙面被风吹出平滑整齐的纹理，没有杂乱的脚印。',
         'variants': (
             ('沙丘脊线', '连绵起伏的大沙丘，一道弧线流畅的沙脊从近处延伸到远方，沙面上是风吹出的细密波纹，天空湛蓝开阔；上午的侧光让沙脊一侧明亮、一侧落在柔和的阴影里。'),
@@ -397,7 +397,148 @@ _STYLE_DATA = (
         'avoid': '画面整体偏橙偏黄、沙尘弥漫、天空发灰、沙面脚印凌乱、过曝',
     },
 )
+# One hairstyle per style and hair length; the project says how long each person's hair is (V3.45).
+# Never a full slicked-back look for the groom (V3.9): side-swept at most.
+BUZZ_HAIR = '保持寸头的长度，边缘修整干净利落'
+_HAIR = {
+    'korean_minimal': {
+        'bride': {'long': '韩式低盘发，发髻光洁整齐', 'medium': '光洁的低马尾，发尾微微内扣',
+                  'short': '自然微卷的短发，发丝光洁服帖'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '韩式三七分短发，顶部蓬松有层次，两侧修短服帖', 'medium': '韩式四六分，头顶蓬松，发尾自然内收'},
+    },
+    'french_vintage': {
+        'bride': {'long': '披肩大波浪，蓬松有光泽', 'medium': '锁骨发，发尾外翘，蓬松自然',
+                  'short': '自然蓬松的短发，发尾微翘'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '韩式纹理短发，顶部蓬松，两侧修短', 'medium': '微分碎盖，额前碎发自然分开，发丝蓬松'},
+    },
+    'forest_natural': {
+        'bride': {'long': '森系半扎编发，编发自然松散', 'medium': '松散的低盘发，留几缕自然的发丝',
+                  'short': '自然蓬松的短发，发丝柔软'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '蓬松的纹理短发，发丝干净不乱翘', 'medium': '自然中分，发丝蓬松，带一点微卷'},
+    },
+    'seaside_sunset': {
+        'bride': {'long': '海浪卷披发，头纱固定在脑后', 'medium': '低马尾，发尾微卷，头纱固定在脑后',
+                  'short': '自然的短卷发，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '清爽的侧背头，一侧梳向后方，露出部分额头', 'medium': '自然的三七分，蓬松清爽'},
+    },
+    'chinese_traditional': {
+        'bride': {'long': '秀禾发髻：中式盘发梳得端庄光洁，头饰别在发髻两侧', 'medium': '小巧端庄的中式低盘发，头饰别在发髻两侧',
+                  'short': '短发向后梳得光洁服帖，侧边别一组简洁的中式发饰'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '复古侧分短发，梳理服帖，端正整齐', 'medium': '复古三七分，梳理服帖，带自然光泽'},
+    },
+    'cinematic_light': {
+        'bride': {'long': '光洁的低盘发，轮廓简洁', 'medium': '利落的低马尾，头顶光洁服帖',
+                  'short': '湿发感的短发，向后侧梳得光洁利落'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '侧背头，一侧梳向后方，梳理服帖，带自然光泽', 'medium': '整齐的三七分，用发胶梳得服帖，带自然光泽'},
+    },
+    'new_chinese': {
+        'bride': {'long': '新中式低发髻，侧边别一支玉簪', 'medium': '中分的低盘发，发髻小巧，别一支玉簪',
+                  'short': '中分的短发，梳得光洁，侧边别一支珍珠发夹'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '雅致的三七分短发，梳理服帖', 'medium': '自然的侧背头，头发向后侧梳顺，露出部分额头'},
+    },
+    'flower_field': {
+        'bride': {'long': '松散的低麻花辫，垂在一侧肩前', 'medium': '半扎编发，发尾自然散开',
+                  'short': '自然蓬松的短发，侧边编一小股细辫'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '自然的纹理短发，蓬松不乱翘', 'medium': '蓬松的中分，发尾微卷'},
+    },
+    'snow_mountain': {
+        'bride': {'long': '低编发盘成紧实的发髻，头纱固定在发髻上', 'medium': '固定式低马尾，发尾收紧，头纱固定在脑后',
+                  'short': '短发梳理服帖，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '清爽的短发，梳理整齐', 'medium': '利落的侧分，发丝服帖，不被风吹乱'},
+    },
+    'lawn_floral': {
+        'bride': {'long': '浪漫的半扎卷发，头纱固定在脑后', 'medium': '法式松盘发，头纱固定在发髻上方',
+                  'short': '自然的短卷发，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '自然的三七分短发，顶部有层次', 'medium': '柔和的侧背头，一侧梳向后方，露出部分额头'},
+    },
+    'french_estate': {
+        'bride': {'long': '法式低盘发，柔和蓬松，头纱固定在发髻上', 'medium': '慵懒的低发髻，头纱固定在发髻上',
+                  'short': '复古的波浪短发，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '复古侧背头，一侧梳向后方，带自然光泽', 'medium': '经典三七分，用发油梳得服帖，带自然光泽'},
+    },
+    'luxury_interior': {
+        'bride': {'long': '赫本式高盘发，头纱固定在发髻下方', 'medium': '饱满的低盘发，头纱固定在发髻上',
+                  'short': '短发向后梳得光洁，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '英伦侧分短发，梳理服帖，带自然光泽', 'medium': '侧背头，一侧梳向后方，梳理服帖，带自然光泽'},
+    },
+    'lakeside': {
+        'bride': {'long': '半扎大波浪，头纱固定在脑后', 'medium': '温柔的低马尾，发尾微卷，头纱固定在脑后',
+                  'short': '自然蓬松的短发，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '蓬松的纹理短发，发丝干净', 'medium': '韩式四六分，头顶蓬松'},
+    },
+    'vintage_interior': {
+        'bride': {'long': '好莱坞复古大波浪，蓬松有光泽', 'medium': '复古低盘发，蓬松饱满',
+                  'short': '复古的短卷发，发尾内扣'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '复古侧分短发，用发油梳得服帖', 'medium': '复古侧背头，一侧梳向后方，带自然光泽'},
+    },
+    'dark_studio': {
+        'bride': {'long': '雕塑感的高盘发，光洁利落', 'medium': '光洁的高马尾，头顶服帖',
+                  'short': '贴头的光洁短发，向后侧梳'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '湿发感的侧背头，一侧梳向后方，轮廓利落', 'medium': '利落的侧背头，用发胶定型，带自然光泽'},
+    },
+    'japanese_film': {
+        'bride': {'long': '空气感半扎发，发尾微卷', 'medium': '低双辫，发丝松软',
+                  'short': '自然微卷的短发，空气感蓬松'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '日系蓬松短发，额前碎发自然垂下', 'medium': '自然中分，发丝蓬松柔软'},
+    },
+    'republic_qipao': {
+        'bride': {'long': '复古低盘发，发髻上方梳出民国手推波纹', 'medium': '民国手推波纹，发尾在耳下内扣',
+                  'short': '侧分的短卷发，梳出民国手推波纹'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '民国三七分，用发油梳得服帖，带自然光泽', 'medium': '经典侧背头，一侧梳向后方，梳得服帖，带自然光泽'},
+    },
+    'hanfu': {
+        'bride': {'long': '宋制花冠发髻：头发盘成高髻，戴一顶素雅的小花冠，不遮挡额头', 'medium': '宋制低髻，插一两支素雅的发簪，不遮挡额头',
+                  'short': '短发收拢在脑后，戴一顶素雅的小花冠，鬓边别一支发簪'},
+        'groom': {'buzz': '戴宋制幞头，头发收在幞头里', 'short': '戴宋制幞头，头发收在幞头里', 'medium': '头发向上束起，戴简洁的小发冠'},
+    },
+    'northwest_desert': {
+        'bride': {'long': '低麻花辫，发尾收紧，头纱固定在脑后', 'medium': '贴头编发收成低发髻，头纱固定在发髻上',
+                  'short': '短发梳理服帖，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '清爽的纹理短发，发丝干净不乱翘', 'medium': '利落的侧背头，一侧梳向后方，不被风吹乱'},
+    },
+    'hongkong_retro': {
+        'bride': {'long': '复古大波浪卷发，蓬松有光泽', 'medium': '复古卷发，发尾外翻',
+                  'short': '复古的短卷发，蓬松有型'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '复古侧分短发，梳理服帖，带自然光泽', 'medium': '港风侧背头，一侧梳向后方，蓬松有型'},
+    },
+    'city_night': {
+        'bride': {'long': '优雅的法式低盘发', 'medium': '光洁的低马尾',
+                  'short': '光洁的短发，发尾内扣'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '侧分短发，梳理服帖，带自然光泽', 'medium': '侧背头，一侧梳向后方，带自然光泽'},
+    },
+    'snow_winter': {
+        'bride': {'long': '饱满整齐的低盘发', 'medium': '低马尾，发尾微卷',
+                  'short': '自然蓬松的短发'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '纹理短发，顶部蓬松，梳理整齐', 'medium': '自然的三七分，蓬松整齐'},
+    },
+    'european_church': {
+        'bride': {'long': '典雅的低盘发，头纱固定在发髻上方', 'medium': '低发髻，头纱固定在发髻上',
+                  'short': '短发向后梳得光洁，头纱固定在头顶后方'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '英伦侧分短发，梳理服帖', 'medium': '侧背头，一侧梳向后方，梳理服帖，带自然光泽'},
+    },
+    'black_white': {
+        'bride': {'long': '光洁利落的低盘发', 'medium': '光洁的低马尾',
+                  'short': '贴头的光洁短发'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '侧分短发，梳理服帖，轮廓清晰', 'medium': '侧背头，一侧梳向后方，轮廓清晰'},
+    },
+    'daily_life': {
+        'bride': {'long': '自然的半扎发，发尾微卷', 'medium': '锁骨发，发尾微卷',
+                  'short': '自然蓬松的短发'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '自然蓬松的纹理短发', 'medium': '自然中分，发丝蓬松'},
+    },
+    'white_floral': {
+        'bride': {'long': '优雅的低盘发，露出肩颈线条', 'medium': '低发髻，露出肩颈线条',
+                  'short': '光洁的短发，露出肩颈线条'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '自然的三七分短发', 'medium': '柔和的侧背头，一侧梳向后方'},
+    },
+    'minimal_architecture': {
+        'bride': {'long': '利落光洁的高盘发', 'medium': '光洁的高马尾',
+                  'short': '利落的短发，梳得光洁'},
+        'groom': {'buzz': BUZZ_HAIR, 'short': '利落的纹理短发，梳理整齐', 'medium': '整齐的三七分，干净利落'},
+    },
+}
 for _style in _STYLE_DATA:
+    _style['hair'] = _HAIR[_style['id']]
     # Image prompts name the costume and visual language; the concrete variant is written into each shot.
     _style['scene_prompt'] = '服装与风格：' + _style['costume'] + _style['look']
 STYLES = tuple(_STYLE_DATA)
@@ -463,6 +604,25 @@ class Makeup(NamedTuple):
     groom: str
 
 
+BRIDE_HAIR_LENGTHS = ('long', 'medium', 'short')
+GROOM_HAIR_LENGTHS = ('buzz', 'short', 'medium')
+DEFAULT_BRIDE_HAIR = 'long'
+DEFAULT_GROOM_HAIR = 'short'
+_BRIDE_HAIR_NAMES = {'long': '长发', 'medium': '及肩', 'short': '短发'}
+_GROOM_HAIR_NAMES = {'buzz': '寸头', 'short': '短发', 'medium': '中长发'}
+
+
+class Hair(NamedTuple):
+    """How long each person's hair is in the reference photos (V3.45): BRIDE_HAIR_LENGTHS / GROOM_HAIR_LENGTHS."""
+    bride: str
+    groom: str
+
+
+def _hair_sentence(style: dict, hair: Hair) -> str:
+    return (f"新娘发型（{_BRIDE_HAIR_NAMES[hair.bride]}）：{style['hair']['bride'][hair.bride]}。"
+            f"新郎发型（{_GROOM_HAIR_NAMES[hair.groom]}）：{style['hair']['groom'][hair.groom]}。")
+
+
 # Each level is a whole wedding-photo look: skin tone, blemishes, hairline, a slight slimming and the makeup
 # all grow with the level; the style only sets the makeup colors (V3.39, V3.40).
 _BRIDE_LOOKS = {
@@ -511,11 +671,12 @@ def _makeup_sentence(makeup: Makeup) -> str:
             '不做全脸模糊、塑料感的磨皮；明显的痣、胎记和疤痕是本人的特征，保留不去；'
             '提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉；两人脸、脖子和手臂的肤色一致，提白但不是惨白，'
             '并保留场景光线在本人骨相上形成的自然明暗；底妆轻薄服帖，不卡粉，没有大面积油光和汗光，皮肤保留自然的光泽。'
-            # Both hairstyles are concrete targets in the costume, like the bride's always were; locking the groom's
-            # length, amount, head shape and forehead exposure froze his hair, so only the hairline stays (V3.44).
-            '参考照片用于辨认本人，两人的发型都按「服装与风格」里写的造型重新打理，不照搬参考照片里的发型，'
-            '凌乱、翘起、压塌、油腻和毛躁的状态都不保留；新娘现有发长不足以完成该盘发或编发时，'
-            '采用同样整洁程度和风格的短发造型，不凭空增加长发；新郎的发际线位置与参考照片一致。'
+            # Both hairstyles are concrete targets in the style paragraph; locking the groom's amount, head shape and
+            # forehead exposure froze his hair (V3.44). The hairstyle is picked for the length the project states,
+            # and the length stays as in the photos (V3.45).
+            '参考照片用于辨认本人，两人的发型都按「服装与风格」里写的造型重新打理，不照搬参考照片里的发型样式，'
+            '凌乱、翘起、压塌、油腻和毛躁的状态都不保留；两人头发的长短和参考照片一致，不凭空加长或剪短；'
+            '新郎的发际线位置与参考照片一致。'
             # Tidy hair still looks real: no helmet, no pasted-on hairline (V3.42).
             '头发按发型自然垂落，有真实的重量，受光方向和场景一致；发丝以自然的发束为主，边缘保留少量细软的碎发；'
             '新娘补出的发际线用细软的绒发和原有头发自然过渡，不是整齐生硬的贴片边缘。'
@@ -549,7 +710,7 @@ _FACING_NAMES = {'left': '左', 'right': '右'}
 
 
 def _identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None = None,
-                        makeup: Makeup | None = None) -> str:
+                        makeup: Makeup | None = None, hair: Hair | None = None) -> str:
     """makeup: None (prompts before V3.37) says nothing about makeup or retouching."""
     paragraph = _identity_roles(with_preview, side_references)
     if makeup is None:
@@ -580,11 +741,14 @@ def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] |
             '风格要求与长相冲突时，以长相为准。')
 
 
-def _style_paragraph(style: dict, *, scene: int | None) -> str:
-    """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34)."""
+def _style_paragraph(style: dict, *, scene: int | None, hair: Hair | None = None) -> str:
+    """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34).
+    hair: None (prompts before V3.45) names no hairstyle."""
+    paragraph = style['scene_prompt'] if hair is None else (
+        '服装与风格：' + style['costume'] + _hair_sentence(style, hair) + style['look'])
     if scene is None:
-        return style['scene_prompt']
-    return style['scene_prompt'] + '场景：' + style['variants'][scene - 1][1]
+        return paragraph
+    return paragraph + '场景：' + style['variants'][scene - 1][1]
 
 
 def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
@@ -596,30 +760,31 @@ def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
 
 def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_preview: bool = False,
                     scene: int | None = 1, faces_clear: bool = True, makeup: Makeup | None = None,
-                    side_references: list[tuple[str, str]] | None = None) -> str:
+                    hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
     style = STYLE_BY_ID[style_id]
     return '\n\n'.join((
         _aspect_paragraph(aspect_ratio),
         _identity_paragraph(with_preview, side_references, makeup),
-        _style_paragraph(style, scene=scene),
+        _style_paragraph(style, scene=scene, hair=hair),
         action,
         QUALITY_PARAGRAPH if faces_clear else ATMOSPHERE_QUALITY_PARAGRAPH,
         _avoid_paragraph(style, faces_clear=faces_clear),
     ))
 
 
-def compose_preview_prompt(style_id: str, aspect_ratio: str, *, makeup: Makeup | None = None) -> str:
-    return _compose_prompt(style_id, PREVIEW_MOMENT, aspect_ratio, makeup=makeup)
+def compose_preview_prompt(style_id: str, aspect_ratio: str, *, makeup: Makeup | None = None, hair: Hair | None = None) -> str:
+    return _compose_prompt(style_id, PREVIEW_MOMENT, aspect_ratio, makeup=makeup, hair=hair)
 
 
 def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with_preview: bool = False,
-                         makeup: Makeup | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
+                         makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
     return _compose_prompt(
         style_id,
         POSE_BY_ID[pose_id]['prompt_template'],
         aspect_ratio,
         with_preview=with_preview,
         makeup=makeup,
+        hair=hair,
         side_references=side_references,
     )
 
@@ -649,11 +814,11 @@ def director_scene_count(style_id: str, *, single_variant: bool) -> int:
 
 def compose_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
                           faces_clear: bool = True, with_preview: bool = False, makeup: Makeup | None = None,
-                          side_references: list[tuple[str, str]] | None = None) -> str:
+                          hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
     if not isinstance(moment_text, str) or not moment_text.endswith('。'):
         raise ValueError('moment text must end with exactly one Chinese full stop')
     return _compose_prompt(style_id, SHOT_LABEL + moment_text, aspect_ratio, with_preview=with_preview,
-                           scene=scene, faces_clear=faces_clear, makeup=makeup, side_references=side_references)
+                           scene=scene, faces_clear=faces_clear, makeup=makeup, hair=hair, side_references=side_references)
 
 
 def scene_from_prompt(style_id: str, prompt: str) -> int | None:
@@ -692,15 +857,15 @@ def _apply_identity_boost(prompt: str) -> str:
 
 
 def compose_identity_boost_prompt(style_id: str, pose_id: str | None, aspect_ratio: str, *, with_preview: bool = False,
-                                  makeup: Makeup | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
-    prompt = (compose_preview_prompt(style_id, aspect_ratio, makeup=makeup) if pose_id is None else
-              compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=makeup,
+                                  makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None) -> str:
+    prompt = (compose_preview_prompt(style_id, aspect_ratio, makeup=makeup, hair=hair) if pose_id is None else
+              compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=makeup, hair=hair,
                                    side_references=side_references))
     return _apply_identity_boost(prompt)
 
 
 def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
-                                         with_preview: bool = False, makeup: Makeup | None = None,
+                                         with_preview: bool = False, makeup: Makeup | None = None, hair: Hair | None = None,
                                          side_references: list[tuple[str, str]] | None = None) -> str:
     return _apply_identity_boost(compose_moment_prompt(style_id, moment_text, aspect_ratio, scene=scene, with_preview=with_preview,
-                                                       makeup=makeup, side_references=side_references))
+                                                       makeup=makeup, hair=hair, side_references=side_references))
