@@ -83,7 +83,7 @@ def test_change_shot_keeps_the_scene_of_the_source_photo(app_factory):
         assert task['prompt'].split('\n\n')[2] == source['prompt'].split('\n\n')[2]
 
 
-def test_change_shot_takes_the_project_makeup_now(app_factory):
+def test_change_shot_keeps_the_looks_of_the_picture(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
@@ -98,7 +98,9 @@ def test_change_shot_takes_the_project_makeup_now(app_factory):
         changed = client.post(f"/api/slots/{target['id']}/change-shot", json={'client_request_id': 'makeup-close', 'shot_size': 'close'})
         assert changed.status_code == 201, changed.text
         wait_batch(client, changed.json()['id'])
-        # V4.0: the new shot is made from a styled photo edited at the current level.
-        assert '皮肤和妆容：新娘化清透的新娘妆' in app.state.stylist.calls[-1][1]
+        # V5.0: a new shot keeps the picture's looks; the new level only applies to looks generated later.
+        assert len(app.state.stylist.calls) == 2
         task = client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json()[0]
         assert task['prompt'].split('\n\n')[1].startswith('图片角色：第一张图是新娘的造型照')
+        changed_slot = next(photo for photo in client.get(f"/api/projects/{project['id']}").json()['photos'] if photo['id'] == target['id'])
+        assert changed_slot['look_ids'] == target['look_ids'] == preview['look_ids']

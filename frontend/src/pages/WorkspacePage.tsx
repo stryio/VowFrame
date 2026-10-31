@@ -6,7 +6,8 @@ import {
   isBroken,
   isFaceSwapped,
   isGenerating,
-  type BrideHairLength, type Facing, type GroomHairLength, type MakeupLevel, type Person,
+  type BrideHairLength, type Facing, type GroomHairLength, type Look, type LookItem, type LookOptions, type LookPair,
+  type MakeupLevel, type Person,
   type ProjectDetail,
   type Role,
   type Slot,
@@ -32,11 +33,15 @@ import { usePolledResource } from "../hooks";
 
 const ROLE_LABEL: Record<Role, string> = { bride: "新娘", groom: "新郎" };
 
-type Step = "upload" | "style";
+type Step = "upload" | "looks" | "style";
 
-// Photos present and previews exist: start on the style step.
+/** Each person has at least one selected look that can still make new pictures (V5.0). */
+const hasSelectedLooks = (p: ProjectDetail) =>
+  (["a", "b"] as const).every((person) => p.looks.some((look) => look.person === person && look.selected && look.usable));
+
+// Samples exist: start on the style step; photos uploaded: on the looks step.
 const initialStep = (p: ProjectDetail): Step =>
-  p.stage === "upload" || p.previews.length === 0 ? "upload" : "style";
+  p.stage === "upload" ? "upload" : p.previews.length > 0 ? "style" : "looks";
 
 export function WorkspacePage() {
   const { project } = useCurrentProject();
@@ -54,14 +59,15 @@ export function WorkspacePage() {
 
   if (!project || !step) return <div className="page muted">加载中…</div>;
 
-  const canOpenStyle = project.previews.length > 0;
+  const canOpenLooks = project.stage !== "upload";
+  const canOpenStyle = project.previews.length > 0 || hasSelectedLooks(project);
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
           <h1>婚纱工作台</h1>
-          <p>先试拍几种风格，喜欢哪种就用它拍一组，可以拍多组。</p>
+          <p>先选好两人的造型，再试拍几种风格，喜欢哪种就用它拍一组，可以拍多组。</p>
         </div>
         <div className="stepper">
           <button className={`step ${step === "upload" ? "active" : "done"}`} onClick={() => setStep("upload")}>
@@ -70,12 +76,22 @@ export function WorkspacePage() {
           </button>
           <span className="step-line" />
           <button
-            className={`step ${step === "style" ? "active" : ""} ${canOpenStyle && step !== "style" ? "done" : ""}`}
-            disabled={!canOpenStyle}
-            title={canOpenStyle ? undefined : "请先生成风格样片"}
-            onClick={() => setStep("style")}
+            className={`step ${step === "looks" ? "active" : ""} ${canOpenStyle && step !== "looks" ? "done" : ""}`}
+            disabled={!canOpenLooks}
+            title={canOpenLooks ? undefined : "请先上传两个人的照片"}
+            onClick={() => setStep("looks")}
           >
             <span className="step-num">02</span>
+            选造型
+          </button>
+          <span className="step-line" />
+          <button
+            className={`step ${step === "style" ? "active" : ""} ${project.previews.length > 0 && step !== "style" ? "done" : ""}`}
+            disabled={!canOpenStyle}
+            title={canOpenStyle ? undefined : "请先为两个人各选用一套造型"}
+            onClick={() => setStep("style")}
+          >
+            <span className="step-num">03</span>
             试拍风格
           </button>
         </div>
@@ -83,8 +99,9 @@ export function WorkspacePage() {
 
       <RecoveryBanner />
 
-      {step === "upload" && <UploadStep project={project} onNext={() => setStep("style")} />}
-      {step === "style" && <StyleStep project={project} onBack={() => setStep("upload")} />}
+      {step === "upload" && <UploadStep project={project} onNext={() => setStep("looks")} />}
+      {step === "looks" && <LooksStep project={project} onBack={() => setStep("upload")} onNext={() => setStep("style")} />}
+      {step === "style" && <StyleStep project={project} onBack={() => setStep("looks")} />}
     </div>
   );
 }
@@ -144,7 +161,7 @@ const GROOM_HAIR_OPTIONS: [GroomHairLength, string][] = [
 
 type LookField = "makeup_level" | "groom_makeup_level" | "bride_hair_length" | "groom_hair_length";
 
-/** Shown on both steps: these settings can change at any time and only affect pictures generated afterwards. */
+/** Shown on the looks step: these settings only affect look candidates generated afterwards. */
 function MakeupCard({ project }: { project: ProjectDetail }) {
   const { refresh } = useCurrentProject();
   const toast = useToast();
@@ -185,9 +202,9 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
         {row("bride_hair_length", "新娘头发", BRIDE_HAIR_OPTIONS)}
         {row("groom_hair_length", "新郎头发", GROOM_HAIR_OPTIONS)}
         <span className="muted">
-          头发长度请按照片里的实际长度选，每种风格会按长度配一个发型，长度保持和照片一致。
-          每种风格第一次拍摄前，会先把两人的照片修成这个风格的「造型照」：换好发型，按档位提白、去瑕疵、化妆，背景换成纯色；这个风格之后的样片和成片都照着造型照拍。
-          档位越高修得越多；新郎只在「精致」一档化淡妆。可以随时修改，只影响之后的新图，已经生成的照片不变。
+          头发长度请按照片里的实际长度选，它决定能做哪些发型，长度保持和照片一致。
+          档位决定提白、去瑕疵和妆容的强度，越高修得越多；新郎只在「精致」一档化淡妆。
+          改了只影响之后生成的造型候选，已经生成的造型和照片不变。
         </span>
       </div>
     </div>
@@ -197,12 +214,7 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
 function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () => void }) {
   const { refresh } = useCurrentProject();
   const toast = useToast();
-  const { ask, dialog } = useGenerateDialog();
-  const styles = usePolledResource(api.styles, []);
-  const [starting, setStarting] = useState(false);
-  const [chosen, setChosen] = useState<string[]>([]);
   const ready = Boolean(project.person_a.asset_id && project.person_b.asset_id);
-  const hasPreviews = project.previews.length > 0;
 
   const swapRoles = async () => {
     try {
@@ -212,37 +224,6 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
       await refresh();
     } catch (err) {
       toast.error(err);
-    }
-  };
-
-  const start = async () => {
-    if (hasPreviews) {
-      // Previews already exist: do not silently spend money again.
-      onNext();
-      return;
-    }
-    // No pick means the backend's default styles; list them so the user knows what will be spent.
-    const targets = chosen.length > 0
-      ? styles.data!.filter((s) => chosen.includes(s.id))
-      : styles.data!.filter((s) => s.default_preview);
-    const choice = await ask({
-      title: "开始生成风格样片",
-      message: `将为 ${targets.length} 种风格各生成 1 张样片：${targets.map((s) => s.name).join("、")}。`,
-      taskCount: targets.length,
-    });
-    if (!choice) return;
-    setStarting(true);
-    try {
-      await api.createPreviews(project.id, {
-        styleIds: chosen.length > 0 ? targets.map((s) => s.id) : undefined,
-        model: choice.model,
-      });
-      await refresh();
-      onNext();
-    } catch (err) {
-      toast.error(err);
-    } finally {
-      setStarting(false);
     }
   };
 
@@ -260,56 +241,17 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
           <li>正面照必传：正脸或接近正脸，自然光</li>
           <li>半身照效果优于证件照；证件照可以用，但效果可能较弱</li>
           <li>侧面照可选：约 45° 侧脸，只在脸朝同一侧的镜头里使用</li>
-          <li>素颜照也可以，妆容按下面选的强度统一画；不要用美颜或修过图的照片</li>
+          <li>素颜照也可以，发型和妆容在下一步「选造型」里统一做；不要用美颜或修过图的照片</li>
           <li>上传后会自动裁到头部和肩膀，缩略图就是实际使用的照片；照片里只能有本人</li>
         </ul>
       </div>
 
-      <MakeupCard project={project} />
-
-      {!hasPreviews && styles.data && (
-        <div className="card style-picker">
-          <div className="style-picker-header">
-            <h3>选择要生成样片的风格</h3>
-            <span className="muted">
-              {chosen.length > 0
-                ? `已选 ${chosen.length} 种`
-                : `未选择时生成默认的 ${styles.data.filter((s) => s.default_preview).length} 种`}
-            </span>
-            {chosen.length > 0 && (
-              <button className="btn btn-ghost btn-sm" onClick={() => setChosen([])}>
-                清空
-              </button>
-            )}
-          </div>
-          <div className="style-picker-grid">
-            {styles.data.filter((style) => !style.retired).map((style) => {
-              const on = chosen.includes(style.id);
-              const isDefault = chosen.length === 0 && style.default_preview;
-              return (
-                <button
-                  key={style.id}
-                  className={`style-option ${on ? "on" : ""} ${isDefault ? "default" : ""}`}
-                  title={style.description}
-                  onClick={() =>
-                    setChosen((prev) => (on ? prev.filter((id) => id !== style.id) : [...prev, style.id]))
-                  }
-                >
-                  {style.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="action-bar">
         {!ready && <span className="muted">请先上传两个人的照片</span>}
-        <button className="btn btn-primary btn-lg" disabled={!ready || starting || !styles.data} onClick={start}>
-          {hasPreviews ? "查看风格样片 →" : starting ? "正在提交…" : "开始生成风格样片"}
+        <button className="btn btn-primary btn-lg" disabled={!ready} onClick={onNext}>
+          下一步：选造型 →
         </button>
       </div>
-      {dialog}
     </>
   );
 }
@@ -439,7 +381,317 @@ function PersonUpload({
   );
 }
 
-// ---------- Step 2: style previews and shooting sets ----------
+// ---------- Step 2: looks (V5.0) ----------
+
+const lookLabel = (look: Look) =>
+  [look.hairstyle_name, look.makeup_color_name].filter(Boolean).join(" · ");
+
+/** Styles that recommend a colour (first) or accept it as an alternate, by name. */
+function colorHint(options: LookOptions, styles: Style[] | null, color: string) {
+  if (!styles) return "";
+  const active = styles.filter((style) => !style.retired);
+  const primary = active.filter((style) => options.styles[style.id]?.primary === color).map((style) => style.name);
+  const alternate = active.filter((style) => options.styles[style.id]?.alternates.includes(color)).map((style) => style.name);
+  return [primary.length ? `主推：${primary.join("、")}` : "", alternate.length ? `备选：${alternate.join("、")}` : ""]
+    .filter(Boolean)
+    .join("；");
+}
+
+function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack: () => void; onNext: () => void }) {
+  const options = usePolledResource(api.lookOptions, []);
+  const styles = usePolledResource(api.styles, []);
+  const ready = hasSelectedLooks(project);
+  const people = (["a", "b"] as const)
+    .map((which) => ({ which, person: which === "a" ? project.person_a : project.person_b }))
+    .sort((x, y) => (x.person.role === "bride" ? -1 : 1) - (y.person.role === "bride" ? -1 : 1));
+
+  if (!options.data) return <div className="muted">加载中…</div>;
+
+  return (
+    <>
+      <div className="page-header">
+        <p className="muted">
+          每张造型候选是从上传的照片修一次（一次付费修图）：换好发型、化好妆、提白去瑕疵，背景换成纯色。
+          每人选用 1～{options.data.max_selected} 套，之后的样片和成片都照着选用的造型拍；排在第一的是默认造型。
+        </p>
+      </div>
+
+      <MakeupCard project={project} />
+
+      {people.map(({ which, person }) => (
+        <PersonLooks
+          key={which}
+          project={project}
+          which={which}
+          role={person.role}
+          options={options.data!}
+          styles={styles.data}
+        />
+      ))}
+
+      <div className="action-bar">
+        <button className="btn btn-ghost" onClick={onBack}>
+          ← 修改照片
+        </button>
+        {!ready && <span className="muted">请为两个人各选用至少一套造型</span>}
+        <button className="btn btn-primary btn-lg" disabled={!ready} onClick={onNext}>
+          下一步：试拍风格 →
+        </button>
+      </div>
+    </>
+  );
+}
+
+function PersonLooks({
+  project,
+  which,
+  role,
+  options,
+  styles,
+}: {
+  project: ProjectDetail;
+  which: "a" | "b";
+  role: Role;
+  options: LookOptions;
+  styles: Style[] | null;
+}) {
+  const { refresh } = useCurrentProject();
+  const toast = useToast();
+  const who = ROLE_LABEL[role];
+  const length = role === "bride" ? project.bride_hair_length : project.groom_hair_length;
+  const hairstyles = options.hairstyles.filter((item) => item.role === role && item.lengths.includes(length));
+  const defaults = project.default_look_items[role];
+  const [items, setItems] = useState<LookItem[]>(defaults);
+  const [submitting, setSubmitting] = useState(false);
+  const [viewing, setViewing] = useState<Look | null>(null);
+  const looks = project.looks.filter((look) => look.person === which);
+  const selectedIds = looks
+    .filter((look) => look.selected && look.usable)
+    .sort((x, y) => (x.selected_order ?? 0) - (y.selected_order ?? 0))
+    .map((look) => look.id);
+
+  // Defaults follow the stated hair length and role; reset the form when they change.
+  const defaultsKey = JSON.stringify(defaults);
+  useEffect(() => setItems(JSON.parse(defaultsKey)), [defaultsKey]);
+
+  const act = async (operation: () => Promise<unknown>) => {
+    try {
+      await operation();
+      await refresh();
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
+  const generate = async (list: LookItem[]) => {
+    setSubmitting(true);
+    await act(() => api.createLooks(project.id, which, list));
+    setSubmitting(false);
+  };
+
+  const setItem = (index: number, patch: Partial<LookItem>) =>
+    setItems((prev) => prev.map((item, position) => (position === index ? { ...item, ...patch } : item)));
+
+  return (
+    <div className="card looks-card">
+      <div className="looks-header">
+        <h3>{who}的造型</h3>
+        <span className="muted">已选用 {selectedIds.length} / {options.max_selected}</span>
+      </div>
+
+      <div className="look-form">
+        {items.map((item, index) => (
+          <div className="look-form-row" key={index}>
+            <select
+              value={item.hairstyle_id}
+              onChange={(event) => setItem(index, { hairstyle_id: event.target.value })}
+              aria-label="发型"
+            >
+              {hairstyles.map((hairstyle) => (
+                <option key={hairstyle.id} value={hairstyle.id}>
+                  {hairstyle.name}
+                  {hairstyle.updo ? "（盘发）" : ""}
+                </option>
+              ))}
+            </select>
+            {role === "bride" && (
+              <select
+                value={item.makeup_color ?? ""}
+                onChange={(event) => setItem(index, { makeup_color: event.target.value })}
+                aria-label="妆色"
+              >
+                {options.makeup_colors.map((color) => (
+                  <option key={color.id} value={color.id}>
+                    {color.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setItems((prev) => prev.filter((_, position) => position !== index))}
+              disabled={items.length === 1}
+              aria-label="删掉这一行"
+            >
+              ×
+            </button>
+            {role === "bride" && item.makeup_color && (
+              <span className="field-hint look-hint">{colorHint(options, styles, item.makeup_color)}</span>
+            )}
+          </div>
+        ))}
+        <div className="look-form-actions">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setItems((prev) => [...prev, prev[prev.length - 1] ?? defaults[0]])}
+            disabled={items.length >= 6}
+          >
+            + 再加一张
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => generate(items)} disabled={submitting}>
+            生成 {items.length} 张候选（{items.length} 次修图）
+          </button>
+        </div>
+      </div>
+
+      {looks.length > 0 && (
+        <div className="look-grid">
+          {looks.map((look) => {
+            const order = selectedIds.indexOf(look.id);
+            const busy = look.status === "waiting" || look.status === "running";
+            return (
+              <div key={look.id} className={`look-tile ${look.selected && look.usable ? "on" : ""}`}>
+                <div className="look-photo">
+                  {look.asset_id ? (
+                    <img src={assetUrl(look.asset_id)} alt={lookLabel(look)} onClick={() => setViewing(look)} />
+                  ) : busy ? (
+                    <div className="overlay">
+                      <div className="spinner" />
+                      <span>{look.status === "running" ? "正在生成" : "排队中"}</span>
+                    </div>
+                  ) : (
+                    <div className="overlay">
+                      <div className="error-text">{look.error_message ?? "生成失败"}</div>
+                      <button className="btn btn-sm" onClick={() => act(() => api.retryLook(look.id))}>
+                        重试
+                      </button>
+                    </div>
+                  )}
+                  {order === 0 && <span className="status-chip selected-chip">默认</span>}
+                  {order > 0 && <span className="status-chip">第 {order + 1} 套</span>}
+                </div>
+                <div className="look-body">
+                  <strong>{lookLabel(look)}</strong>
+                  <span className="muted">
+                    {(role === "bride" ? BRIDE_MAKEUP_OPTIONS : GROOM_MAKEUP_OPTIONS).find(([value]) => value === look.makeup_level)?.[1]}
+                    {look.face_score !== null && ` · 相似度 ${look.face_score.toFixed(2)}`}
+                  </span>
+                  {look.unusable_reason && <span className="error-text">{look.unusable_reason}</span>}
+                  <div className="look-actions">
+                    {look.status === "ready" && look.usable && (
+                      <button
+                        className={`btn btn-sm ${look.selected ? "" : "btn-primary"}`}
+                        onClick={() => act(() => (look.selected ? api.unselectLook(look.id) : api.selectLook(look.id)))}
+                      >
+                        {look.selected ? "取消选用" : "选用"}
+                      </button>
+                    )}
+                    {order > 0 && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => act(() => api.makeDefaultLook(look.id))}>
+                        设为默认
+                      </button>
+                    )}
+                    {look.status === "ready" && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => generate([{ hairstyle_id: look.hairstyle_id, makeup_color: look.makeup_color }])}
+                        disabled={submitting || !hairstyles.some((item) => item.id === look.hairstyle_id)}
+                        title="同样的发型和妆色再修一张（1 次修图）"
+                      >
+                        再来一张
+                      </button>
+                    )}
+                    {!busy && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => act(() => api.deleteLook(look.id))}>
+                        删除
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {viewing?.asset_id && (
+        <CompareView
+          title={`${who} · ${lookLabel(viewing)}`}
+          aligned
+          onClose={() => setViewing(null)}
+          items={[
+            { key: "source", assetId: viewing.source_asset_id, title: "上传的照片", subtitle: "", actions: [] },
+            {
+              key: "look",
+              assetId: viewing.asset_id,
+              title: lookLabel(viewing),
+              subtitle: viewing.face_score !== null ? `与上传照片的相似度 ${viewing.face_score.toFixed(2)}` : "",
+              actions: [],
+            },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The selected looks a style may use for one person: updo styles need the bride in an updo. */
+function lookChoices(project: ProjectDetail, options: LookOptions, styleId: string, role: Role): Look[] {
+  const person = project.person_a.role === role ? "a" : "b";
+  const updo = new Set(options.hairstyles.filter((item) => item.updo).map((item) => item.id));
+  return project.looks
+    .filter((look) => look.person === person && look.selected && look.usable)
+    .filter(
+      (look) =>
+        role !== "bride" ||
+        !options.styles[styleId]?.needs_updo ||
+        updo.has(look.hairstyle_id) ||
+        (look.hair_length === "short" && look.hairstyle_id === "keep"),
+    )
+    .sort((x, y) => (x.selected_order ?? 0) - (y.selected_order ?? 0));
+}
+
+/** Small look thumbnails for one person; clicking one picks it. */
+function LookPicker({
+  choices,
+  value,
+  role,
+  onChange,
+}: {
+  choices: Look[];
+  value: string | null;
+  role: Role;
+  onChange: (lookId: string) => void;
+}) {
+  if (choices.length === 0) {
+    return <span className="error-text">{role === "bride" ? "没有适合这个风格的新娘造型（需要盘发）" : "没有选用的新郎造型"}</span>;
+  }
+  return (
+    <div className="look-picker" role="group" aria-label={`${ROLE_LABEL[role]}造型`}>
+      {choices.map((look) => (
+        <button
+          key={look.id}
+          className={`look-pick ${look.id === value ? "on" : ""}`}
+          onClick={() => onChange(look.id)}
+          title={`${ROLE_LABEL[role]}：${lookLabel(look)}`}
+        >
+          {look.asset_id && <img src={assetUrl(look.asset_id)} alt={lookLabel(look)} />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Step 3: style previews and shooting sets ----------
 
 function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => void }) {
   const { refresh } = useCurrentProject();
@@ -447,8 +699,13 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
   const toast = useToast();
   const { ask, dialog } = useGenerateDialog();
   const styles = usePolledResource(api.styles, []);
+  const options = usePolledResource(api.lookOptions, []);
   const [viewing, setViewing] = useState<Slot | null>(null);
-  const [viewingStyled, setViewingStyled] = useState<{ assetId: string; caption: string } | null>(null);
+  const [viewingLook, setViewingLook] = useState<{ assetId: string; caption: string } | null>(null);
+  // Looks the user picked for a style, over the default assignment (V5.0).
+  const [overrides, setOverrides] = useState<Record<string, Partial<LookPair>>>({});
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  const [restyling, setRestyling] = useState<string | null>(null);
   const [versionsFor, setVersionsFor] = useState<Slot | null>(null);
   const [planning, setPlanning] = useState<Slot | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -459,7 +716,9 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
   const actions = useSlotActions(refresh);
   const faceSwap = useFaceSwapStatus();
 
-  if (!styles.data) return <div className="muted">加载中…</div>;
+  if (!styles.data || !options.data) return <div className="muted">加载中…</div>;
+  const lookOptions = options.data;
+  const lookById = new Map(project.looks.map((look) => [look.id, look]));
 
   const idle = (slot: Slot) =>
     Boolean(slot.current_version) && !isGenerating(slot) && slot.latest_task?.status !== "held";
@@ -495,19 +754,50 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
 
   // Styles that already have a sample; "regenerate all" covers only these, not every built-in style.
   const generatedStyleIds = styles.data.filter((s) => slotByStyle.has(s.id)).map((s) => s.id);
+  const pickable = styles.data.filter((style) => !style.retired && !slotByStyle.has(style.id));
+  const chosenStyles = chosen ?? (project.previews.length === 0 ? pickable.filter((s) => s.default_preview).map((s) => s.id) : []);
 
-  const regenerate = async (styleIds: string[], label: string, restyle = false) => {
+  /** The looks a new sample of this style uses: the user's pick, else the sample's own looks, else the default. */
+  const lookFor = (styleId: string, role: Role): string | null => {
+    const choices = lookChoices(project, lookOptions, styleId, role).map((look) => look.id);
+    const picked = overrides[styleId]?.[role];
+    if (picked && choices.includes(picked)) return picked;
+    const own = slotByStyle.get(styleId)?.look_ids?.[role];
+    if (own && choices.includes(own)) return own;
+    return project.default_looks[styleId]?.[role] ?? null;
+  };
+  const pick = (styleId: string, role: Role, lookId: string) =>
+    setOverrides((prev) => ({ ...prev, [styleId]: { ...prev[styleId], [role]: lookId } }));
+  const describe = (lookId: string | null) => (lookId && lookById.get(lookId) ? lookLabel(lookById.get(lookId)!) : "未选");
+
+  const regenerate = async (styleIds: string[], label: string) => {
+    const looks: Record<string, LookPair> = {};
+    const missing: string[] = [];
+    for (const styleId of styleIds) {
+      const bride = lookFor(styleId, "bride");
+      const groom = lookFor(styleId, "groom");
+      if (bride && groom) looks[styleId] = { bride, groom };
+      else missing.push(styles.data!.find((s) => s.id === styleId)?.name ?? styleId);
+    }
+    if (missing.length > 0) {
+      toast.info(`「${missing.join("」「")}」没有可用的造型，请先在「选造型」里选用（汉服等中式风格需要新娘的盘发造型）`);
+      return;
+    }
+    const lines = styleIds.map((styleId) => {
+      const name = styles.data!.find((s) => s.id === styleId)?.name ?? styleId;
+      return `${name}：新娘 ${describe(looks[styleId].bride)}，新郎 ${describe(looks[styleId].groom)}`;
+    });
     const choice = await ask({
       title: label,
-      message: restyle
-        ? "两人的造型照会重新修一次（多 2 次编辑），再用新的造型照重拍样片。已有的样片和已经拍好的照片都会保留。"
-        : "已有的样片会保留为历史版本。",
+      message: `${generatedStyleIds.some((id) => styleIds.includes(id)) ? "已有的样片会保留为历史版本。" : ""}使用的造型——${lines.join("；")}。`,
       taskCount: styleIds.length,
     });
     if (!choice) return;
     setBusy(styleIds.length === 1 ? styleIds[0] : "all");
     try {
-      await api.createPreviews(project.id, { styleIds, model: choice.model, restyle });
+      await api.createPreviews(project.id, { styleIds, looks, model: choice.model });
+      setRestyling(null);
+      setChosen([]);
       await refresh();
     } catch (err) {
       toast.error(err);
@@ -551,7 +841,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
         </p>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-ghost" onClick={onBack}>
-            ← 修改照片
+            ← 修改造型
           </button>
           <button className="btn" onClick={() => (selecting ? exitSelecting() : setSelecting(true))}>
             {selecting ? "退出对比选择" : "对比样片"}
@@ -566,7 +856,66 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
         </div>
       </div>
 
-      <MakeupCard project={project} />
+      {pickable.length > 0 && (
+        <div className="card style-picker">
+          <div className="style-picker-header">
+            <h3>选择要生成样片的风格</h3>
+            <span className="muted">已选 {chosenStyles.length} 种；每种风格自动配好造型，点小图可以换</span>
+            {chosenStyles.length > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setChosen([])}>
+                清空
+              </button>
+            )}
+          </div>
+          <div className="style-picker-grid">
+            {pickable.map((style) => {
+              const on = chosenStyles.includes(style.id);
+              return (
+                <button
+                  key={style.id}
+                  className={`style-option ${on ? "on" : ""}`}
+                  title={style.description}
+                  onClick={() =>
+                    setChosen(on ? chosenStyles.filter((id) => id !== style.id) : [...chosenStyles, style.id])
+                  }
+                >
+                  {style.name}
+                </button>
+              );
+            })}
+          </div>
+          {chosenStyles.length > 0 && (
+            <div className="style-looks">
+              {chosenStyles.map((styleId) => (
+                <div className="style-looks-row" key={styleId}>
+                  <span className="style-looks-name">{styles.data!.find((s) => s.id === styleId)?.name}</span>
+                  {(["bride", "groom"] as const).map((role) => (
+                    <div className="style-looks-person" key={role}>
+                      <span className="muted">{ROLE_LABEL[role]}</span>
+                      <LookPicker
+                        role={role}
+                        choices={lookChoices(project, lookOptions, styleId, role)}
+                        value={lookFor(styleId, role)}
+                        onChange={(lookId) => pick(styleId, role, lookId)}
+                      />
+                      <span className="style-looks-label">{lookFor(styleId, role) ? describe(lookFor(styleId, role)) : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="style-picker-actions">
+            <button
+              className="btn btn-primary"
+              disabled={chosenStyles.length === 0 || busy !== null}
+              onClick={() => regenerate(chosenStyles, "生成风格样片")}
+            >
+              生成所选风格的样片（{chosenStyles.length} 张）
+            </button>
+          </div>
+        </div>
+      )}
 
       {anyStale && (
         <div className="notice">
@@ -587,7 +936,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
         />
       ) : (
         <div className="preview-grid">
-          {styles.data.filter((style) => !style.retired || slotByStyle.has(style.id)).map((style) => (
+          {styles.data.filter((style) => slotByStyle.has(style.id)).map((style) => (
             <PreviewCard
               key={style.id}
               style={style}
@@ -596,8 +945,40 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
               busy={busy === style.id || busy === "all"}
               onView={setViewing}
               onRegenerate={() => regenerate([style.id], `${slotByStyle.get(style.id) ? "重新生成" : "生成"}「${style.name}」样片`)}
-              onRestyle={() => regenerate([style.id], `重做「${style.name}」的造型`, true)}
-              onViewStyled={(assetId, who) => setViewingStyled({ assetId, caption: `${style.name} · ${who}的造型照` })}
+              looks={(() => {
+                const slot = slotByStyle.get(style.id);
+                if (!slot) return null;
+                return (["bride", "groom"] as const).map((role) => {
+                  const look = slot.look_ids ? lookById.get(slot.look_ids[role]) : undefined;
+                  const assetId = look?.asset_id ?? slot.styled_asset_ids?.[role] ?? null;
+                  return { role, assetId, label: look ? lookLabel(look) : null };
+                });
+              })()}
+              onViewLook={(assetId, caption) => setViewingLook({ assetId, caption: `${style.name} · ${caption}` })}
+              restyling={restyling === style.id}
+              onRestyle={() => setRestyling(restyling === style.id ? null : style.id)}
+              restylePanel={
+                <div className="restyle-panel">
+                  {(["bride", "groom"] as const).map((role) => (
+                    <div className="restyle-row" key={role}>
+                      <span className="muted">{ROLE_LABEL[role]}</span>
+                      <LookPicker
+                        role={role}
+                        choices={lookChoices(project, lookOptions, style.id, role)}
+                        value={lookFor(style.id, role)}
+                        onChange={(lookId) => pick(style.id, role, lookId)}
+                      />
+                    </div>
+                  ))}
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={() => regenerate([style.id], `用新的造型重拍「${style.name}」样片`)}
+                    disabled={busy !== null}
+                  >
+                    用这套造型重拍
+                  </button>
+                </div>
+              }
               onRetry={retry}
               onShoot={shoot}
               menu={slotByStyle.get(style.id) ? menuFor(slotByStyle.get(style.id)!) : null}
@@ -625,8 +1006,8 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           onClose={() => setViewing(null)}
         />
       )}
-      {viewingStyled && (
-        <Lightbox src={assetUrl(viewingStyled.assetId)} caption={viewingStyled.caption} onClose={() => setViewingStyled(null)} />
+      {viewingLook && (
+        <Lightbox src={assetUrl(viewingLook.assetId)} caption={viewingLook.caption} onClose={() => setViewingLook(null)} />
       )}
       {versionsFor && (
         <VersionsDialog slot={versionsFor} onClose={() => setVersionsFor(null)} onChanged={refresh} />
@@ -711,8 +1092,11 @@ function PreviewCard({
   busy,
   onView,
   onRegenerate,
+  looks,
+  onViewLook,
+  restyling,
   onRestyle,
-  onViewStyled,
+  restylePanel,
   onRetry,
   onShoot,
   onOpenAlbum,
@@ -728,8 +1112,11 @@ function PreviewCard({
   busy: boolean;
   onView: (slot: Slot) => void;
   onRegenerate: () => void;
+  looks: { role: Role; assetId: string | null; label: string | null }[] | null;
+  onViewLook: (assetId: string, caption: string) => void;
+  restyling: boolean;
   onRestyle: () => void;
-  onViewStyled: (assetId: string, who: string) => void;
+  restylePanel: React.ReactNode;
   onRetry: (slot: Slot) => void;
   onShoot: (slot: Slot) => void;
   onOpenAlbum: () => void;
@@ -812,29 +1199,34 @@ function PreviewCard({
           {style.description}
         </p>
         <FaceScore scores={version?.face_scores} />
-        {slot?.styled_asset_ids && (
+        {looks && looks.some((item) => item.assetId) && (
           <div className="styled-row">
-            {(["bride", "groom"] as const).map((role) => {
-              const who = role === "bride" ? "新娘" : "新郎";
-              return (
+            {looks.map(({ role, assetId, label }) =>
+              assetId ? (
                 <button
                   key={role}
                   className="styled-thumb"
-                  onClick={() => onViewStyled(slot.styled_asset_ids![role], who)}
-                  title={`查看${who}的造型照`}
+                  onClick={() => onViewLook(assetId, `${ROLE_LABEL[role]}${label ? `：${label}` : "的造型照"}`)}
+                  title={`${ROLE_LABEL[role]}${label ? `：${label}` : "的造型照"}`}
                 >
-                  <img src={assetUrl(slot.styled_asset_ids![role])} alt={`${who}的造型照`} />
+                  <img src={assetUrl(assetId)} alt={`${ROLE_LABEL[role]}的造型`} />
                 </button>
-              );
-            })}
+              ) : null,
+            )}
             <div className="styled-info">
-              <span className="muted">造型照</span>
+              <span className="muted">{looks.find((item) => item.role === "bride")?.label ?? "造型照"}</span>
               <button className="btn btn-ghost btn-sm" onClick={onRestyle} disabled={busy || generating}>
-                重做造型
+                {restyling ? "收起" : "换造型重拍"}
               </button>
             </div>
           </div>
         )}
+        {slot && !looks?.some((item) => item.assetId) && (
+          <button className="btn btn-ghost btn-sm" onClick={onRestyle} disabled={busy || generating}>
+            {restyling ? "收起" : "选造型重拍"}
+          </button>
+        )}
+        {restyling && restylePanel}
         <div className="preview-actions">
           <button className="btn btn-sm" onClick={onRegenerate} disabled={busy || generating}>
             {slot ? "重新生成" : "生成样片"}

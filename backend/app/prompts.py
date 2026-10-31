@@ -688,9 +688,11 @@ def _makeup_sentence(makeup: Makeup) -> str:
 
 
 # V4.0: the image edit endpoint copies whatever is inside the reference photo (hair, skin, blemishes), so
-# hairstyle, skin and makeup are no longer asked of the shot. Each person's photo is first edited once per style
-# into a styled photo (styling prompt below); every shot of that style then copies the styled photos.
-STYLING_VERSION = 1
+# hairstyle, skin and makeup are no longer asked of the shot. Each person's photo is first edited into a styled
+# photo; every shot then copies the styled photos.
+# V5.0: styled photos are "looks" the user generates and picks before any sample: one hairstyle and, for the
+# bride, one makeup colour family each, made by a single edit of the uploaded photo and shared by every style.
+STYLING_VERSION = 2
 # Styled photos stay head and shoulders like the prepared uploads (app/photo_prep.py).
 STYLING_ASPECT_RATIO = '3:4'
 # Skin and makeup only: slimming, hairline filling, nose shadow and cheek shine change the face's structure and
@@ -712,11 +714,92 @@ _GROOM_STYLING = {
 }
 _HAIR_FINISH = {
     'bride': {'light': '头发梳理整齐，碎发和毛躁收干净', 'natural': '发丝光洁服帖', 'refined': '发丝光亮、整齐有层次'},
-    # Worded to fit every groom hairstyle, buzz cut and the hanfu headwear included.
+    # Worded to fit every groom hairstyle, buzz cut included.
     'groom': {'light': '干净整齐，光泽克制', 'natural': '干净整齐，定型自然，发束不结块',
               'refined': '干净整齐，定型清楚，带有克制的光泽'},
 }
 _STYLING_AVOID = '避免：网红脸、整容脸、幼态脸、过度磨皮的塑料皮肤、厚重结块的底妆、面部大面积油光、头盔一样僵硬的头发、生硬的贴片状发际线、文字和水印。'
+
+
+class Hairstyle(NamedTuple):
+    id: str
+    name: str
+    role: str
+    lengths: tuple[str, ...]  # the stated hair lengths it can be done with
+    updo: bool                # an updo, as the Chinese styles need (UPDO_STYLES)
+    text: str
+
+
+# A few common wedding hairstyles (V5.0); keeping the photo's own hairstyle changes the face least.
+HAIRSTYLES = (
+    Hairstyle('keep', '保留原发型', 'bride', BRIDE_HAIR_LENGTHS, False, '保持原照片的发型和长短，只把碎发和毛躁整理干净'),
+    Hairstyle('low_bun', '低盘发', 'bride', ('long', 'medium'), True, '光洁整齐的低盘发，发髻盘在脑后偏低的位置'),
+    Hairstyle('soft_waves', '披发微卷', 'bride', ('long', 'medium'), False, '披发，发尾做柔和的微卷，蓬松有光泽'),
+    Hairstyle('side_braid', '侧编发', 'bride', ('long', 'medium'), False, '从一侧编起的编发，编发自然松散，发尾垂在一侧'),
+    Hairstyle('high_bun', '高盘发', 'bride', ('long',), True, '饱满的高盘发，轮廓光洁利落'),
+    Hairstyle('keep', '保留原发型', 'groom', GROOM_HAIR_LENGTHS, False, '保持原照片的发型和长短，只修整得干净利落'),
+    Hairstyle('side_part', '侧分短发', 'groom', ('short', 'medium'), False, '侧分短发，梳理服帖，顶部有自然的蓬松度'),
+    Hairstyle('textured', '自然纹理短发', 'groom', ('short', 'medium'), False, '自然的纹理短发，顶部蓬松有层次，两侧修短服帖'),
+)
+HAIRSTYLE_BY_KEY = {(item.role, item.id): item for item in HAIRSTYLES}
+
+
+class MakeupColor(NamedTuple):
+    id: str
+    name: str
+    text: str
+
+
+# The bride's colour family: eye shadow, blush and lips (V5.0, from the user's survey of Chinese wedding photos).
+MAKEUP_COLORS = (
+    MakeupColor('milk_tea', '奶茶裸棕', '眼影用奶咖棕和米杏色，腮红用裸杏色，唇色是奶茶豆沙或裸玫瑰。'),
+    MakeupColor('rose_bean', '玫瑰豆沙', '眼影用玫瑰棕和藕粉色，腮红用豆沙粉和柔雾玫瑰色，唇色是玫瑰豆沙或干玫瑰色。'),
+    MakeupColor('peach_coral', '蜜桃珊瑚', '眼影用蜜桃杏和暖橘棕，腮红用蜜桃粉和珊瑚橘，唇色是蜜桃珊瑚或杏橘色。'),
+    MakeupColor('champagne', '香槟金棕', '眼影用香槟金和浅摩卡棕，腮红用杏棕和奶油杏色，唇色是玫瑰裸棕或焦糖豆沙。'),
+    MakeupColor('soft_pink', '柔雾粉', '眼影用浅粉棕和樱花粉，腮红用嫩粉和浅玫瑰色，唇色是蔷薇粉或水润的粉豆沙。'),
+    MakeupColor('classic_red', '正红朱砂', '眼影用暖棕、赤茶和浅金色，腮红用暖粉和杏红色，唇色是正红或朱砂红。'),
+    MakeupColor('terracotta', '赤陶砖红', '眼影用焦糖棕和赤陶棕，腮红用杏棕和陶土橘，唇色是砖红或红棕色。'),
+    MakeupColor('berry', '莓果酒红', '眼影用玫瑰棕和灰紫棕，腮红用冷玫瑰和莓果粉，唇色是莓果红或酒红色。'),
+)
+MAKEUP_COLOR_BY_ID = {item.id: item for item in MAKEUP_COLORS}
+# Each style's recommended colour family, then its alternates.
+STYLE_MAKEUP_COLORS = {
+    'korean_minimal': ('milk_tea', ('soft_pink',)),
+    'french_vintage': ('rose_bean', ('peach_coral',)),
+    'forest_natural': ('peach_coral', ('soft_pink',)),
+    'seaside_sunset': ('peach_coral', ('rose_bean',)),
+    'chinese_traditional': ('classic_red', ('terracotta',)),
+    'cinematic_light': ('milk_tea', ('berry',)),
+    'new_chinese': ('milk_tea', ('rose_bean', 'classic_red')),
+    'hongkong_retro': ('classic_red', ('berry',)),
+    'city_night': ('berry', ('rose_bean',)),
+    'flower_field': ('terracotta', ('peach_coral',)),
+    'snow_winter': ('berry', ('soft_pink',)),
+    'european_church': ('rose_bean', ('champagne',)),
+    'black_white': ('berry', ('milk_tea',)),
+    'daily_life': ('soft_pink', ('peach_coral',)),
+    'snow_mountain': ('rose_bean', ('classic_red',)),
+    'lawn_floral': ('soft_pink', ('peach_coral',)),
+    'white_floral': ('soft_pink', ('rose_bean',)),
+    'french_estate': ('champagne', ('rose_bean',)),
+    'minimal_architecture': ('milk_tea', ('rose_bean',)),
+    'luxury_interior': ('rose_bean', ('champagne',)),
+    'lakeside': ('peach_coral', ('soft_pink',)),
+    'vintage_interior': ('terracotta', ('champagne', 'berry')),
+    'dark_studio': ('berry', ('milk_tea',)),
+    'japanese_film': ('soft_pink', ('peach_coral',)),
+    'republic_qipao': ('classic_red', ('rose_bean',)),
+    'hanfu': ('soft_pink', ('classic_red', 'rose_bean')),
+    'northwest_desert': ('terracotta', ('milk_tea',)),
+}
+# Styles whose bride needs an updo (a bride with short hair keeps her own); their headwear is added in the shot,
+# on top of the look's hairstyle, since adding things works through the edit endpoint and changing hair does not.
+UPDO_STYLES = {
+    'chinese_traditional': '头饰：在造型照的发型上，新娘别简洁的中式金饰头饰，不遮挡额头和脸型。',
+    'new_chinese': '头饰：在造型照的发型上，新娘侧边别一支玉簪。',
+    'republic_qipao': '头饰：在造型照的发型上，新娘鬓边别一枚复古珍珠发夹。',
+    'hanfu': '头饰：在造型照的发型上，新娘戴一顶素雅的小花冠，鬓边别一支发簪，不遮挡额头；新郎戴宋制幞头。',
+}
 
 
 def _clothes(style: dict) -> str:
@@ -724,13 +807,14 @@ def _clothes(style: dict) -> str:
     return style['costume'].split('妆容方向：')[0]
 
 
-def compose_styling_prompt(style_id: str, role: str, level: str, length: str, *, facing: str | None = None) -> str:
-    """Edit prompt that turns one person's photo into their styled photo for a style.
+def compose_look_prompt(role: str, hairstyle_id: str, level: str, makeup_color: str | None = None, *,
+                        facing: str | None = None) -> str:
+    """Edit prompt that turns one person's uploaded photo into a look (their styled photo, V5.0).
 
+    makeup_color: the bride's colour family (MAKEUP_COLORS); None for the groom.
     facing: None for the front photo; 'left' / 'right' for a side photo, which is sent together with the
-    person's styled front photo as the second image so both carry the same hairstyle and makeup.
+    person's front look as the second image so both carry the same hairstyle and makeup.
     """
-    style = STYLE_BY_ID[style_id]
     name = _ROLE_NAMES[role]
     if facing is None:
         opening = (f'把这张照片修成{name}婚礼当天化好妆、做好发型后的造型照。照片里仍是同一个人：'
@@ -741,12 +825,11 @@ def compose_styling_prompt(style_id: str, role: str, level: str, length: str, *,
                    '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。照片里仍是同一个人：'
                    '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与第一张图一致，不要改变五官；'
                    '头部的角度、表情和头肩构图保持第一张图的样子。')
-    hair_text = style['hair'][role][length]
-    hair = (f'发型：{hair_text}；{_HAIR_FINISH[role][level]}。头发的长短与原照片一致，不凭空加长或剪短；'
-            '原来凌乱、翘起、压塌、油腻和毛躁的状态都不保留；头发自然垂落，有真实的重量，'
+    hair = (f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。'
+            '头发的长短与原照片一致，不凭空加长或剪短；原来凌乱、翘起、压塌、油腻和毛躁的状态都不保留；头发自然垂落，有真实的重量，'
             '发丝以自然的发束为主，边缘保留少量细软的碎发。')
     if role == 'bride':
-        makeup = (f"皮肤和妆容：{_BRIDE_STYLING[level]}。妆容颜色：{style['costume'].split('妆容方向：')[1]}"
+        makeup = (f'皮肤和妆容：{_BRIDE_STYLING[level]}。妆容颜色：{MAKEUP_COLOR_BY_ID[makeup_color].text}'
                   '照片会把妆吃淡，所以妆色要比日常妆更浓、更清楚，一眼能看出是精心化过的新娘妆。')
     else:
         makeup = f'皮肤和妆容：{_GROOM_STYLING[level]}。'
@@ -833,9 +916,9 @@ def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] |
 def _style_paragraph(style: dict, *, scene: int | None, hair: Hair | None = None, styled: bool = False) -> str:
     """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34).
     hair: None (prompts before V3.45) names no hairstyle. styled: hair and makeup come from the styled photos
-    (V4.0), so only the clothes and the visual language are written."""
+    (V4.0), so only the clothes, the headwear of the updo styles (V5.0) and the visual language are written."""
     if styled:
-        paragraph = '服装与风格：' + _clothes(style) + style['look']
+        paragraph = '服装与风格：' + _clothes(style) + UPDO_STYLES.get(style['id'], '') + style['look']
     elif hair is None:
         paragraph = style['scene_prompt']
     else:

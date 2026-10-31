@@ -67,6 +67,51 @@ export interface Slot {
   is_stale: boolean;
   /** The couple's styled photos the current version was shot from (V4.0); null for older pictures. */
   styled_asset_ids: { bride: string; groom: string } | null;
+  /** The looks the current version was shot from (V5.0); null for older pictures. */
+  look_ids: LookPair | null;
+}
+
+export interface LookPair {
+  bride: string;
+  groom: string;
+}
+
+export type LookStatus = "waiting" | "running" | "ready" | "failed" | "interrupted";
+
+/** A styled photo candidate (V5.0): one hairstyle and, for the bride, one makeup colour family. */
+export interface Look {
+  id: string;
+  person: "a" | "b";
+  role: Role;
+  hairstyle_id: string;
+  hairstyle_name: string;
+  makeup_color: string | null;
+  makeup_color_name: string | null;
+  makeup_level: MakeupLevel;
+  hair_length: string;
+  status: LookStatus;
+  error_code: string | null;
+  error_message: string | null;
+  asset_id: string | null;
+  source_asset_id: string;
+  selected: boolean;
+  selected_order: number | null;
+  usable: boolean;
+  unusable_reason: string | null;
+  face_score: number | null;
+  created_at: string;
+}
+
+export interface LookItem {
+  hairstyle_id: string;
+  makeup_color: string | null;
+}
+
+export interface LookOptions {
+  hairstyles: { id: string; name: string; role: Role; lengths: string[]; updo: boolean }[];
+  makeup_colors: { id: string; name: string; text: string }[];
+  styles: Record<string, { primary: string; alternates: string[]; needs_updo: boolean }>;
+  max_selected: number;
 }
 
 export interface PhotoSet {
@@ -99,6 +144,12 @@ export interface ProjectDetail extends ProjectSummary {
   previews: Slot[];
   photo_sets: PhotoSet[];
   photos: Slot[];
+  /** Front look candidates of both people (V5.0), oldest first. */
+  looks: Look[];
+  /** Per style, the selected looks a new sample uses by default; null where none fits. */
+  default_looks: Record<string, { bride: string | null; groom: string | null }>;
+  /** Per role, the default candidates for the stated hair length. */
+  default_look_items: Record<Role, LookItem[]>;
 }
 
 export interface Batch {
@@ -314,16 +365,27 @@ export const api = {
   deleteSideImage: (id: string, person: "a" | "b", angle: Exclude<Facing, "front">) =>
     request<void>(`/projects/${id}/images/${person}/${angle}`, { method: "DELETE" }),
 
-  createPreviews: (id: string, options: { styleIds?: string[]; model?: string; restyle?: boolean } = {}) =>
+  createPreviews: (id: string, options: { styleIds: string[]; looks: Record<string, LookPair>; model?: string }) =>
     request<Batch>(
       `/projects/${id}/previews`,
       json("POST", {
         client_request_id: crypto.randomUUID(),
         style_ids: options.styleIds,
+        looks: options.looks,
         model: options.model,
-        restyle: options.restyle,
       }),
     ),
+  lookOptions: () => request<LookOptions>("/look-options"),
+  createLooks: (projectId: string, person: "a" | "b", items: LookItem[]) =>
+    request<Look[]>(
+      `/projects/${projectId}/looks`,
+      json("POST", { client_request_id: crypto.randomUUID(), person, items }),
+    ),
+  retryLook: (lookId: string) => request<Look>(`/looks/${lookId}/retry`, { method: "POST" }),
+  selectLook: (lookId: string) => request<Look>(`/looks/${lookId}/select`, { method: "POST" }),
+  unselectLook: (lookId: string) => request<Look>(`/looks/${lookId}/unselect`, { method: "POST" }),
+  makeDefaultLook: (lookId: string) => request<Look>(`/looks/${lookId}/make-default`, { method: "POST" }),
+  deleteLook: (lookId: string) => request<void>(`/looks/${lookId}`, { method: "DELETE" }),
   createDraft: (projectId: string, previewSlotId: string, count: number) =>
     request<MomentDraft>(
       `/projects/${projectId}/moment-drafts`,

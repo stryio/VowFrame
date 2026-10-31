@@ -597,10 +597,35 @@ def test_a_swap_records_the_face_similarity_before_and_after(app_factory):
                      concurrency=1) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
+        slot_id = slots['korean_minimal']['id']
+        # The swap came from the looks, so what it measured compares with the looks; both pictures are scored
+        # against the uploaded photos instead, like every other picture (V5.0).
+        swapped, original = wait_until(lambda: client.get(f'/api/slots/{slot_id}/versions').json(),
+                                       lambda versions: all(version['face_scores'] for version in versions))
+        assert original['face_scores'] == swapped['face_scores'] == {'bride': 0.55, 'groom': 0.61}
+        uploads = {project['person_a']['asset_id'], project['person_b']['asset_id']}
+        pictures = [item for item in _app.state.face_swapper.scored if item.bride != item.groom]
+        assert len(pictures) == 2 and all({item.bride.stem, item.groom.stem} == uploads for item in pictures)
+
+
+def test_a_swap_from_uploaded_photos_keeps_what_it_measured(app_factory):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=ScriptedFaceSwapper(), concurrency=1) as (client, app):
+        project = create_project(client)
+        batch, slots = ready_preview(client, project['id'])
+        task = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
+        uploads = [project['person_a']['asset_id'], project['person_b']['asset_id']]
+        # A picture from before styled photos: no looks in its snapshot, the uploaded photos as references.
+        with app.state.db.connect(write=True) as conn:
+            snapshot = json.loads(conn.execute('SELECT model_config_snapshot FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()[0])
+            snapshot.pop('looks'), snapshot.pop('reference_slots')
+            conn.execute('UPDATE generation_tasks SET model_config_snapshot=?,reference_image_ids=? WHERE id=?',
+                         (json.dumps(snapshot), json.dumps(uploads), task['id']))
+            conn.execute('UPDATE photo_versions SET face_scores=NULL')
+        swap = client.post(f"/api/slots/{slots['korean_minimal']['id']}/face-swap", json={'client_request_id': 'swap'})
+        wait_batch(client, swap.json()['id'])
         swapped, original = client.get(f"/api/slots/{slots['korean_minimal']['id']}/versions").json()
         assert original['face_scores'] == SCRIPTED_SCORES['before']
         assert swapped['face_scores'] == SCRIPTED_SCORES['after']  # null: the groom's face was not found
-        assert slots['korean_minimal']['current_version']['face_scores'] == SCRIPTED_SCORES['after']
 
 
 def test_a_picture_that_is_not_swapped_is_scored_on_its_own(app_factory):
@@ -613,8 +638,9 @@ def test_a_picture_that_is_not_swapped_is_scored_on_its_own(app_factory):
                              lambda value: value['face_scores'] is not None)
         assert version['face_scores'] == {'bride': 0.55, 'groom': 0.61}
         assert swapper.calls == []
-        # Compared with the photos the picture was made from, bride first.
-        item = swapper.scored[0]
+        # Compared with the uploaded photos the picture's looks were made from, bride first; the looks themselves are
+        # scored one person at a time (bride and groom photo the same).
+        item = next(item for item in swapper.scored if item.bride != item.groom)
         assert item.bride.stem == project['person_a']['asset_id'] and item.groom.stem == project['person_b']['asset_id']
 
 

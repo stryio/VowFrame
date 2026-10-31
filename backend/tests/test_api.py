@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 
 from app.prompts import POSES, RETIRED_STYLE_IDS, STYLES, compose_photo_prompt
-from conftest import PNG, BlockingGenerator, create_project, preview_batch, uploaded_ids, wait_batch
+from conftest import PNG, BlockingGenerator, create_project, looks_for, preview_batch, uploaded_ids, wait_batch
 
 
 def test_health_styles_and_pose_library(client_app):
@@ -101,7 +101,7 @@ def test_upload_stage_select_and_replacement_keeps_old_assets(client_app):
     assert client.get(f'/api/assets/{old_image}').content == PNG
     with app.state.db.connect() as conn:
         task = conn.execute('SELECT reference_image_ids FROM generation_tasks WHERE batch_id=?', (batch['id'],)).fetchone()
-        # The sample was shot from the bride's styled photo, made from the old upload (V4.0).
+        # The sample was shot from the bride's look, made from the old upload (V5.0).
         styled = conn.execute('SELECT asset_type,source_asset_id FROM image_assets WHERE id=?', (json.loads(task[0])[0],)).fetchone()
         assert tuple(styled) == ('styled', old_image)
 
@@ -160,8 +160,9 @@ def test_idempotency_including_concurrent_submissions(client_app):
     client, app = client_app
     project = create_project(client)
     url = f"/api/projects/{project['id']}/previews"
+    body = {'client_request_id': 'same-request', 'looks': looks_for(client, project['id'])}
     with ThreadPoolExecutor(max_workers=4) as pool:
-        responses = list(pool.map(lambda _: client.post(url, json={'client_request_id': 'same-request'}), range(4)))
+        responses = list(pool.map(lambda _: client.post(url, json=body), range(4)))
     assert sorted(r.status_code for r in responses) == [200, 200, 200, 201]
     assert len({r.json()['id'] for r in responses}) == 1
     batch_id = responses[0].json()['id']

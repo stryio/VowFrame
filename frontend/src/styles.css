@@ -1936,3 +1936,75 @@ button.status-chip {
   display: inline-block;
   vertical-align: -2px;
 }
+
+/* Looks step (V5.0): candidates per person, then the looks each style uses. */
+.looks-card { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+.looks-header { display: flex; align-items: baseline; gap: 12px; }
+.looks-header h3 { font-size: 15px; }
+.look-form { display: flex; flex-direction: column; gap: 8px; }
+.look-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.look-form-row select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+.look-hint { flex: 1 1 240px; min-width: 0; }
+.look-form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.look-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+.look-tile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.look-tile.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.look-photo { position: relative; aspect-ratio: 3 / 4; background: var(--surface-muted); }
+.look-photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+.look-photo .overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.look-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.look-body .muted, .look-body .error-text { font-size: 12px; }
+.look-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.look-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.look-pick {
+  width: 36px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-muted);
+  opacity: 0.55;
+}
+.look-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.look-pick.on { opacity: 1; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.style-looks { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+.style-looks-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 16px; }
+@media (max-width: 720px) {
+  .style-looks-row { grid-template-columns: 1fr; gap: 6px; padding-bottom: 8px; }
+}
+.style-looks-name { width: 88px; font-size: 13px; }
+.style-looks-person { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.style-looks-person .muted { font-size: 12px; }
+.style-looks-label { font-size: 12px; color: var(--text-secondary); min-width: 120px; }
+.style-picker-actions { display: flex; justify-content: flex-end; }
+.restyle-panel { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 4px; border-top: 1px solid var(--border); }
+.restyle-row { display: flex; align-items: center; gap: 10px; }
+.restyle-row .muted { width: 32px; font-size: 12px; }

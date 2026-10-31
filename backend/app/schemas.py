@@ -40,12 +40,17 @@ class ProjectPatch(InputModel):
         return value
 
 
+class LookPair(InputModel):
+    bride: str
+    groom: str
+
+
 class PreviewCreate(InputModel):
     client_request_id: str = Field(min_length=1)
     style_ids: list[str] | None = None
     model: str | None = None
-    # Discard these styles' styled photos first, so the samples are shot from newly edited ones (V4.0).
-    restyle: bool = False
+    # The looks each sample is shot from (V5.0), one entry per style; required, checked after the photos.
+    looks: dict[str, LookPair] | None = None
 
     @field_validator('model')
     @classmethod
@@ -111,6 +116,17 @@ class BatchActionCreate(InputModel):
         if value is None:
             raise ValueError('字段不能为 null')
         return value
+
+
+class LookItem(InputModel):
+    hairstyle_id: str
+    makeup_color: str | None = None
+
+
+class LookCreate(InputModel):
+    client_request_id: str = Field(min_length=1)
+    person: Literal['a', 'b']
+    items: list[LookItem] = Field(min_length=1, max_length=6)
 
 
 class RestoreCreate(InputModel):
@@ -222,6 +238,64 @@ class Slot(BaseModel):
     is_stale: bool
     # The styled photos the current version was shot from (V4.0); null for older pictures.
     styled_asset_ids: dict[str, str] | None = None
+    # The looks the current version was shot from (V5.0); null for older pictures.
+    look_ids: dict[str, str] | None = None
+
+
+class Look(BaseModel):
+    id: str
+    person: Literal['a', 'b']
+    role: Role
+    hairstyle_id: str
+    hairstyle_name: str
+    makeup_color: str | None
+    makeup_color_name: str | None
+    makeup_level: MakeupLevel
+    hair_length: str
+    status: Literal['waiting', 'running', 'ready', 'failed', 'interrupted']
+    error_code: str | None
+    error_message: str | None
+    asset_id: str | None
+    source_asset_id: str
+    selected: bool
+    selected_order: int | None
+    usable: bool
+    unusable_reason: str | None
+    # Likeness to the uploaded photo (FaceFusion's ArcFace cosine similarity); null until measured.
+    face_score: float | None
+    created_at: str
+
+
+class HairstyleOption(BaseModel):
+    id: str
+    name: str
+    role: Role
+    lengths: list[str]
+    updo: bool
+
+
+class MakeupColorOption(BaseModel):
+    id: str
+    name: str
+    text: str
+
+
+class StyleMakeup(BaseModel):
+    primary: str
+    alternates: list[str]
+    needs_updo: bool
+
+
+class LookDefault(BaseModel):
+    hairstyle_id: str
+    makeup_color: str | None
+
+
+class LookOptions(BaseModel):
+    hairstyles: list[HairstyleOption]
+    makeup_colors: list[MakeupColorOption]
+    styles: dict[str, StyleMakeup]
+    max_selected: int
 
 
 class PhotoSet(BaseModel):
@@ -254,6 +328,12 @@ class ProjectDetail(ProjectSummary):
     previews: list[Slot]
     photo_sets: list[PhotoSet]
     photos: list[Slot]
+    # Front look candidates of both people (V5.0), oldest first.
+    looks: list[Look]
+    # Per style, the selected looks a new sample uses by default; null where none fits.
+    default_looks: dict[str, dict[str, str | None]]
+    # Per person, the default candidates for their stated hair length.
+    default_look_items: dict[str, list[LookDefault]]
 
 
 class Batch(BaseModel):

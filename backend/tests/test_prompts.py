@@ -21,7 +21,11 @@ from app.prompts import (
     MAKEUP_LEVELS,
     Makeup,
     compose_preview_prompt,
-    compose_styling_prompt,
+    compose_look_prompt,
+    HAIRSTYLES,
+    MAKEUP_COLORS,
+    STYLE_MAKEUP_COLORS,
+    UPDO_STYLES,
     is_styled,
     is_faceless_shot,
     has_makeup,
@@ -78,9 +82,12 @@ def test_styled_shot_prompts_copy_the_styled_photos_and_match_docs():
     for style in STYLES:
         prompt = compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4', scene=1, styled=True)
         assert_six_paragraphs(prompt, '镜头：')
-        # Hair and makeup are on the styled photos: the style paragraph names neither (V4.0).
+        # Hair and makeup are on the styled photos: the style paragraph names neither (V4.0); the updo styles add
+        # their headwear on top of the look's hairstyle (V5.0).
         paragraph = prompt.split('\n\n')[2]
-        assert '妆容方向' not in paragraph and '发型' not in paragraph and paragraph.startswith('服装与风格：' + style['costume'].split('妆容方向：')[0])
+        clothes = style['costume'].split('妆容方向：')[0]
+        assert '妆容方向' not in paragraph and '发型：' not in paragraph
+        assert paragraph.startswith('服装与风格：' + clothes + UPDO_STYLES.get(style['id'], '') + style['look'])
         assert '新娘化' not in prompt and not has_makeup(prompt)
     sides = compose_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', styled=True, with_preview=True,
                                   side_references=[('bride', 'left'), ('groom', 'right')]).split('\n\n')[1]
@@ -90,21 +97,31 @@ def test_styled_shot_prompts_copy_the_styled_photos_and_match_docs():
     assert is_styled(boosted) and boosted.split('\n\n')[1].endswith('宁可画面朴素，也要像本人。')
 
 
-def test_styling_prompts_cover_every_style_role_level_and_length_and_match_docs():
-    assert doc_block('`korean_minimal`，新娘正面照') == compose_styling_prompt('korean_minimal', 'bride', 'natural', 'long')
-    assert doc_block('`korean_minimal`，新郎脸朝画面左侧') == compose_styling_prompt('korean_minimal', 'groom', 'natural', 'short', facing='left')
+def test_look_prompts_cover_every_hairstyle_level_and_colour_and_match_docs():
+    assert doc_block('新娘正面照，`low_bun`') == compose_look_prompt('bride', 'low_bun', 'natural', 'classic_red')
+    assert doc_block('新郎脸朝画面左侧，`keep`') == compose_look_prompt('groom', 'keep', 'natural', facing='left')
+    for hairstyle in HAIRSTYLES:
+        assert f"| `{hairstyle.id}` {hairstyle.name} | {'、'.join(f'`{length}`' for length in hairstyle.lengths)} | " \
+               f"{'是' if hairstyle.updo else '否'} | `{hairstyle.text}` |" in DOC
+        for level in MAKEUP_LEVELS:
+            for color in (MAKEUP_COLORS if hairstyle.role == 'bride' else (None,)):
+                prompt = compose_look_prompt(hairstyle.role, hairstyle.id, level, color.id if color else None)
+                paragraphs = prompt.split('\n\n')
+                assert len(paragraphs) == 5
+                assert paragraphs[1].startswith('发型：' + hairstyle.text + '；')
+                assert ('妆容颜色：' + color.text in prompt) if color else '妆容颜色' not in prompt
+                # Looks do not reshape the face (V4.0, first version).
+                assert not any(term in prompt for term in ('瘦脸', '收窄', '补低', '鼻梁', '苹果肌'))
+                assert paragraphs[2].split('。')[0].removeprefix('皮肤和妆容：') in DOC
+    for color in MAKEUP_COLORS:
+        assert f'| `{color.id}` {color.name} | `{color.text}` |' in DOC
+    names = {color.id: color.name for color in MAKEUP_COLORS}
+    assert set(STYLE_MAKEUP_COLORS) == {style['id'] for style in STYLES}
     for style in STYLES:
-        for role, lengths in (('bride', BRIDE_HAIR_LENGTHS), ('groom', GROOM_HAIR_LENGTHS)):
-            for level in MAKEUP_LEVELS:
-                for length in lengths:
-                    prompt = compose_styling_prompt(style['id'], role, level, length)
-                    paragraphs = prompt.split('\n\n')
-                    assert len(paragraphs) == 5
-                    assert paragraphs[1].startswith('发型：' + style['hair'][role][length] + '；')
-                    assert ('妆容颜色：' + style['costume'].split('妆容方向：')[1] in prompt) == (role == 'bride')
-                    # Styled photos do not reshape the face (V4.0, first version).
-                    assert not any(term in prompt for term in ('瘦脸', '收窄', '补低', '鼻梁', '苹果肌'))
-                    assert paragraphs[2].split('。')[0].removeprefix('皮肤和妆容：') in DOC
+        primary, alternates = STYLE_MAKEUP_COLORS[style['id']]
+        assert f"| {style['name']} `{style['id']}` | {names[primary]} | {'、'.join(names[item] for item in alternates)} |" in DOC
+    for style_id, text in UPDO_STYLES.items():
+        assert f'| `{style_id}` | `{text}` |' in DOC
 
 
 def test_shared_paragraphs_and_costumes_match_docs_verbatim():

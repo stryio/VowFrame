@@ -4,6 +4,7 @@ import base64
 import os
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -19,6 +20,7 @@ os.environ['VOWFRAME_LOCAL_CONFIG'] = str(Path(__file__).resolve().parent / 'con
 from app.config import Config
 from app.main import create_app
 from app.photo_prep import PassthroughPhotoPreparer
+from app.prompts import DEFAULT_PREVIEW_STYLE_IDS
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/EcAAAAASUVORK5CYII=')
 
@@ -120,8 +122,43 @@ def create_project(client, *, upload=True, role='bride'):
 DEFAULT_TEST_STYLE_IDS = ['korean_minimal', 'french_vintage', 'forest_natural', 'seaside_sunset', 'chinese_traditional', 'cinematic_light']
 
 
+def ensure_looks(client, project_id):
+    """Give each person one selected look (V5.0) unless they have a usable one; returns the project detail.
+
+    The bride gets an updo in classic red, which every style accepts; with short hair she keeps her own.
+    """
+    detail = client.get(f'/api/projects/{project_id}').json()
+    for person in ('a', 'b'):
+        if any(look['person'] == person and look['selected'] and look['usable'] for look in detail['looks']):
+            continue
+        role = detail[f'person_{person}']['role']
+        if role == 'groom':
+            item = {'hairstyle_id': 'keep'}
+        elif detail['bride_hair_length'] == 'short':
+            item = {'hairstyle_id': 'keep', 'makeup_color': 'classic_red'}
+        else:
+            item = {'hairstyle_id': 'low_bun', 'makeup_color': 'classic_red'}
+        response = client.post(f'/api/projects/{project_id}/looks',
+                               json={'client_request_id': f'look-{uuid.uuid4()}', 'person': person, 'items': [item]})
+        assert response.status_code == 201, response.text
+        look_id = response.json()[0]['id']
+        look = wait_until(lambda: next(item for item in client.get(f'/api/projects/{project_id}').json()['looks'] if item['id'] == look_id),
+                          lambda item: item['status'] in ('ready', 'failed', 'interrupted'))
+        assert look['status'] == 'ready', look
+        assert client.post(f'/api/looks/{look_id}/select').status_code == 200
+        detail = client.get(f'/api/projects/{project_id}').json()
+    return detail
+
+
+def looks_for(client, project_id, style_ids=None):
+    """The 'looks' field of a sample request: each style's default looks."""
+    detail = ensure_looks(client, project_id)
+    return {style_id: detail['default_looks'][style_id] for style_id in (style_ids or DEFAULT_PREVIEW_STYLE_IDS)}
+
+
 def preview_batch(client, project_id, *, request_id='request-1', style_ids=None, model=None):
-    body = {'client_request_id': request_id, 'style_ids': style_ids or DEFAULT_TEST_STYLE_IDS}
+    style_ids = style_ids or DEFAULT_TEST_STYLE_IDS
+    body = {'client_request_id': request_id, 'style_ids': style_ids, 'looks': looks_for(client, project_id, style_ids)}
     if model is not None:
         body['model'] = model
     response = client.post(f'/api/projects/{project_id}/previews', json=body)

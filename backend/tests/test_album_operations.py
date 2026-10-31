@@ -79,14 +79,12 @@ def test_regenerate_same_copies_current_version_context_after_photo_replacement(
         assert current['version_count'] == 2 and current['latest_task']['id'] == regenerated['id']
 
 
-def test_identity_boost_uses_current_photos_style_preview_and_exact_section_six_rules(app_factory):
+def test_identity_boost_keeps_the_looks_takes_the_style_preview_and_exact_section_six_rules(app_factory):
     generator = ScriptedGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
         preview, photos = ready_photos(client, project['id'], style_id='cinematic_light')
         client.patch('/api/settings', json={'batch_reference_mode': 'with_preview'})
-        replacement = client.post(f"/api/projects/{project['id']}/images", data={'person': 'a'},
-                                  files={'file': ('current.png', PNG, 'image/png')}).json()
         with_faces = next(photo for photo in photos if photo['shot_size'] != 'detail')
         response = client.post(f"/api/slots/{with_faces['id']}/regenerate", json={
             'client_request_id': 'identity-boost', 'mode': 'identity_boost',
@@ -98,9 +96,13 @@ def test_identity_boost_uses_current_photos_style_preview_and_exact_section_six_
         with app.state.db.connect() as conn:
             row = conn.execute('SELECT reference_image_ids,regenerate_mode FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
         references = json.loads(row['reference_image_ids'])
-        # Styled photos of the current uploads (V4.0); the sample stays as it is.
-        assert uploaded_ids(app, references) == [replacement['person_a']['asset_id'], project['person_b']['asset_id'], preview_asset]
-        assert references[2] == preview_asset
+        # The picture's own looks (V5.0), then the sample.
+        looks = with_faces['look_ids']
+        with app.state.db.connect() as conn:
+            look_images = [conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (looks[role],)).fetchone()[0]
+                           for role in ('bride', 'groom')]
+        assert references == [*look_images, preview_asset]
+        assert uploaded_ids(app, references) == [project['person_a']['asset_id'], project['person_b']['asset_id'], preview_asset]
         paragraphs = task['prompt'].split('\n\n')
         assert len(paragraphs) == 6
         assert paragraphs[1].endswith('风格要求与长相冲突时，以长相为准。本次是加强长相的重新生成：两人的长相比风格和动作更重要，宁可画面朴素，也要像本人。')
@@ -108,6 +110,10 @@ def test_identity_boost_uses_current_photos_style_preview_and_exact_section_six_
         assert paragraphs[3].endswith('，两人面部正对或接近正对镜头，面部完整、清晰、占画面较大比例。')
         assert paragraphs[4] == QUALITY_PARAGRAPH
         assert paragraphs[5].endswith('剪影、过度高反差、侧脸、低头、头发遮挡眼睛。')
+        # A look made from a replaced photo no longer makes new pictures.
+        client.post(f"/api/projects/{project['id']}/images", data={'person': 'a'}, files={'file': ('current.png', PNG, 'image/png')})
+        refused = client.post(f"/api/slots/{with_faces['id']}/regenerate", json={'client_request_id': 'boost-again', 'mode': 'identity_boost'})
+        assert refused.status_code == 409 and refused.json()['detail']['code'] == 'look_unusable'
         assert '，正面视角。' not in paragraphs[3]
         assert row['regenerate_mode'] == 'identity_boost'
 
@@ -542,9 +548,8 @@ def test_previous_generation_task_schema_migrates_without_losing_rows_or_version
 
 
 
-def test_project_styling_shapes_styled_photos_reused_replayed_and_restyled(app_factory):
-    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
-        stylist = app.state.stylist
+def test_project_levels_and_hair_lengths_are_validated(app_factory):
+    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, _app):
         project = create_project(client)
         assert project['makeup_level'] == 'natural' and project['groom_makeup_level'] == 'natural'
         assert project['bride_hair_length'] == 'long' and project['groom_hair_length'] == 'short'
@@ -559,40 +564,3 @@ def test_project_styling_shapes_styled_photos_reused_replayed_and_restyled(app_f
         patched = client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined', 'groom_makeup_level': 'light'})
         assert patched.status_code == 200 and patched.json()['makeup_level'] == 'refined'
         assert patched.json()['groom_makeup_level'] == 'light'
-        preview = ready_preview(client, project['id'])
-        first = task_for_batch(client, preview['batch_id'])
-        # V4.0: the levels and hair lengths shape the styled photos; the shot only copies them.
-        assert [call[1].split('\n\n')[2].startswith(start) for call, start in
-                zip(stylist.calls, ('皮肤和妆容：新娘化精致的影楼新娘妆', '皮肤和妆容：新郎不化妆，只修干净'))] == [True, True]
-        assert '发型：自然微卷的短发' in stylist.calls[0][1] and '发型：保持寸头的长度' in stylist.calls[1][1]
-        assert '新娘化' not in first['prompt'] and '新娘发型' not in first['prompt']
-        styled = preview['styled_asset_ids']
-        assert uploaded_ids(app, [styled['bride'], styled['groom']]) == [project['person_a']['asset_id'], project['person_b']['asset_id']]
-        # Boosting likeness with unchanged styling reuses the styled photos: no new edit.
-        boost = client.post(f"/api/slots/{preview['id']}/regenerate", json={'client_request_id': 'boost', 'mode': 'identity_boost'})
-        wait_batch(client, boost.json()['id'])
-        boosted = task_for_batch(client, boost.json()['id'])
-        assert len(stylist.calls) == 2
-        assert boosted['prompt'].split('\n\n')[1].startswith('图片角色：第一张图是新娘的造型照')
-        assert '本次是加强长相的重新生成' in boosted['prompt']
-        # A later change leaves existing photos alone; the next new shot edits a new styled photo for that person.
-        client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'natural'})
-        same = client.post(f"/api/slots/{preview['id']}/regenerate", json={'client_request_id': 'same', 'mode': 'same'})
-        wait_batch(client, same.json()['id'])
-        assert len(stylist.calls) == 2  # 'same' replays the styled photos and prompt as they were
-        with app.state.db.connect() as conn:
-            rows = {row['id']: row for row in conn.execute('SELECT id,reference_image_ids,prompt FROM generation_tasks')}
-        assert rows[task_for_batch(client, same.json()['id'])['id']]['reference_image_ids'] == rows[boosted['id']]['reference_image_ids']
-        again = preview_batch(client, project['id'], request_id='again', style_ids=['korean_minimal'])
-        wait_batch(client, again['id'])
-        assert len(stylist.calls) == 3 and '皮肤和妆容：新娘化标准的婚纱照新娘妆' in stylist.calls[2][1]
-        current = ready_preview_slot(client, project['id'])
-        assert current['styled_asset_ids']['bride'] != styled['bride'] and current['styled_asset_ids']['groom'] == styled['groom']
-        # Restyling discards the style's styled photos, so both are edited again.
-        restyled = client.post(f"/api/projects/{project['id']}/previews",
-                               json={'client_request_id': 'restyle', 'style_ids': ['korean_minimal'], 'restyle': True})
-        assert restyled.status_code == 201, restyled.text
-        wait_batch(client, restyled.json()['id'])
-        assert len(stylist.calls) == 5
-        final = ready_preview_slot(client, project['id'])
-        assert set(final['styled_asset_ids'].values()).isdisjoint(current['styled_asset_ids'].values())

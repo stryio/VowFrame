@@ -12,7 +12,7 @@ from app.generator import GeneratorError
 from app.storage import asset_path
 from app.task_manager import TaskManager
 from app.prompts import STYLES
-from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
+from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, ensure_looks, looks_for, preview_batch, wait_batch, wait_until
 
 
 def batch_tasks(client, batch_id):
@@ -237,6 +237,7 @@ def test_regeneration_failure_retains_previous_version(app_factory):
 def test_storage_failure_holds_waiting_tasks_and_never_marks_complete(app_factory):
     with app_factory(concurrency=1) as (client, app):
         project = create_project(client)
+        ensure_looks(client, project['id'])  # the looks are saved before storage fails
         with patch('app.task_manager.save_image', side_effect=OSError(28, 'No space left on device')):
             batch = preview_batch(client, project['id'])
             held = wait_batch(client, batch['id'], status='held')
@@ -258,8 +259,8 @@ def test_version_transaction_rolls_back_on_insert_failure(app_factory):
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
         wait_batch(client, batch['id'], status='needs_attention')
         with app.state.db.connect() as conn:
-            # Two people, each stored as the untouched upload plus the prepared reference, and a styled photo each
-            # (V4.0); no generated asset.
+            # Two people, each stored as the untouched upload plus the prepared reference, and a look each (V5.0);
+            # no generated asset.
             assert conn.execute('SELECT COUNT(*) FROM image_assets').fetchone()[0] == 6
             assert conn.execute('SELECT COUNT(*) FROM photo_versions').fetchone()[0] == 0
             task = conn.execute('SELECT * FROM generation_tasks').fetchone()
@@ -399,13 +400,26 @@ def test_missing_reference_fails_without_provider_request(app_factory):
     generator = ScriptedGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
+        looks = looks_for(client, project['id'], ['korean_minimal'])
         with app.state.db.connect() as conn:
-            row = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (project['person_a']['asset_id'],)).fetchone()
+            row = conn.execute('SELECT asset.file_path FROM looks JOIN image_assets asset ON asset.id=looks.image_asset_id '
+                               'WHERE looks.id=?', (looks['korean_minimal']['bride'],)).fetchone()
         asset_path(app.state.config, row['file_path']).unlink()
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
         wait_batch(client, batch['id'], status='needs_attention')
         assert batch_tasks(client, batch['id'])[0]['error_code'] == 'reference_missing'
         assert not generator.calls
+        # A candidate whose uploaded photo is gone fails the same way, without an edit.
+        with app.state.db.connect() as conn:
+            row = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (project['person_b']['asset_id'],)).fetchone()
+        asset_path(app.state.config, row['file_path']).unlink()
+        calls = len(app.state.stylist.calls)
+        response = client.post(f"/api/projects/{project['id']}/looks",
+                               json={'client_request_id': 'gone', 'person': 'b', 'items': [{'hairstyle_id': 'keep'}]})
+        look_id = response.json()[0]['id']
+        look = wait_until(lambda: next(item for item in client.get(f"/api/projects/{project['id']}").json()['looks'] if item['id'] == look_id),
+                          lambda item: item['status'] == 'failed')
+        assert look['error_code'] == 'reference_missing' and len(app.state.stylist.calls) == calls
 
 
 def test_schema_includes_future_entities_and_does_not_store_derived_state(client_app):

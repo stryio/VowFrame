@@ -106,6 +106,23 @@ CREATE TABLE IF NOT EXISTS styled_photos (
     created_at TEXT NOT NULL, discarded_at TEXT
 );
 CREATE INDEX IF NOT EXISTS styled_photo_key ON styled_photos(project_id,style_id,role,angle,source_asset_id);
+-- V5.0: a look is one person's styled photo with a hairstyle and (bride) a makeup colour family, edited once from
+-- the uploaded photo when the user asks for candidates; selected looks are what samples and photos are shot from.
+-- A side look is derived from a side photo plus its front look (parent_look_id) when a shot needs it.
+CREATE TABLE IF NOT EXISTS looks (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    person TEXT NOT NULL CHECK(person IN ('a','b')), role TEXT NOT NULL CHECK(role IN ('bride','groom')),
+    angle TEXT NOT NULL CHECK(angle IN ('front','left','right')), parent_look_id TEXT REFERENCES looks(id),
+    hairstyle_id TEXT NOT NULL, hair_length TEXT NOT NULL, makeup_color TEXT, makeup_level TEXT NOT NULL,
+    source_asset_id TEXT NOT NULL REFERENCES image_assets(id), styling_version INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('waiting','running','ready','failed','interrupted')),
+    error_code TEXT, error_message TEXT, model TEXT, prompt TEXT NOT NULL,
+    image_asset_id TEXT REFERENCES image_assets(id), face_score REAL, selected_order INTEGER,
+    client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS look_project ON looks(project_id,person,angle);
+CREATE INDEX IF NOT EXISTS look_queue ON looks(status,created_at);
+CREATE INDEX IF NOT EXISTS look_request ON looks(client_request_id);
 CREATE TABLE IF NOT EXISTS moment_drafts (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     preview_slot_id TEXT NOT NULL REFERENCES photo_slots(id), style_id TEXT NOT NULL REFERENCES style_presets(id),

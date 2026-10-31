@@ -20,7 +20,8 @@ export function useCurrentProject() {
 }
 
 const isBusy = (p: ProjectDetail) =>
-  p.active_task_count > 0 || p.previews.some(isGenerating) || p.photos.some(isGenerating);
+  p.active_task_count > 0 || p.previews.some(isGenerating) || p.photos.some(isGenerating) ||
+  p.looks.some((look) => look.status === "waiting" || look.status === "running");
 
 export function Layout() {
   const workspaceMatch = useMatch("/projects/:projectId/*");

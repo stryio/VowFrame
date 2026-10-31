@@ -332,7 +332,12 @@ def test_download_redirect_cannot_leak_key_in_url_or_logs(config, images, caplog
 
 
 def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handlers(config, tmp_path, caplog):
+    calls = []
+
     def handler(request):
+        calls.append(request)
+        if len(calls) <= 2:
+            return image_response()  # the two looks (V5.0)
         raise httpx.ReadError(f'provider echoed {TEST_KEY}', request=request)
 
     app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
@@ -475,20 +480,20 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
             project = create_project(client, role=role)
             batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
             wait_batch(client, batch['id'])
+            looks = client.get(f"/api/projects/{project['id']}").json()['previews'][0]['look_ids']
             with app.state.db.connect() as conn:
                 row = conn.execute('SELECT * FROM generation_tasks WHERE batch_id=?', (batch['id'],)).fetchone()
                 assert json.loads(row['model_config_snapshot']) == {
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
                     'aspect_ratio': '3:4', 'resolution': '2K',
-                    # V4.0: the styling the sample was shot with and what each reference image is.
-                    'styling': {'version': 1, 'bride': {'makeup': 'natural', 'hair': 'long'},
-                                'groom': {'makeup': 'natural', 'hair': 'short'}},
+                    # V5.0: the looks the sample was shot from and what each reference image is.
+                    'looks': {'version': 2, 'bride': looks['bride'], 'groom': looks['groom']},
                     'reference_slots': [['bride', 'front'], ['groom', 'front']],
                 }
                 assert TEST_KEY not in repr(dict(row))
                 expected = [project['person_a']['asset_id'], project['person_b']['asset_id']]
                 assert uploaded_ids(app, json.loads(row['reference_image_ids'])) == (expected if role == 'bride' else expected[::-1])
-                # Two styling edits come first (V4.0), each sending one photo; the shot sends the styled photos.
+                # The two looks come first (V5.0), each sending one photo; the shot sends the looks.
                 assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 2]
                 file_names = [part[1] for part in multipart_parts(calls[2]) if part[1] is not None]
                 ordered = json.loads(row['reference_image_ids'])
@@ -500,17 +505,17 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
 
 
 @pytest.mark.parametrize('failure,expected,calls_expected', [
-    # The first request is the bride's styled photo (V4.0): its outcome follows the same policy as a shot's.
-    ('connect', 'completed', 4), ('read', 'interrupted', 1),
-    (502, 'interrupted', 1), (504, 'interrupted', 1),
-    (500, 'failed', 1), (503, 'failed', 1),
+    # The first two requests are the two looks (V5.0); the third is the sample.
+    ('connect', 'completed', 4), ('read', 'interrupted', 3),
+    (502, 'interrupted', 3), (504, 'interrupted', 3),
+    (500, 'failed', 3), (503, 'failed', 3),
 ])
 def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected, calls_expected):
     calls = []
 
     def handler(request):
         calls.append(request)
-        if len(calls) == 1:
+        if len(calls) == 3:
             if isinstance(failure, int):
                 return httpx.Response(failure, text='model service error')
             exception = httpx.ConnectError if failure == 'connect' else httpx.ReadTimeout

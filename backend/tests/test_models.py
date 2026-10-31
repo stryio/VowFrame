@@ -8,7 +8,7 @@ import pytest
 from app.config import load_config
 from app.generator import GeneratorError
 from app.models import MODEL_REGISTRY
-from conftest import BlockingGenerator, ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
+from conftest import BlockingGenerator, ScriptedGenerator, create_project, looks_for, preview_batch, wait_batch, wait_until
 
 
 def test_registry_and_models_endpoint(client_app):
@@ -140,6 +140,7 @@ def test_every_registry_model_accepts_two_reference_images(app_factory, model):
         project = create_project(client)
         response = client.post(f"/api/projects/{project['id']}/previews", json={
             'client_request_id': 'model-' + model, 'style_ids': ['korean_minimal'], 'model': model,
+            'looks': looks_for(client, project['id'], ['korean_minimal']),
         })
         assert response.status_code == 201
 
