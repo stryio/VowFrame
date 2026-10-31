@@ -70,9 +70,12 @@ def test_shared_paragraphs_and_costumes_match_docs_verbatim():
         assert doc_block(f" `{style['id']}`\n") == style['costume']
         # Strength comes from the project level; a style only sets the hair and the makeup colors (V3.39).
         assert '淡妆' not in style['costume'] and '妆容方向：' in style['costume']
-        # A style names the bride's hairstyle only; tidying both heads of hair is retouching, set by level (V3.41).
-        assert '新娘发型：' in style['costume'] and '分缝' not in style['costume']
-        assert '新郎的头发' not in style['costume'] and '参考照片' not in style['costume']
+        # A style names a concrete hairstyle for both; how tidy it gets is set by level (V3.41, V3.44).
+        assert '新娘发型：' in style['costume'] and '新郎发型：' in style['costume'] and '分缝' not in style['costume']
+        assert '参考照片' not in style['costume']
+        # V3.9: never a slicked-back or fully bared forehead for the groom.
+        groom_hair = style['costume'].split('新郎发型：')[1].split('。')[0]
+        assert not any(term in groom_hair for term in ('背头', '露额', '露出额头'))
         # A style sets makeup colours only, never anything that reshapes the face (V3.41).
         direction = style['costume'].split('妆容方向：')[1]
         assert not any(term in direction for term in ('眉', '眼线', '修容', '上挑', '卧蚕', '鼻影'))
@@ -227,7 +230,7 @@ def test_makeup_and_retouching_are_drawn_in_the_identity_paragraph():
                 # Skin tone, hairline and face width are retouched by level; changing the features stays forbidden.
                 assert '脸的基本轮廓、五官比例、眼型、鼻型、唇形和年龄感都与' in identity and '肤色、发际线' not in identity
                 assert '不要改变五官。' in identity and '瘦脸、磨皮' not in identity and '不要美颜' not in identity
-                assert '新郎保留本人发际线的位置' in identity and '不做全脸模糊、塑料感的磨皮' in identity
+                assert '新郎的发际线位置与参考照片一致' in identity and '不做全脸模糊、塑料感的磨皮' in identity
                 assert '眼影、腮红和唇色的颜色按「服装与风格」里的妆容方向' in identity
                 assert '不改变真实的身体比例。' in identity
                 assert has_makeup(prompt)
@@ -244,13 +247,11 @@ def test_makeup_and_retouching_are_drawn_in_the_identity_paragraph():
         assert '看不到' not in looks and '一丝不乱' not in looks
         assert '不是整齐生硬的贴片边缘' in identity
         assert '妆面的质感跟着这张照片的光线' in identity
-        # The messy reference state is dropped; the groom keeps hairline, temples, hair amount and head shape (V3.43).
-        assert '凌乱、翘起、压塌、油腻和毛躁的状态都不保留' in identity and '头发不算长相' not in identity
-        assert '新郎保留本人发际线的位置、两侧额角和原有发量，以参考照片中可见的发长为上限' in identity
-        assert '不统一梳成全露额的背头' in identity and '不凭空增加长发' in identity
-        # A concrete target by the groom's own hair length, not one hairstyle for everyone.
-        for branch in ('寸头，保持短发轮廓', '能够梳理的短发，两侧顺向服帖', '中长发，沿已有的自然分缝', '光头或发量稀疏时保留原状'):
-            assert branch in identity
+        # Both follow the costume's hairstyle; only the groom's hairline stays locked (V3.44).
+        assert '两人的发型都按「服装与风格」里写的造型重新打理，不照搬参考照片里的发型' in identity
+        assert '凌乱、翘起、压塌、油腻和毛躁的状态都不保留' in identity and '不凭空增加长发' in identity
+        assert '新郎的发际线位置与参考照片一致' in identity
+        assert not any(lock in identity for lock in ('以参考照片中可见的发长为上限', '原有发量', '额头露出程度接近参考照片', '头发的长短大致不变'))
     # Nose shadow, cheek shine and eye sparkle: bride only, from the standard level up; never the groom (V3.42).
     for level in MAKEUP_LEVELS:
         identity = compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup(level, level)).split('\n\n')[1]
@@ -258,8 +259,8 @@ def test_makeup_and_retouching_are_drawn_in_the_identity_paragraph():
         assert not any(term in groom_text for term in ('鼻梁', '苹果肌', '眼神光'))
         bride_text = identity.split('不复制参考图的妆容和皮肤状态：')[1].split('；新郎')[0]
         assert (('鼻梁' in bride_text) and ('苹果肌' in bride_text) and ('眼神光' in bride_text)) == (level != 'light')
-    groom_hair = {'light': '头发按后面对应的发型作基础整理', 'natural': '头发按后面对应的发型完成婚纱照造型',
-                  'refined': '头发在后面对应的发型上加强发束层次和定型'}
+    groom_hair = {'light': '头发按「服装与风格」里的发型作基础整理', 'natural': '头发按「服装与风格」里的发型完成婚纱照造型',
+                  'refined': '头发在「服装与风格」里的发型上加强发束层次和定型'}
     for level, text in groom_hair.items():
         assert text in compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('light', level)).split('\n\n')[1]
     # Only the stronger levels slim the face, and only slightly.
