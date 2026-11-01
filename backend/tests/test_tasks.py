@@ -12,7 +12,7 @@ from app.generator import GeneratorError
 from app.storage import asset_path
 from app.task_manager import TaskManager
 from app.prompts import STYLES
-from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, ensure_looks, looks_for, preview_batch, wait_batch, wait_until
+from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, ensure_looks, preview_batch, wait_batch, wait_until
 
 
 def batch_tasks(client, batch_id):
@@ -402,7 +402,7 @@ def test_missing_reference_fails_without_provider_request(app_factory):
     generator = ScriptedGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        looks = looks_for(client, project['id'], ['korean_minimal'])
+        looks = ensure_looks(client, project['id'], ['korean_minimal'])['style_looks']
         with app.state.db.connect() as conn:
             row = conn.execute('SELECT asset.file_path FROM looks JOIN image_assets asset ON asset.id=looks.image_asset_id '
                                'WHERE looks.id=?', (looks['korean_minimal']['bride'],)).fetchone()

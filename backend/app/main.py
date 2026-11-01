@@ -12,12 +12,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api import router
 from .api88 import Api88Generator
-from .pptoken import PptokenMaskEditor
 from .config import Config, load_config
 from .db import Database
 from .director import Api88Director, MockDirector
-from .generator import ImageGenerator, MaskEditor, MissingMaskEditor, MockGenerator
-from .face_keep import FaceKeeper
+from .generator import ImageGenerator, MockGenerator
 from .face_swap import FaceSwapper, create_face_swapper
 from .photo_prep import FacePhotoPreparer, PhotoPreparer
 from .task_manager import TaskManager
@@ -50,8 +48,7 @@ def _configure_file_logging(data_dir: Path):
 
 def create_app(config: Config | None = None, generator: ImageGenerator | None = None,
                face_swapper: FaceSwapper | None = None, photo_preparer: PhotoPreparer | None = None,
-               stylist: ImageGenerator | None = None, face_keeper: FaceKeeper | None = None,
-               mask_editor: MaskEditor | None = None) -> FastAPI:
+               stylist: ImageGenerator | None = None) -> FastAPI:
     config = config if config is not None else load_config()
     if generator is None:
         if config.generator == 'mock':
@@ -60,18 +57,10 @@ def create_app(config: Config | None = None, generator: ImageGenerator | None = 
             generator = Api88Generator(config)
         else:
             raise ValueError('不支持此生成器，请配置 mock 或 88api')
-    if mask_editor is None:
-        if config.generator == 'mock':
-            mask_editor = MockGenerator(config.mock_delay_seconds)
-        elif config.pptoken_api_key.strip():
-            mask_editor = PptokenMaskEditor(config)
-        else:
-            # Shots still work without it; front looks fail and say which key is missing.
-            mask_editor = MissingMaskEditor()
     director = MockDirector() if config.generator == 'mock' else Api88Director(config)
     face_swapper = face_swapper or create_face_swapper(config)
     db = Database(config.db_path)
-    manager = TaskManager(config, db, generator, face_swapper, stylist, face_keeper, mask_editor)
+    manager = TaskManager(config, db, generator, face_swapper, stylist)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):

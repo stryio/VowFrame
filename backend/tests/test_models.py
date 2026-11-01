@@ -8,7 +8,7 @@ import pytest
 from app.config import load_config
 from app.generator import GeneratorError
 from app.models import MODEL_REGISTRY
-from conftest import BlockingGenerator, ScriptedGenerator, create_project, looks_for, preview_batch, wait_batch, wait_until
+from conftest import BlockingGenerator, ScriptedGenerator, create_project, ensure_looks, preview_batch, wait_batch, wait_until
 
 
 def test_registry_and_models_endpoint(client_app):
@@ -114,6 +114,8 @@ def test_legacy_snapshot_uses_current_default_and_exposes_null_model(app_factory
     generator = BlockingGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
+        # Each style needs its bride look (V7.0); make both before the first shot blocks the only lane.
+        ensure_looks(client, project['id'], ['korean_minimal', 'french_vintage'])
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
         assert generator.started.wait(2)
         second = preview_batch(client, project['id'], request_id='legacy', style_ids=['french_vintage'])
@@ -138,9 +140,9 @@ def test_legacy_snapshot_uses_current_default_and_exposes_null_model(app_factory
 def test_every_registry_model_accepts_two_reference_images(app_factory, model):
     with app_factory() as (client, _):
         project = create_project(client)
+        ensure_looks(client, project['id'], ['korean_minimal'])
         response = client.post(f"/api/projects/{project['id']}/previews", json={
             'client_request_id': 'model-' + model, 'style_ids': ['korean_minimal'], 'model': model,
-            'looks': looks_for(client, project['id'], ['korean_minimal']),
         })
         assert response.status_code == 201
 

@@ -19,7 +19,6 @@ os.environ['VOWFRAME_LOCAL_CONFIG'] = str(Path(__file__).resolve().parent / 'con
 
 from app.config import Config
 from app.main import create_app
-from app.face_keep import PassthroughFaceKeeper
 from app.photo_prep import PassthroughPhotoPreparer
 from app.prompts import DEFAULT_PREVIEW_STYLE_IDS
 
@@ -44,7 +43,6 @@ class ScriptedGenerator:
         self.calls = []
         self.models = []
         self.aspect_ratios = []
-        self.masks = []
         self.lock = threading.Lock()
 
     def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
@@ -56,12 +54,6 @@ class ScriptedGenerator:
         if isinstance(outcome, Exception):
             raise outcome
         return images[0].read_bytes()
-
-    def edit_with_mask(self, image: Path, mask, prompt: str) -> bytes:
-        """The masked edit of a front look (PPTOKEN in the app); counted with the other edits."""
-        with self.lock:
-            self.masks.append(mask)
-        return self.generate_image([image], prompt, 'gpt-image-2.5', '3:4')
 
 
 class BlockingGenerator(ScriptedGenerator):
@@ -85,17 +77,13 @@ class BlockingGenerator(ScriptedGenerator):
 @pytest.fixture
 def app_factory(tmp_path):
     @contextmanager
-    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_swap=False, stylist=None,
-                face_keeper=None):
+    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_swap=False, stylist=None):
         config = Config(data_dir or tmp_path / 'data', concurrency, 'mock', 0)
         # Test photos are tiny placeholders without faces; photo preparation has its own tests.
         # Styled photos (V4.0) are edited by their own scripted model, so tests counting shot requests are not
         # thrown off by the styling edits; app.state.stylist lets a test inspect them.
         stylist = stylist or ScriptedGenerator()
-        # Keeping the face (V6.0) needs real faces too; tests that check it pass their own keeper.
-        # The stylist also makes the masked edits of front looks, which go to PPTOKEN in the app.
-        app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer(), stylist,
-                         face_keeper or PassthroughFaceKeeper(), mask_editor=stylist)
+        app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer(), stylist)
         app.state.stylist = stylist
         # uvicorn[standard] uses uvloop on this Linux/Python 3.14 environment.
         # Match that loop in TestClient to avoid the stdlib portal wake-up stall.
@@ -134,43 +122,38 @@ def create_project(client, *, upload=True, role='bride'):
 DEFAULT_TEST_STYLE_IDS = ['korean_minimal', 'french_vintage', 'forest_natural', 'seaside_sunset', 'chinese_traditional', 'cinematic_light']
 
 
-def ensure_looks(client, project_id):
-    """Give each person one selected look (V5.0) unless they have a usable one; returns the project detail.
+def ensure_looks(client, project_id, style_ids=None):
+    """Give the groom a selected look and the bride a selected look for each style (V7.0) unless they have usable
+    ones; returns the project detail.
 
     The bride gets an updo, which every style accepts; with short hair she keeps her own.
     """
+    style_ids = style_ids or DEFAULT_TEST_STYLE_IDS
     detail = client.get(f'/api/projects/{project_id}').json()
-    for person in ('a', 'b'):
-        if any(look['person'] == person and look['selected'] and look['usable'] for look in detail['looks']):
-            continue
-        role = detail[f'person_{person}']['role']
-        if role == 'groom':
-            item = {'hairstyle_id': 'keep'}
-        elif detail['bride_hair_length'] == 'short':
-            item = {'hairstyle_id': 'keep'}
-        else:
-            item = {'hairstyle_id': 'low_bun'}
-        response = client.post(f'/api/projects/{project_id}/looks',
-                               json={'client_request_id': f'look-{uuid.uuid4()}', 'person': person, 'items': [item]})
+    person = {detail[f'person_{which}']['role']: which for which in ('a', 'b')}
+    bride_hair = 'keep' if detail['bride_hair_length'] == 'short' else 'low_bun'
+    bodies = []
+    if detail['style_looks'][style_ids[0]]['groom'] is None:
+        bodies.append({'person': person['groom'], 'items': [{'hairstyle_id': 'keep'}]})
+    bodies.extend({'person': person['bride'], 'style_id': style_id, 'items': [{'hairstyle_id': bride_hair}]}
+                  for style_id in style_ids if detail['style_looks'][style_id]['bride'] is None)
+    look_ids = []
+    for body in bodies:
+        response = client.post(f'/api/projects/{project_id}/looks', json={'client_request_id': f'look-{uuid.uuid4()}', **body})
         assert response.status_code == 201, response.text
-        look_id = response.json()[0]['id']
+        look_ids.append(response.json()[0]['id'])
+    for look_id in look_ids:
         look = wait_until(lambda: next(item for item in client.get(f'/api/projects/{project_id}').json()['looks'] if item['id'] == look_id),
                           lambda item: item['status'] in ('ready', 'failed', 'interrupted'))
         assert look['status'] == 'ready', look
         assert client.post(f'/api/looks/{look_id}/select').status_code == 200
-        detail = client.get(f'/api/projects/{project_id}').json()
-    return detail
-
-
-def looks_for(client, project_id, style_ids=None):
-    """The 'looks' field of a sample request: each style's default looks."""
-    detail = ensure_looks(client, project_id)
-    return {style_id: detail['default_looks'][style_id] for style_id in (style_ids or DEFAULT_PREVIEW_STYLE_IDS)}
+    return client.get(f'/api/projects/{project_id}').json()
 
 
 def preview_batch(client, project_id, *, request_id='request-1', style_ids=None, model=None):
     style_ids = style_ids or DEFAULT_TEST_STYLE_IDS
-    body = {'client_request_id': request_id, 'style_ids': style_ids, 'looks': looks_for(client, project_id, style_ids)}
+    ensure_looks(client, project_id, style_ids)
+    body = {'client_request_id': request_id, 'style_ids': style_ids}
     if model is not None:
         body['model'] = model
     response = client.post(f'/api/projects/{project_id}/previews', json=body)

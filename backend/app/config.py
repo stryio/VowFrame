@@ -27,9 +27,6 @@ class Config:
     resolution: str = '2K'
     director_model: str | None = None
     facefusion_dir: Path | None = None
-    # PPTOKEN, for the masked edit of front looks (V6.0): 88API does not take a mask.
-    pptoken_api_key: str = field(default='', repr=False)
-    pptoken_base_url: str = 'https://api.pptoken.cc'
 
     def __post_init__(self):
         object.__setattr__(self, 'data_dir', Path(self.data_dir).resolve())
@@ -92,8 +89,7 @@ def load_config() -> Config:
         max_concurrency=int(os.environ.get("VOWFRAME_MAX_CONCURRENCY", "2")),
         generator=os.environ.get("VOWFRAME_GENERATOR", local.get('generator', 'mock')),
         mock_delay_seconds=float(os.environ.get("VOWFRAME_MOCK_DELAY", "2")),
-        **{key: local[key] for key in ('api_key', 'base_url', 'timeout', 'aspect_ratio', 'resolution', 'pptoken_api_key',
-                                       'pptoken_base_url') if key in local},
+        **{key: local[key] for key in ('api_key', 'base_url', 'timeout', 'aspect_ratio', 'resolution') if key in local},
         director_model=director_model,
         model=configured_model,
         facefusion_dir=facefusion_dir,

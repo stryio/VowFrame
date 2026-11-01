@@ -23,23 +23,20 @@ from app.api88 import (
     SERVICE_MESSAGE, Api88Generator, retry_after_seconds,
 )
 from app.config import Config, load_config
-from app.face_keep import PassthroughFaceKeeper
 from app.generator import GeneratorError, MockGenerator, OutcomeKind
 from app.main import create_app
 from app.photo_prep import PassthroughPhotoPreparer
-from app.pptoken import PptokenMaskEditor
 from app.prompts import STYLING_VERSION
 from app.storage import outgoing_image
-from conftest import PNG, create_project, preview_batch, uploaded_ids, wait_batch, wait_until
+from conftest import PNG, create_project, preview_batch, uploaded_ids, wait_batch
 
 TEST_KEY = 'sk-unit-test-secret-never-log'
-PPTOKEN_KEY = 'sk-pptoken-unit-test-secret'
 PROMPT = '第一张图是新娘，第二张图是新郎'
 
 
 @pytest.fixture
 def config(tmp_path):
-    return Config(tmp_path / 'data', 1, '88api', 0, api_key=TEST_KEY, pptoken_api_key=PPTOKEN_KEY)
+    return Config(tmp_path / 'data', 1, '88api', 0, api_key=TEST_KEY)
 
 
 @pytest.fixture
@@ -61,11 +58,6 @@ def image_response():
 
 def make_generator(config, handler):
     return Api88Generator(config, transport=httpx.MockTransport(handler))
-
-
-def make_mask_editor(config, handler):
-    """The masked edit of front looks goes to PPTOKEN (V6.0); the tests answer it with the same handler."""
-    return PptokenMaskEditor(config, transport=httpx.MockTransport(handler))
 
 
 def multipart_parts(request):
@@ -97,48 +89,6 @@ def test_openai_multipart_and_b64_response(config, images, model):
     generator = make_generator(replace(config, model=model, base_url=config.base_url + '/'), handler)
     assert generator.generate_image(images, PROMPT, model, '3:4') == PNG
     assert len(calls) == 1
-
-
-def test_a_front_look_is_edited_by_pptoken_with_its_mask(config, images, caplog):
-    """V6.0: 88API takes no mask, so the masked edit goes to PPTOKEN's gpt-image-2.5 with its own key."""
-    calls = []
-
-    def handler(request):
-        calls.append(request)
-        assert str(request.url) == 'https://api.pptoken.cc/v1/images/edits'
-        assert request.headers['Authorization'] == f'Bearer {PPTOKEN_KEY}'
-        parts = multipart_parts(request)
-        fields = {name: value.decode() for name, filename, _, value in parts if filename is None}
-        assert fields == {'model': 'gpt-image-2.5', 'prompt': PROMPT, 'size': 'auto', 'quality': 'high'}
-        assert [part for part in parts if part[1] is not None] == [
-            ('image', 'bride.png', 'image/png', sent(images[0])), ('mask', 'mask.png', 'image/png', b'MASK')]
-        return image_response()
-
-    assert make_mask_editor(config, handler).edit_with_mask(images[0], b'MASK', PROMPT) == PNG
-    assert len(calls) == 1
-
-    def rejecting(request):
-        return httpx.Response(400, json={'error': {'message': f'bad mask {PPTOKEN_KEY}'}})
-
-    with caplog.at_level(logging.DEBUG):
-        with pytest.raises(GeneratorError) as raised:
-            make_mask_editor(config, rejecting).edit_with_mask(images[0], b'MASK', PROMPT)
-    assert raised.value.kind == OutcomeKind.REJECTED
-    assert 'PPTOKEN HTTP 400' in caplog.text and PPTOKEN_KEY not in caplog.text
-
-
-def test_without_a_pptoken_key_front_looks_fail_before_sending(config):
-    calls = []
-    app = create_app(replace(config, pptoken_api_key=''), make_generator(config, lambda request: calls.append(request)),
-                     photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper())
-    with TestClient(app, backend_options={'use_uvloop': True}) as client:
-        project = create_project(client)
-        client.post(f"/api/projects/{project['id']}/looks",
-                    json={'client_request_id': 'no-key', 'person': 'a', 'items': [{'hairstyle_id': 'keep'}]})
-        look = wait_until(lambda: client.get(f"/api/projects/{project['id']}").json()['looks'][0],
-                          lambda look: look['status'] not in ('waiting', 'running'))
-    assert look['status'] == 'failed' and look['error_code'] == 'mask_editor_missing' and 'pptoken_api_key' in look['error_message']
-    assert calls == []
 
 
 @pytest.mark.parametrize('aspect_ratio,sizes', [('3:4', OPENAI_SIZES['3:4'])])
@@ -391,10 +341,8 @@ def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handl
             return image_response()  # the two looks (V5.0)
         raise httpx.ReadError(f'provider echoed {TEST_KEY}', request=request)
 
-    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper(),
-                     mask_editor=make_mask_editor(config, handler))
-    second_app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper(),
-                     mask_editor=make_mask_editor(config, handler))
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
+    second_app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     assert app is not second_app
     with TestClient(app, backend_options={'use_uvloop': True}):
         pass
@@ -521,8 +469,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
         calls.append(request)
         return image_response()
 
-    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper(),
-                     mask_editor=make_mask_editor(config, handler))
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     with caplog.at_level(logging.DEBUG):
         with TestClient(app, backend_options={'use_uvloop': True}) as client:
             health = client.get('/api/health')
@@ -547,15 +494,14 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                 assert TEST_KEY not in repr(dict(row))
                 expected = [project['person_a']['asset_id'], project['person_b']['asset_id']]
                 assert uploaded_ids(app, json.loads(row['reference_image_ids'])) == (expected if role == 'bride' else expected[::-1])
-                # The two looks come first (V5.0, sent to PPTOKEN since V6.0), each with one photo; the shot sends the looks.
+                # The two looks come first (V5.0), each sending one photo; the shot sends the looks.
                 assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 2]
                 file_names = [part[1] for part in multipart_parts(calls[2]) if part[1] is not None]
                 ordered = json.loads(row['reference_image_ids'])
                 assert [name.split('.')[0] for name in file_names] == ordered
             assert TEST_KEY not in client.get('/api/tasks').text
     assert len(calls) == 3
-    assert [call.url.host for call in calls] == ['api.pptoken.cc', 'api.pptoken.cc', 'api.88api.ai']
-    assert TEST_KEY not in caplog.text and PPTOKEN_KEY not in caplog.text
+    assert TEST_KEY not in caplog.text
     assert all(TEST_KEY not in repr(record.__dict__) for record in caplog.records)
 
 
@@ -577,8 +523,7 @@ def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected,
             raise exception('simulated network failure')
         return image_response()
 
-    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper(),
-                     mask_editor=make_mask_editor(config, handler))
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     with TestClient(app, backend_options={'use_uvloop': True}) as client:
         project = create_project(client)
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])

@@ -152,22 +152,23 @@ ProjectSummary 加上：
   "photo_sets": [PhotoSet],
   "photos": [Slot],
   "looks": [Look],
-  "default_looks": {"korean_minimal": {"bride": "…" | null, "groom": "…" | null}, …},
+  "style_looks": {"korean_minimal": {"bride": "…" | null, "groom": "…" | null}, …},
   "default_look_items": {"bride": [LookItem], "groom": [LookItem]}
 }
 ```
 
 - `looks`（V5.0）：两人的正面造型候选（不含已删除的和侧面造型），按创建时间排列。
-- `default_looks`：每个风格生成新样片时默认使用的造型，规则见下文「造型」；某人没有适合这个风格的已选用造型时为 null。
-- `default_look_items`：按项目里两人的头发长度给出的默认候选（只有发型）。造型页列出这个人能做的全部发型，默认勾选这些候选。
+- `style_looks`（V7.0，取代 `default_looks`）：每个风格生成新样片时使用的造型：新娘为这个风格选用的造型，新郎选用的造型（所有风格共用）；还没有选用时为 null。
+- `default_look_items`：按项目里两人的头发长度给出的建议发型。新郎默认勾选全部；新娘每个风格只勾第一个适合这个风格的（docs/prompts.md 第 8.1 节）。
 
-### Look（V5.0 造型候选；V6.0 起只有发型）
+### Look（V5.0 造型候选；V7.0 起新娘按风格做，带妆）
 
 ```json
 {
   "id": "…",
   "person": "a" | "b",
   "role": "bride" | "groom",
+  "style_id": "korean_minimal" | null,
   "hairstyle_id": "low_bun",
   "hairstyle_name": "低盘发",
   "makeup_color": "classic_red" | null,
@@ -188,15 +189,16 @@ ProjectSummary 加上：
 }
 ```
 
-- `role`、`makeup_level`、`hair_length`：生成时这个人的角色、档位和头发长度。V6.0 起造型只换发型、脸保持上传照片的原样（docs/prompts.md 第 8.6 节），档位只决定头发的完成度，`makeup_color` 为 null；V5.x 的新娘造型带妆色。
-- `status` 为 `failed` 时，`error_code` 除了生成失败的原因，还可能是 `look_no_face`（照片里没检测到脸，没有发送修图）、`look_face_lost`（修图结果里找不到对得上的脸，没法贴回原脸，可能已经扣费）、`mask_editor_missing`（没有配置 PPTOKEN 密钥，没有发送修图），或 `face_model_missing` / `face_model_runtime_missing`（V6.3：人脸解析模型文件缺失，或缺少 `onnxruntime` 运行库，没有发送修图）。
-- `selected_order`：选用顺序，越小越靠前，最小的是默认造型；未选用为 null。
-- `usable`：能否用于新照片。换了这个人的正面照（`unusable_reason`「这个人的照片已经更换……」）、交换了新娘和新郎，或者是 V6.0 以前带妆的造型（「这是旧版本的造型……」，拍摄时会再化一次妆）时为 false；还没生成好时也为 false，但 `unusable_reason` 为 null。
+- `style_id`（V7.0）：新娘造型是为哪个风格做的，妆色和妆面按这个风格；新郎的造型所有风格共用，为 null；V7.0 以前的造型也为 null。
+- `role`、`makeup_level`、`hair_length`：生成时这个人的角色、档位和头发长度。V7.0 起造型一次修图做好发型和妆容，编辑结果原样保存（不贴回原脸，docs/prompts.md 第 8 节）；档位决定妆容和精修的强度以及头发的完成度。`makeup_color` 是新娘造型的色系（这个风格的主推色系），新郎为 null；V6.x 的造型也为 null。
+- `status` 为 `failed` 时，`error_code` 是生成失败的原因（与镜头任务相同）。V6.x 的 `look_no_face`、`look_face_lost`、`mask_editor_missing`、`face_model_missing`、`face_model_runtime_missing` 不再出现，旧记录里可能还留着。
+- `selected` / `selected_order`（V7.0）：每个风格只有一套选用的新娘造型，新郎只有一套；选用的为 1，其余为 null。
+- `usable`：能否用于新照片。换了这个人的正面照（`unusable_reason`「这个人的照片已经更换……」）、交换了新娘和新郎，或者是 V7.0 以前的造型（「这是旧版本的造型……」）时为 false；还没生成好时也为 false，但 `unusable_reason` 为 null。
 - `face_score`：造型与上传照片的人脸相似度（FaceFusion 的 ArcFace 余弦相似度）；换脸不可用、还没测或没检测到脸时为 null。
 
-`LookItem`：`{"hairstyle_id": string}`（V6.0 起不再有 `makeup_color`，带上会 422）。
+`LookItem`：`{"hairstyle_id": string}`（妆色由风格决定，带上 `makeup_color` 会 422）。
 
-- `makeup_level`：新娘的妆容强度，`light`（清透新娘妆）、`natural`（标准婚纱妆，默认）或 `refined`（精致影楼妆）。V6.0 起拍摄时按它化妆和精修（docs/prompts.md 第 2.2 节），只影响之后创建的样片和照片任务；造型候选只用它决定头发的完成度。已有的造型和照片不变。
+- `makeup_level`：新娘的妆容强度，`light`（清透新娘妆）、`natural`（标准婚纱妆，默认）或 `refined`（精致影楼妆）。V7.0 起新娘造型按它化妆和精修（docs/prompts.md 第 8.5 节），只影响之后生成的造型；样片和照片照着造型的妆拍。已有的造型和照片不变。
 - `groom_makeup_level`：新郎的精修强度，`light`（清爽）、`natural`（精修，默认）或 `refined`（精致，化淡淡的男士妆），规则与 `makeup_level` 相同。
 - `bride_hair_length` / `groom_hair_length`：两人头发的实际长度，新娘 `long`（长发，默认）/ `medium`（及肩）/ `short`（短发），新郎 `buzz`（寸头）/ `short`（短发，默认）/ `medium`（中长发）。V5.0 起决定能生成哪些发型的候选（docs/prompts.md 第 8.2 节）；已有的造型不变。
 - `previews`：按内置风格顺序排列，只包含已创建的样片位置。
@@ -383,14 +385,13 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/projects/{id}/images` | multipart：`person` = `a`/`b`，`angle` = `front`/`left`/`right`（默认 `front`），`file` | `ProjectDetail`；先检查人脸并裁到头肩（见下文），不合格时 422 `unusable_photo`，无法读取时 422 `invalid_image` |
 | DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |
 | GET | `/api/assets/{id}` | — | 图片文件 |
-| GET | `/api/look-options` | — | `{"hairstyles": [{"id", "name", "role", "lengths", "updo"}], "makeup_colors": [{"id", "name", "text"}], "styles": {style_id: {"primary", "alternates", "needs_updo"}}, "max_selected": 3}`（docs/prompts.md 第 8 节） |
-| POST | `/api/projects/{id}/looks` | `{"client_request_id": string, "person": "a" \| "b", "items": [LookItem]}`（1～16 项） | `Look[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；这个编号已用于别的项目或另一个人时 409 `request_id_reused`）；没有这个人的正面照时 409 `photos_missing`，发型不适合当前头发长度时 422 `invalid_hairstyle` |
-| POST | `/api/looks/{id}/retry` | — | `Look`；只有 `failed` / `interrupted` 可以重试，否则 409 `look_not_retryable`；照片已更换或是 V6.0 以前的造型时 409 `look_unusable` |
-| POST | `/api/looks/{id}/select` | — | `Look`；不能用于新照片时 409 `look_unusable`，已选用 3 套时 409 `too_many_looks` |
+| GET | `/api/look-options` | — | `{"hairstyles": [{"id", "name", "role", "lengths", "updo"}], "makeup_colors": [{"id", "name", "text"}], "styles": {style_id: {"primary", "alternates", "needs_updo"}}}`（docs/prompts.md 第 8 节） |
+| POST | `/api/projects/{id}/looks` | `{"client_request_id": string, "person": "a" \| "b", "style_id"?: string, "items": [LookItem]}`（1～16 项；新娘必须给 `style_id`，新郎不能给） | `Look[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；这个编号已用于别的项目、另一个人或另一个风格时 409 `request_id_reused`）；没有这个人的正面照时 409 `photos_missing`；新娘缺少或给了无效的风格、新郎给了风格、风格已停用且项目没有它的样片时 422 `invalid_style`；发型不适合当前头发长度或这个风格（要求盘发）时 422 `invalid_hairstyle` |
+| POST | `/api/looks/{id}/retry` | — | `Look`；只有 `failed` / `interrupted` 可以重试，否则 409 `look_not_retryable`；照片已更换或是 V7.0 以前的造型时 409 `look_unusable` |
+| POST | `/api/looks/{id}/select` | — | `Look`；替换这个风格原来选用的新娘造型（新郎：替换原来选用的新郎造型）；不能用于新照片时 409 `look_unusable` |
 | POST | `/api/looks/{id}/unselect` | — | `Look` |
-| POST | `/api/looks/{id}/make-default` | — | `Look`；排到这个人选用顺序的第一位；未选用时 409 `look_not_selected` |
 | DELETE | `/api/looks/{id}` | — | 204；隐藏候选并取消选用，已经用它拍好的照片不变；还在生成时 409 `look_busy` |
-| POST | `/api/projects/{id}/previews` | `{"client_request_id": string, "style_ids"?: string[], "looks": {style_id: {"bride": look_id, "groom": look_id}}, "model"?: string}` | `Batch`（201）；`model` 缺省用默认模型，不在列表中时 422 `invalid_model`；`looks` 缺少或与风格不一一对应时 422 `invalid_looks`，造型不属于这个人时 422 `invalid_look`，造型未选用或不能用于新照片时 409 `look_unusable`，盘发风格用了非盘发的新娘造型时 409 `look_unfit` |
+| POST | `/api/projects/{id}/previews` | `{"client_request_id": string, "style_ids"?: string[], "model"?: string}` | `Batch`（201）；`model` 缺省用默认模型，不在列表中时 422 `invalid_model`；某个风格还没有选用的新娘造型或新郎造型时 409 `looks_required`（V7.0 起不再接受 `looks`，带上会 422） |
 | POST | `/api/projects/{id}/moment-drafts` | `{"preview_slot_id": string, "count": 4 \| 8 \| 12 \| 20}` | `MomentDraft`（201）；同步调用 AI 导演 |
 | GET | `/api/moment-drafts/{id}` | — | `MomentDraft` |
 | PATCH | `/api/moment-drafts/{id}/moments/{index}` | `{"title"?: string, "shot_size"?: string, "orientation"?: string, "bride_facing"?: string, "groom_facing"?: string, "text"?: string, "faces_clear"?: boolean}` | `MomentDraft`；用户手动修改第 `index`（从 0 开始）个瞬间 |
@@ -432,8 +433,8 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - 502/504：保持现有文字，`error_code = "unknown_outcome"`。
 - **真实生成错误**：未建立连接为 `not_sent`，可自动重试；请求发送后读取、写入、协议异常以及生成成功后的图片下载失败为 `unknown_outcome`，任务保持 `interrupted`，不能自动重发。鉴权或余额不足为 `auth_or_quota`，暂停同批等待任务；HTTP 429 为 `rate_limited`，按 `Retry-After` 全局退避；审核/参数拒绝、服务端 HTTP 5xx、成功响应没有图片为 `rejected`。用户只看到中文提示，服务商原始错误只写入脱敏日志。真实调用与用户主动重试均可能收费。
 - **上传照片**：替换照片不删除、不清除任何已有内容；用旧照片生成的样片和作品通过 `is_stale` 标出（PRD 15.3）。旧图片文件不删除，因为可能仍被任务引用。
-- **生成样片**：两张照片齐全才允许，否则 409 `photos_missing`。`style_ids` 缺省为默认风格（`Style.default_preview` 为 true 的前 6 种）；前端在用户未选风格时不传该字段，「重新生成全部」只传已有样片的风格。每种风格复用该项目已有的样片位置（没有则新建），所以重生样片会产生新版本。每个风格都要在 `looks` 里给出两人的造型（前端默认用 `ProjectDetail.default_looks`，用户可以逐个改）。
-- **造型（V5.0，docs/prompts.md 第 8 节）**：造型候选由用户点按钮生成，每张是一次付费编辑（从这个人上传的正面照修一次，图片类型 `styled`，`source_asset_id` 指向上传照片），在任务队列里排在拍摄任务前面；后端重启时正在生成的候选变为 `interrupted`，还在排队的变为 `failed`（`not_started`），都不会自动重发。V6.0 起每张正面候选只换发型：修图时带一张保留脸部的遮罩，发给 PPTOKEN 的 `gpt-image-2.5`（V6.1，`config.local.json` 的 `pptoken_api_key`、`pptoken_base_url`；88API 不支持遮罩；没有填密钥时候选失败，`error_code` 为 `mask_editor_missing`，请求没有发出），修好后再把上传照片的脸对齐贴回去，所以造型的脸就是上传照片的脸；妆容和精修由拍摄提示词按项目当前的档位绘制，新娘妆色用风格的主推色系。没有选用造型就不能生成样片。默认分配：在这个人已选用的造型里，按选用顺序取第一套适合这个风格的；新郎取第一套。镜头任务在模型快照里记录 `looks`（`{"version": 3, "bride": look_id, "groom": look_id}`；V5.x 为 2）和每张参考图是谁的哪个角度 `reference_slots`；正面参考图就是两人造型的图片。拍组沿用样片的造型，加强长相、换动作、换景别沿用来源作品的造型；来源作品没有记录造型（V5.0 以前）时 409 `looks_required`，造型已不能用于新照片时 409 `look_unusable`。镜头需要某人的侧面参考时，任务开始生成时从「侧面照 + 这套造型」编辑一张侧面造型（同一套造型、同一角度、同一张侧面照只编辑一次，文件丢失时重新编辑），并写回任务的 `reference_image_ids`；编辑失败按生成失败的同一套规则处理，不退回用原侧面照。作品的「重新生成」原样重放任务记录的参考图。换脸用作品自己的参考图：正面是它的造型，用到的侧面是它的侧面造型，其他侧面优先用这套造型的侧面造型，没有就用原侧面照；V4.0 以前的作品用项目当前的上传照片。V4.0 的任务没做完造型照就重试时失败，`error_code` 为 `styling_retired`。人脸相似度一律与上传照片比较：用造型照换脸时，不记录换脸程序按造型照测出的前后分数，换脸前后的两张图都单独打分。
+- **生成样片**：两张照片齐全才允许，否则 409 `photos_missing`。`style_ids` 缺省为默认风格（`Style.default_preview` 为 true 的前 6 种）；前端在用户未选风格时不传该字段，「重新生成全部」只传已有样片的风格。每种风格复用该项目已有的样片位置（没有则新建），所以重生样片会产生新版本。每个风格用 `ProjectDetail.style_looks` 里的造型（V7.0）。
+- **造型（V5.0，docs/prompts.md 第 8 节）**：造型候选由用户点按钮生成，每张是一次付费编辑（从这个人上传的正面照修一次，图片类型 `styled`，`source_asset_id` 指向上传照片），在任务队列里排在拍摄任务前面；后端重启时正在生成的候选变为 `interrupted`，还在排队的变为 `failed`（`not_started`），都不会自动重发。V7.0 起造型放在选风格之后：新娘每个风格做造型（`style_id`），一次修图做好这个风格适合的发型和这个风格的妆容（主推色系和妆面），新郎的造型所有风格共用；修图走项目当前的生图模型，编辑结果原样保存，不带遮罩、不贴回原脸（V6.x 的遮罩和 PPTOKEN 已删除，`pptoken_api_key` 不再读取）。每个风格只选用一套新娘造型，新郎只选用一套；第一套生成好的自动选用，之后选别的会替换。生成样片时直接用这个风格选用的造型，没有就 409 `looks_required`；样片和照片的提示词照着造型照的妆拍，不再写档位。镜头任务在模型快照里记录 `looks`（`{"version": 4, "bride": look_id, "groom": look_id}`；V6.x 为 3，V5.x 为 2）和每张参考图是谁的哪个角度 `reference_slots`；正面参考图就是两人造型的图片。拍组沿用样片的造型，加强长相、换动作、换景别沿用来源作品的造型；来源作品没有记录造型（V5.0 以前）时 409 `looks_required`，造型已不能用于新照片时 409 `look_unusable`。镜头需要某人的侧面参考时，任务开始生成时从「侧面照 + 这套造型」编辑一张侧面造型（同一套造型、同一角度、同一张侧面照只编辑一次，文件丢失时重新编辑），并写回任务的 `reference_image_ids`；编辑失败按生成失败的同一套规则处理，不退回用原侧面照。作品的「重新生成」原样重放任务记录的参考图。换脸用作品自己的参考图：正面是它的造型，用到的侧面是它的侧面造型，其他侧面优先用这套造型的侧面造型，没有就用原侧面照；V4.0 以前的作品用项目当前的上传照片。V4.0 的任务没做完造型照就重试时失败，`error_code` 为 `styling_retired`。人脸相似度一律与上传照片比较：用造型照换脸时，不记录换脸程序按造型照测出的前后分数，换脸前后的两张图都单独打分。
 - **防重复提交**：同一 `client_request_id` 再次提交，返回已存在的批次（200），不新建任务。
 - **手动重试**：任务只能成功手动重试一次。原任务行永不修改，新任务通过 `retry_of_task_id` 指向原任务；再次重试已被替代的任务返回 409 `task_already_retried`（`该任务已经重试过，请查看最新的任务`）。批次统计、项目任务统计和 `Slot.latest_task` 均只考虑重试链中最新的任务。
 - **AI 导演（moment-drafts）**（PRD 3.3）：

@@ -78,11 +78,13 @@ export interface LookPair {
 
 export type LookStatus = "waiting" | "running" | "ready" | "failed" | "interrupted";
 
-/** A styled photo candidate (V5.0): one hairstyle on the uploaded face (V6.0; V5.x looks also carry a colour). */
+/** A styled photo candidate (V5.0): hair and makeup in one edit; a bride look is made for one style (V7.0). */
 export interface Look {
   id: string;
   person: "a" | "b";
   role: Role;
+  /** The style a bride look was made for; null for the groom's (shared by every style) and older looks. */
+  style_id: string | null;
   hairstyle_id: string;
   hairstyle_name: string;
   makeup_color: string | null;
@@ -110,7 +112,6 @@ export interface LookOptions {
   hairstyles: { id: string; name: string; role: Role; lengths: string[]; updo: boolean }[];
   makeup_colors: { id: string; name: string; text: string }[];
   styles: Record<string, { primary: string; alternates: string[]; needs_updo: boolean }>;
-  max_selected: number;
 }
 
 export interface PhotoSet {
@@ -145,8 +146,8 @@ export interface ProjectDetail extends ProjectSummary {
   photos: Slot[];
   /** Front look candidates of both people (V5.0), oldest first. */
   looks: Look[];
-  /** Per style, the selected looks a new sample uses by default; null where none fits. */
-  default_looks: Record<string, { bride: string | null; groom: string | null }>;
+  /** Per style, the looks a new sample uses (V7.0): the bride's selected look for it and the groom's selected look. */
+  style_looks: Record<string, { bride: string | null; groom: string | null }>;
   /** Per role, the default candidates for the stated hair length. */
   default_look_items: Record<Role, LookItem[]>;
 }
@@ -364,26 +365,25 @@ export const api = {
   deleteSideImage: (id: string, person: "a" | "b", angle: Exclude<Facing, "front">) =>
     request<void>(`/projects/${id}/images/${person}/${angle}`, { method: "DELETE" }),
 
-  createPreviews: (id: string, options: { styleIds: string[]; looks: Record<string, LookPair>; model?: string }) =>
+  createPreviews: (id: string, options: { styleIds: string[]; model?: string }) =>
     request<Batch>(
       `/projects/${id}/previews`,
       json("POST", {
         client_request_id: crypto.randomUUID(),
         style_ids: options.styleIds,
-        looks: options.looks,
         model: options.model,
       }),
     ),
   lookOptions: () => request<LookOptions>("/look-options"),
-  createLooks: (projectId: string, person: "a" | "b", items: LookItem[]) =>
+  /** styleId: the style a bride look is made for; omitted for the groom (V7.0). */
+  createLooks: (projectId: string, person: "a" | "b", items: LookItem[], styleId?: string) =>
     request<Look[]>(
       `/projects/${projectId}/looks`,
-      json("POST", { client_request_id: crypto.randomUUID(), person, items }),
+      json("POST", { client_request_id: crypto.randomUUID(), person, style_id: styleId, items }),
     ),
   retryLook: (lookId: string) => request<Look>(`/looks/${lookId}/retry`, { method: "POST" }),
   selectLook: (lookId: string) => request<Look>(`/looks/${lookId}/select`, { method: "POST" }),
   unselectLook: (lookId: string) => request<Look>(`/looks/${lookId}/unselect`, { method: "POST" }),
-  makeDefaultLook: (lookId: string) => request<Look>(`/looks/${lookId}/make-default`, { method: "POST" }),
   deleteLook: (lookId: string) => request<void>(`/looks/${lookId}`, { method: "DELETE" }),
   createDraft: (projectId: string, previewSlotId: string, count: number) =>
     request<MomentDraft>(

@@ -5,9 +5,12 @@ each person's uploaded photo is edited into "looks" when the user asks for candi
 the user selects some, and every sample is shot from one selected look per person. Photo sets and slot actions
 keep the looks of the picture they start from.
 
-V6.0: a look is only the hairstyle. Its face is the uploaded photo's, laid back after the edit (app/face_keep.py),
-and the shot draws makeup and retouching, with the bride's colour family set by the style. Looks from V5.x wear
-makeup and are not used for new shots.
+V6.0–V6.4: a look was only the hairstyle on the uploaded face, and the shot drew the makeup.
+
+V7.0: looks come after the style. The bride has looks per style (style_id), each with hair and makeup in the
+style's colour family and finish; the groom's looks (style_id NULL) are shared by every style. Each (person,
+style) group has at most one selected look, and that is the look a new sample of the style uses. Looks of older
+versions are not used for new shots.
 
 A shot task records its looks in its model snapshot:
     'looks': {'version': STYLING_VERSION, 'bride': look id, 'groom': look id}
@@ -21,14 +24,15 @@ automatic styling is retired.
 """
 
 from .face_swap import face_swap_reference_ids
-from .prompts import HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLES, STYLING_VERSION, UPDO_STYLES
+from .prompts import (HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLES, STYLING_VERSION,
+                      UPDO_STYLES)
 
 # Order of face_swap_reference_ids().
 FACE_SWAP_SLOTS = (('bride', 'front'), ('groom', 'front'), ('bride', 'left'), ('bride', 'right'),
                    ('groom', 'left'), ('groom', 'right'))
-MAX_SELECTED_LOOKS = 3
-# Candidates checked first (V5.2: six for the bride, four for the groom), covering updos and loose hair.
-# A hairstyle the stated hair length cannot do is replaced by the next one of its length list that is unused.
+# Hairstyles suggested first, in order (V5.2): the groom's are checked as candidates; a bride look is made per
+# style, so only the first that fits the style is suggested (V7.0). A hairstyle the stated hair length cannot do
+# is replaced by the next one of its length list that is unused.
 DEFAULT_LOOKS = {
     'bride': ('keep', 'low_bun', 'soft_waves', 'half_up', 'high_bun', 'french_bun'),
     'groom': ('keep', 'side_part', 'textured', 'side_back'),
@@ -89,38 +93,50 @@ def look_problem(project, look) -> str | None:
 
 LOOK_PROBLEM_MESSAGES = {
     'unavailable': '这套造型不存在或已删除',
-    'outdated': '这是旧版本的造型，脸上带着妆容；现在妆容在拍摄时按风格绘制，请重新生成造型',
+    'outdated': '这是旧版本的造型，没有按风格化妆；现在新娘每个风格做一套带妆的造型，请重新生成',
     'not_ready': '这套造型还没有生成好',
     'role_changed': '交换新娘和新郎之后，这套造型不能再用于新照片',
     'photo_replaced': '这个人的照片已经更换，这套造型不能再用于新照片',
 }
 
 
-def fits_style(look, style_id: str) -> bool:
+def fits_style(role: str, hairstyle_id: str, hair_length: str, style_id: str) -> bool:
     """The Chinese styles need the bride in an updo; a bride with short hair keeps her own hairstyle."""
-    if style_id not in UPDO_STYLES or look['role'] != 'bride':
+    if style_id not in UPDO_STYLES or role != 'bride':
         return True
-    return HAIRSTYLE_BY_KEY[('bride', look['hairstyle_id'])].updo or (look['hair_length'] == 'short' and look['hairstyle_id'] == 'keep')
+    return HAIRSTYLE_BY_KEY[('bride', hairstyle_id)].updo or (hair_length == 'short' and hairstyle_id == 'keep')
 
 
-def selected_looks(conn, project, role: str) -> list:
-    """This person's selected looks that can still be used, in their order (the first is the default)."""
-    rows = conn.execute(
-        "SELECT * FROM looks WHERE project_id=? AND person=? AND angle='front' AND selected_order IS NOT NULL "
-        'AND discarded_at IS NULL ORDER BY selected_order,rowid', (project['id'], person_of(project, role))).fetchall()
-    return [row for row in rows if look_problem(project, row) is None]
+def bride_look_color(style_id: str) -> str:
+    """The colour family a bride look for this style wears: the style's recommended one."""
+    return STYLE_MAKEUP_COLORS[style_id][0]
 
 
-def default_assignment(conn, project) -> dict:
-    """Per style, the looks a new sample uses unless the user picks others: the first selected look that fits the
-    style. Shown before generating, so the rule never acts unseen. (V5.x also preferred the bride look in the
-    style's colour; since V6.0 the shot draws that colour.)
-    """
-    brides, grooms = selected_looks(conn, project, 'bride'), selected_looks(conn, project, 'groom')
+def selected_look(conn, project, role: str, style_id: str | None):
+    """The selected look of this person for this style (the groom's: style_id None), if it can still be used."""
+    style_clause = 'style_id IS NULL' if style_id is None else 'style_id=?'
+    row = conn.execute(
+        f"SELECT * FROM looks WHERE project_id=? AND person=? AND angle='front' AND {style_clause} "
+        'AND selected_order IS NOT NULL AND discarded_at IS NULL ORDER BY rowid DESC LIMIT 1',
+        (project['id'], person_of(project, role), *(() if style_id is None else (style_id,)))).fetchone()
+    return row if row is not None and look_problem(project, row) is None else None
+
+
+def select_only(conn, look):
+    """Make this look the one its person uses for its style (or, for the groom, for every style)."""
+    style_clause = 'style_id IS NULL' if look['style_id'] is None else 'style_id=?'
+    conn.execute(f"UPDATE looks SET selected_order=NULL WHERE project_id=? AND person=? AND angle='front' AND {style_clause}",
+                 (look['project_id'], look['person'], *(() if look['style_id'] is None else (look['style_id'],))))
+    conn.execute('UPDATE looks SET selected_order=1 WHERE id=?', (look['id'],))
+
+
+def style_looks(conn, project) -> dict:
+    """Per style, the looks a new sample uses: the bride's selected look for it and the groom's selected look."""
+    groom = selected_look(conn, project, 'groom', None)
     result = {}
     for style in STYLES:
-        bride = next((look for look in brides if fits_style(look, style['id'])), None)
-        result[style['id']] = {'bride': bride['id'] if bride else None, 'groom': grooms[0]['id'] if grooms else None}
+        bride = selected_look(conn, project, 'bride', style['id'])
+        result[style['id']] = {'bride': bride['id'] if bride else None, 'groom': groom['id'] if groom else None}
     return result
 
 
@@ -190,7 +206,7 @@ def look_response(project, look) -> dict:
     color = MAKEUP_COLOR_BY_ID.get(look['makeup_color']) if look['makeup_color'] else None
     problem = look_problem(project, look)
     return {
-        'id': look['id'], 'person': look['person'], 'role': look['role'],
+        'id': look['id'], 'person': look['person'], 'role': look['role'], 'style_id': look['style_id'],
         'hairstyle_id': look['hairstyle_id'], 'hairstyle_name': hairstyle.name if hairstyle else look['hairstyle_id'],
         'makeup_color': look['makeup_color'], 'makeup_color_name': color.name if color else None,
         'makeup_level': look['makeup_level'], 'hair_length': look['hair_length'],

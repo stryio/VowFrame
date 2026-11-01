@@ -40,17 +40,11 @@ class ProjectPatch(InputModel):
         return value
 
 
-class LookPair(InputModel):
-    bride: str
-    groom: str
-
-
 class PreviewCreate(InputModel):
     client_request_id: str = Field(min_length=1)
     style_ids: list[str] | None = None
     model: str | None = None
-    # The looks each sample is shot from (V5.0), one entry per style; required, checked after the photos.
-    looks: dict[str, LookPair] | None = None
+    # Each sample is shot from its style's selected bride look and the selected groom look (V7.0).
 
     @field_validator('model')
     @classmethod
@@ -119,13 +113,15 @@ class BatchActionCreate(InputModel):
 
 
 class LookItem(InputModel):
-    # Only the hairstyle (V6.0): the bride's makeup colour is set per style when the shot is drawn.
+    # The hairstyle; the bride's makeup colour and finish come from the style (V7.0).
     hairstyle_id: str
 
 
 class LookCreate(InputModel):
     client_request_id: str = Field(min_length=1)
     person: Literal['a', 'b']
+    # The style a bride look is made for (V7.0); omitted for the groom, whose looks every style shares.
+    style_id: str | None = None
     items: list[LookItem] = Field(min_length=1, max_length=16)
 
 
@@ -246,6 +242,8 @@ class Look(BaseModel):
     id: str
     person: Literal['a', 'b']
     role: Role
+    # The style a bride look was made for (V7.0); null for the groom's and for looks of older versions.
+    style_id: str | None
     hairstyle_id: str
     hairstyle_name: str
     makeup_color: str | None
@@ -294,7 +292,6 @@ class LookOptions(BaseModel):
     hairstyles: list[HairstyleOption]
     makeup_colors: list[MakeupColorOption]
     styles: dict[str, StyleMakeup]
-    max_selected: int
 
 
 class PhotoSet(BaseModel):
@@ -329,8 +326,9 @@ class ProjectDetail(ProjectSummary):
     photos: list[Slot]
     # Front look candidates of both people (V5.0), oldest first.
     looks: list[Look]
-    # Per style, the selected looks a new sample uses by default; null where none fits.
-    default_looks: dict[str, dict[str, str | None]]
+    # Per style, the looks a new sample uses (V7.0): the bride's selected look for the style and the groom's
+    # selected look; null where none is selected yet.
+    style_looks: dict[str, dict[str, str | None]]
     # Per person, the default candidates for their stated hair length.
     default_look_items: dict[str, list[LookDefault]]
 

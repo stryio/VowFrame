@@ -9,15 +9,14 @@ import time
 
 from .config import Config
 from .db import Database, new_id, utc_now
-from .face_keep import FaceKeepError, FaceKeeper, YuNetFaceKeeper
-from .face_parse import FaceParser
-from .generator import GeneratorError, ImageGenerator, MaskEditor, OutcomeKind
+from .generator import GeneratorError, ImageGenerator, OutcomeKind
 from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, create_face_swapper,
                         face_swap_applied_snapshot, face_swap_snapshot, face_swap_weight)
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
 from .storage import asset_path, save_image
-from .styling import find_side_look, task_face_swap_reference_ids, uploaded_asset_id
+from .styling import (find_side_look, look_problem, select_only, selected_look, task_face_swap_reference_ids,
+                      uploaded_asset_id)
 
 logger = logging.getLogger(__name__)
 # Pictures per face-scoring run.
@@ -26,17 +25,12 @@ SCORE_CHUNK = 20
 
 class TaskManager:
     def __init__(self, config: Config, db: Database, generator: ImageGenerator, swapper: FaceSwapper | None = None,
-                 stylist: ImageGenerator | None = None, face_keeper: FaceKeeper | None = None,
-                 mask_editor: MaskEditor | None = None):
+                 stylist: ImageGenerator | None = None):
         self.config = config
         self.db = db
         self.generator = generator
         # Edits uploaded photos into looks (V5.0); the same image model unless a test injects another.
         self.stylist = stylist or generator
-        # Keeps the uploaded face in a front look: a mask for the edit, the face laid back after it (V6.0).
-        self.face_keeper = face_keeper or YuNetFaceKeeper(FaceParser().face_skin)
-        # Makes the masked edit of front looks: PPTOKEN, since 88API takes no mask (app.pptoken).
-        self.mask_editor = mask_editor or self.stylist
         self.swapper = swapper or create_face_swapper(config)
         # One edit per side look: shots of a set run in parallel and wait for the first one to make it.
         self._styling_locks: dict[tuple, asyncio.Lock] = {}
@@ -317,8 +311,8 @@ class TaskManager:
                                  (utc_now(), existing))
             if None in paths:
                 raise FileNotFoundError(f'Photo to style missing for task {task["id"]}')
-            # Two images cannot share one mask, so a side look is the edit as it comes back (V6.0).
-            prompt = compose_look_prompt(parent['role'], parent['hairstyle_id'], parent['makeup_level'], facing=angle)
+            prompt = compose_look_prompt(parent['role'], parent['hairstyle_id'], parent['makeup_level'],
+                                         style_id=parent['style_id'], facing=angle)
             started = time.monotonic()
             logger.info('Side look request started model=%s task_id=%s role=%s angle=%s', model, task['id'], parent['role'], angle)
             content = await asyncio.to_thread(self.stylist.generate_image, paths, prompt, model, STYLING_ASPECT_RATIO)
@@ -331,39 +325,28 @@ class TaskManager:
                 conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at,source_asset_id) '
                              "VALUES (?,?,?,'styled',?,?)", (asset_id, task['project_id'], relative_path, now, source_id))
                 conn.execute(
-                    'INSERT INTO looks (id,project_id,person,role,angle,parent_look_id,hairstyle_id,hair_length,makeup_color,'
+                    'INSERT INTO looks (id,project_id,person,role,style_id,angle,parent_look_id,hairstyle_id,hair_length,makeup_color,'
                     'makeup_level,source_asset_id,styling_version,status,model,prompt,image_asset_id,created_at,finished_at) '
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'ready',?,?,?,?,?)",
-                    (new_id(), task['project_id'], parent['person'], parent['role'], angle, parent_id, parent['hairstyle_id'],
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ready',?,?,?,?,?)",
+                    (new_id(), task['project_id'], parent['person'], parent['role'], parent['style_id'], angle, parent_id, parent['hairstyle_id'],
                      parent['hair_length'], parent['makeup_color'], parent['makeup_level'], source_id, parent['styling_version'],
                      model, prompt, asset_id, now, now))
             return asset_id
 
     async def _execute_look(self, look: dict):
-        """Edit an uploaded photo into a look candidate the user asked for: only the hair changes (V6.0).
-
-        The edit is sent with a mask that keeps the face, and the photo's face is laid back over the result, so
-        the look's face is the uploaded one whatever the edit did to it (app/face_keep.py). The edit goes to the
-        mask editor (PPTOKEN), whatever image model the project uses for shots.
-        """
-        model = getattr(self.mask_editor, 'mask_model', None) or look['model'] or self.db.get_default_model() or DEFAULT_MODEL
+        """Edit an uploaded photo into a look candidate the user asked for: hair and, for the bride, the style's
+        makeup in one edit, kept as it comes back (V7.0). Its likeness score tells the user when to redo it."""
+        model = look['model'] or self.db.get_default_model() or DEFAULT_MODEL
         try:
             with self.db.connect() as conn:
                 path = self._asset_file(conn, look['source_asset_id'])
             if path is None:
                 self._fail_look(look, 'reference_missing', '这个人的照片文件缺失或无法读取，请重新上传后重试')
                 return
-            photo = await asyncio.to_thread(path.read_bytes)
-            mask, face = await asyncio.to_thread(self.face_keeper.mask, photo)
             started = time.monotonic()
-            logger.info('Look request started model=%s look_id=%s masked=%s', model, look['id'], mask is not None)
-            content = await asyncio.to_thread(self.mask_editor.edit_with_mask, path, mask, look['prompt'])
+            logger.info('Look request started model=%s look_id=%s', model, look['id'])
+            content = await asyncio.to_thread(self.stylist.generate_image, [path], look['prompt'], model, STYLING_ASPECT_RATIO)
             logger.info('Look request succeeded model=%s look_id=%s elapsed_seconds=%.3f', model, look['id'], time.monotonic() - started)
-            content = await asyncio.to_thread(self.face_keeper.restore, photo, content, face)
-        except FaceKeepError as error:
-            logger.warning('Look face not kept for look %s: %s', look['id'], error.code)
-            self._fail_look(look, error.code, error.message)
-            return
         except GeneratorError as error:
             logger.warning('Generator outcome %s for look %s', error.kind, look['id'])
             if error.kind == OutcomeKind.RATE_LIMITED:
@@ -392,6 +375,13 @@ class TaskManager:
                 conn.execute("UPDATE looks SET status='ready',image_asset_id=?,model=?,error_code=NULL,error_message=NULL,"
                              "finished_at=? WHERE id=? AND status='running'", (asset_id, model, now, look['id']))
                 conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, look['project_id']))
+                # The first usable look of a style (or the groom's first) is selected for it; the user may pick
+                # another (V7.0).
+                ready = conn.execute("SELECT * FROM looks WHERE id=? AND status='ready'", (look['id'],)).fetchone()
+                project = conn.execute('SELECT * FROM projects WHERE id=?', (look['project_id'],)).fetchone()
+                if (ready is not None and look_problem(project, ready) is None
+                        and selected_look(conn, project, ready['role'], ready['style_id']) is None):
+                    select_only(conn, ready)
             self._rate_limit_count = 0
             if self.swapper.status['available']:
                 self._look_score_queue.append(look['id'])

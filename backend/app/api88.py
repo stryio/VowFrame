@@ -65,12 +65,9 @@ def retry_after_seconds(value: str | None) -> float | None:
 
 
 class Api88Generator(ImageGenerator):
-    # Names the provider in log lines; app.pptoken reuses this class for another provider.
-    PROVIDER = '88API'
-
     def __init__(self, config: Config, *, transport: httpx.BaseTransport | None = None):
         if not isinstance(config.api_key, str) or not config.api_key.strip():
-            raise ValueError(f'使用 {self.PROVIDER} 时必须在本地配置文件中填写非空 api_key')
+            raise ValueError('使用 88API 时必须在本地配置文件中填写非空 api_key')
         if get_model(config.model) is None:
             raise ValueError('暂不支持此模型，请使用模型列表中的模型')
         if config.aspect_ratio not in SUPPORTED_RATIOS:
@@ -102,7 +99,7 @@ class Api88Generator(ImageGenerator):
         detail = self._error_detail(response).replace(self._config.api_key, '[REDACTED]')
         escaped_key = json.dumps(self._config.api_key)[1:-1]
         detail = detail.replace(escaped_key, '[REDACTED]')
-        logger.warning('%s HTTP %s: %s', self.PROVIDER, response.status_code, detail[:2000])
+        logger.warning('88API HTTP %s: %s', response.status_code, detail[:2000])
 
     def _redact(self, value: object) -> str:
         text = str(value)
@@ -120,7 +117,7 @@ class Api88Generator(ImageGenerator):
         }
         if url is not None:
             fields['url_host'] = urlsplit(url).hostname or ''
-        logger.warning('%s transport failure %s', self.PROVIDER, ' '.join(f'{key}={value}' for key, value in fields.items()))
+        logger.warning('88API transport failure %s', ' '.join(f'{key}={value}' for key, value in fields.items()))
 
     def _check_request_url(self, request: httpx.Request):
         # HTTPX logs request URLs, including redirect targets. Stop any echoed

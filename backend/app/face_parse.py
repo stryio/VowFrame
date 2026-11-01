@@ -1,8 +1,8 @@
-"""Which pixels of a face are face, so hair is never laid back as part of it (V6.2, SegFace since V6.3).
+"""Which pixels of a face are face, skin or hair (V6.2, SegFace since V6.3).
 
-The kept region of a look (app/face_keep.py) was an ellipse; a fringe inside it was laid back over the new
-hairstyle as a dark patch on the forehead. A face-parsing model now says, pixel by pixel, what is face and what is
-hair, in the photo and in the edit.
+V6.2–V6.4 used it to lay the uploaded face back over a look without its fringe. V7.0 keeps the edited face as it
+comes back, so nothing in the app calls it now; it stays for the planned skin retouching (whitening and spot
+removal on the skin it marks), and goes if that is not adopted.
 
 Model: SegFace (MIT, github.com/Kartik-3004/SegFace) with the MobileNetV3 backbone, CelebAMask-HQ weights, exported
 to ONNX and shipped in app/assets (V6.3). Compared on the project's photos, it marks fringe strands lying on the

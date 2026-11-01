@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 
 from app.prompts import POSES, RETIRED_STYLE_IDS, STYLES, compose_photo_prompt
-from conftest import PNG, BlockingGenerator, create_project, looks_for, preview_batch, uploaded_ids, wait_batch
+from conftest import PNG, BlockingGenerator, create_project, ensure_looks, preview_batch, uploaded_ids, wait_batch
 
 
 def test_health_styles_and_pose_library(client_app):
@@ -160,7 +160,8 @@ def test_idempotency_including_concurrent_submissions(client_app):
     client, app = client_app
     project = create_project(client)
     url = f"/api/projects/{project['id']}/previews"
-    body = {'client_request_id': 'same-request', 'looks': looks_for(client, project['id'])}
+    ensure_looks(client, project['id'], [s['id'] for s in STYLES[:6]])
+    body = {'client_request_id': 'same-request'}
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(pool.map(lambda _: client.post(url, json=body), range(4)))
     assert sorted(r.status_code for r in responses) == [200, 200, 200, 201]

@@ -109,9 +109,12 @@ CREATE INDEX IF NOT EXISTS styled_photo_key ON styled_photos(project_id,style_id
 -- V5.0: a look is one person's styled photo with a hairstyle and (bride) a makeup colour family, edited once from
 -- the uploaded photo when the user asks for candidates; selected looks are what samples and photos are shot from.
 -- A side look is derived from a side photo plus its front look (parent_look_id) when a shot needs it.
+-- V7.0: a bride look is made for one style (style_id, with that style's makeup); groom looks have none and serve
+-- every style.
 CREATE TABLE IF NOT EXISTS looks (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     person TEXT NOT NULL CHECK(person IN ('a','b')), role TEXT NOT NULL CHECK(role IN ('bride','groom')),
+    style_id TEXT,
     angle TEXT NOT NULL CHECK(angle IN ('front','left','right')), parent_look_id TEXT REFERENCES looks(id),
     hairstyle_id TEXT NOT NULL, hair_length TEXT NOT NULL, makeup_color TEXT, makeup_level TEXT NOT NULL,
     source_asset_id TEXT NOT NULL REFERENCES image_assets(id), styling_version INTEGER NOT NULL,
@@ -175,6 +178,7 @@ class Database:
                     connection.execute(f'ALTER TABLE {table} ADD COLUMN {definition}')
 
             add_column('generation_batches', 'style_id TEXT REFERENCES style_presets(id)')
+            add_column('looks', 'style_id TEXT')
             add_column('image_assets', 'source_asset_id TEXT REFERENCES image_assets(id)')
             add_column('photo_versions', 'face_scores TEXT')
             add_column('projects', 'person_a_left_image_id TEXT REFERENCES image_assets(id)')
