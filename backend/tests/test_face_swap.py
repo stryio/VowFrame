@@ -452,15 +452,15 @@ def test_previous_task_schema_migrates_face_swap_fields_and_preserves_indexes(ap
     assert {'task_queue', 'task_batch', 'task_project', 'task_slot', 'task_retry_once'} <= indexes
 
 
-def test_automatic_face_swap_is_on_by_default_for_a_new_database(tmp_path):
+def test_the_automatic_ai_face_fix_is_on_by_default_for_a_new_database(tmp_path):
     db = Database(tmp_path / 'fresh.db')
     db.initialize()
-    assert db.get_auto_face_swap() is True
+    assert db.get_auto_face_fix() == 'ai'
 
 
 def test_generated_images_are_face_swapped_automatically_and_keep_the_original(app_factory):
     swapper = ScriptedFaceSwapper()
-    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_swap=True, concurrency=1) as (client, app):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='facefusion', concurrency=1) as (client, app):
         project = create_project(client)
         batch, slots = ready_preview(client, project['id'])
         # The batch finishes only after the swap: one generation task plus its automatic swap.
@@ -481,7 +481,7 @@ def test_generated_images_are_face_swapped_automatically_and_keep_the_original(a
 
 def test_album_photos_are_swapped_at_half_strength_and_samples_at_full_strength(app_factory):
     swapper = ScriptedFaceSwapper()
-    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_swap=True, concurrency=1) as (client, app):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='facefusion', concurrency=1) as (client, app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts",
@@ -501,7 +501,7 @@ def test_album_photos_are_swapped_at_half_strength_and_samples_at_full_strength(
 
 def test_actions_on_a_swapped_image_start_from_its_generation_prompt(app_factory):
     generator = ScriptedGenerator()
-    with app_factory(generator=generator, face_swapper=ScriptedFaceSwapper(), auto_face_swap=True, concurrency=1) as (client, _app):
+    with app_factory(generator=generator, face_swapper=ScriptedFaceSwapper(), auto_face_fix='facefusion', concurrency=1) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
         slot_id = slots['korean_minimal']['id']
@@ -518,14 +518,14 @@ def test_actions_on_a_swapped_image_start_from_its_generation_prompt(app_factory
 
 def test_no_automatic_swap_when_disabled_or_unavailable(app_factory, tmp_path):
     swapper = ScriptedFaceSwapper()
-    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_swap=True, concurrency=1) as (client, _app):
-        assert client.patch('/api/settings', json={'auto_face_swap': False}).json()['auto_face_swap'] is False
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='facefusion', concurrency=1) as (client, _app):
+        assert client.patch('/api/settings', json={'auto_face_fix': 'off'}).json()['auto_face_fix'] == 'off'
         project = create_project(client)
         batch, _ = ready_preview(client, project['id'])
         assert client.get(f"/api/batches/{batch['id']}").json()['total'] == 1
         assert swapper.calls == []
     # Without a configured FaceFusion the setting has no effect instead of queuing failing tasks.
-    with app_factory(generator=ScriptedGenerator(), auto_face_swap=True, concurrency=1,
+    with app_factory(generator=ScriptedGenerator(), auto_face_fix='facefusion', concurrency=1,
                      data_dir=tmp_path / 'without-facefusion') as (client, _app):
         project = create_project(client)
         batch, _ = ready_preview(client, project['id'])
@@ -573,7 +573,7 @@ def test_face_swap_passes_side_photos_by_role_and_slot(app_factory):
 
 def test_back_view_and_silhouette_shots_are_not_swapped_automatically(app_factory):
     swapper = ScriptedFaceSwapper()
-    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_swap=True, concurrency=1) as (client, _app):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='facefusion', concurrency=1) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
         swapper.calls.clear()
@@ -593,7 +593,7 @@ def test_back_view_and_silhouette_shots_are_not_swapped_automatically(app_factor
 
 
 def test_a_swap_records_the_face_similarity_before_and_after(app_factory):
-    with app_factory(generator=ScriptedGenerator(), face_swapper=ScriptedFaceSwapper(), auto_face_swap=True,
+    with app_factory(generator=ScriptedGenerator(), face_swapper=ScriptedFaceSwapper(), auto_face_fix='facefusion',
                      concurrency=1) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])

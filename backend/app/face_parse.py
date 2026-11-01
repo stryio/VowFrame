@@ -1,8 +1,7 @@
 """Which pixels of a face are face, skin or hair (V6.2, SegFace since V6.3).
 
-V6.2–V6.4 used it to lay the uploaded face back over a look without its fringe. V7.0 keeps the edited face as it
-comes back, so nothing in the app calls it now; it stays for the planned skin retouching (whitening and spot
-removal on the skin it marks), and goes if that is not adopted.
+V6.2–V6.4 used it to lay the uploaded face back over a look without its fringe. Since V7.1 the AI face fix
+(app/face_fix.py) lays only face pixels of an edited crop back into a picture, never hair, hands or headwear.
 
 Model: SegFace (MIT, github.com/Kartik-3004/SegFace) with the MobileNetV3 backbone, CelebAMask-HQ weights, exported
 to ONNX and shipped in app/assets (V6.3). Compared on the project's photos, it marks fringe strands lying on the

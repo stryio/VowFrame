@@ -77,19 +77,20 @@ class BlockingGenerator(ScriptedGenerator):
 @pytest.fixture
 def app_factory(tmp_path):
     @contextmanager
-    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_swap=False, stylist=None):
+    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_fix='off', stylist=None,
+                face_fixer=None):
         config = Config(data_dir or tmp_path / 'data', concurrency, 'mock', 0)
         # Test photos are tiny placeholders without faces; photo preparation has its own tests.
         # Styled photos (V4.0) are edited by their own scripted model, so tests counting shot requests are not
         # thrown off by the styling edits; app.state.stylist lets a test inspect them.
         stylist = stylist or ScriptedGenerator()
-        app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer(), stylist)
+        app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer(), stylist, face_fixer)
         app.state.stylist = stylist
         # uvicorn[standard] uses uvloop on this Linux/Python 3.14 environment.
         # Match that loop in TestClient to avoid the stdlib portal wake-up stall.
         with TestClient(app, backend_options={'use_uvloop': True}) as client:
-            # Most tests count tasks of one kind; automatic face swap is opted into where it is the subject.
-            app.state.db.set_auto_face_swap(auto_face_swap)
+            # Most tests count tasks of one kind; automatic face fixes are opted into where they are the subject.
+            app.state.db.set_auto_face_fix(auto_face_fix)
             try:
                 yield client, app
             finally:

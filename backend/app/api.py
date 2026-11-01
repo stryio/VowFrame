@@ -19,21 +19,24 @@ from starlette.background import BackgroundTask
 
 from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
+from .face_fix import face_fix_snapshot
 from .face_swap import face_scores, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
 from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
-from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
+from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceFixCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .photo_prep import PhotoRejected
 from .storage import asset_path, image_format, save_image
 from .styling import (LOOK_PROBLEM_MESSAGES, bride_look_color, default_look_items, fits_style, hair_length_of, look_problem,
                       look_response, look_snapshot, makeup_level_of, reference_slots, role_of, select_only, style_looks,
-                      task_face_swap_reference_ids, uploaded_asset_id)
+                      task_face_swap_reference_ids, uploaded_asset_id, face_fix_reference_ids)
 
 router = APIRouter(prefix='/api')
 logger = logging.getLogger(__name__)
 STATUSES = ('waiting', 'held', 'running', 'completed', 'failed', 'cancelled', 'interrupted')
 TASK_FIELDS = tuple(Task.model_fields)
+# Versions that only correct the faces of another version, which they record as source_version_id.
+FACE_FIX_MODES = ('face_swap', 'face_fix')
 
 
 def _uses_preview_reference(request: Request) -> bool:
@@ -278,12 +281,12 @@ def _version_task(conn, version_id):
 def _slot_source_task(conn, slot):
     """The generation task behind the slot's current image.
 
-    A face-swap version has no prompt of its own (it only replaces faces), so actions such as
-    identity boost or change shot must start from the generation task the swap was applied to.
+    A face-swap or AI face-fix version has no prompt of its own (it only corrects faces), so actions such as
+    identity boost or change shot must start from the generation task the fix was applied to.
     """
     if slot['current_version_id']:
         task = _version_task(conn, slot['current_version_id'])
-        while task is not None and task['regenerate_mode'] == 'face_swap' and task['source_version_id']:
+        while task is not None and task['regenerate_mode'] in FACE_FIX_MODES and task['source_version_id']:
             task = _version_task(conn, task['source_version_id'])
         return task
     return conn.execute(
@@ -665,47 +668,45 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
     }
 
 
-def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label: str) -> dict:
+def _face_fix_input(conn, slot, project, request: Request, *, slot_label: str, what: str):
+    """The version a face swap or AI face fix starts from and its task: the current version, or, when that is
+    itself a fix, the picture it fixed. Both need FaceFusion (the swap, or finding whose face is whose)."""
     swap_status = request.app.state.face_swapper.status
     if not swap_status['available']:
         error(409, 'face_swap_unavailable', swap_status['reason'])
     if slot['current_version_id'] is None:
-        error(409, 'slot_not_ready', f'{slot_label}尚无成功版本，暂时无法换脸修正')
+        error(409, 'slot_not_ready', f'{slot_label}尚无成功版本，暂时无法{what}')
     if _slot_is_busy(conn, slot['id']):
         error(409, 'slot_busy', f'{slot_label}已有任务正在排队或生成，请等它完成后再操作')
     if not project['person_a_image_id'] or not project['person_b_image_id']:
         error(409, 'photos_missing', '请先上传两个人的照片')
 
-    current = conn.execute(
-        'SELECT version.id AS version_id,task.* FROM photo_versions version '
-        'JOIN generation_tasks task ON task.id=version.generation_task_id '
-        'WHERE version.id=? AND version.photo_slot_id=?',
-        (slot['current_version_id'], slot['id']),
-    ).fetchone()
-    if current is None:
-        error(409, 'slot_not_ready', f'{slot_label}的当前版本记录不存在，暂时无法换脸修正')
-    input_version_id = current['version_id']
-    input_task = current
-    if current['regenerate_mode'] == 'face_swap':
-        input_version_id = current['source_version_id']
-        if input_version_id is None:
-            error(409, 'slot_not_ready', f'{slot_label}的来源版本不存在，暂时无法换脸修正')
-        input_task = conn.execute(
+    def version_task(version_id):
+        return conn.execute(
             'SELECT version.id AS version_id,task.* FROM photo_versions version '
             'JOIN generation_tasks task ON task.id=version.generation_task_id '
             'WHERE version.id=? AND version.photo_slot_id=?',
-            (input_version_id, slot['id']),
+            (version_id, slot['id']),
         ).fetchone()
-        if input_task is None:
-            error(409, 'slot_not_ready', f'{slot_label}的来源版本不存在，暂时无法换脸修正')
 
+    input_task = version_task(slot['current_version_id'])
+    if input_task is None:
+        error(409, 'slot_not_ready', f'{slot_label}的当前版本记录不存在，暂时无法{what}')
+    if input_task['regenerate_mode'] in FACE_FIX_MODES:
+        input_task = version_task(input_task['source_version_id']) if input_task['source_version_id'] else None
+        if input_task is None:
+            error(409, 'slot_not_ready', f'{slot_label}的来源版本不存在，暂时无法{what}')
     if input_task['moment_shot_size'] == DETAIL_SHOT:
-        error(409, 'no_faces', f'{slot_label}是局部特写，画面里没有人脸，无需换脸')
+        error(409, 'no_faces', f'{slot_label}是局部特写，画面里没有人脸，无需{what}')
+    return input_task
+
+
+def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label: str) -> dict:
+    input_task = _face_fix_input(conn, slot, project, request, slot_label=slot_label, what='换脸修正')
     # The swap uses the faces of the shot it fixes: its looks or styled photos (V4.0, V5.0).
     references = task_face_swap_reference_ids(conn, project, _parse_snapshot(input_task['model_config_snapshot'], slot_label),
                                               _parse_json_list(input_task['reference_image_ids'], slot_label))
-    mode = swap_status['mode']
-    snapshot = face_swap_snapshot(mode, face_swap_weight(slot['kind']))
+    snapshot = face_swap_snapshot(request.app.state.face_swapper.status['mode'], face_swap_weight(slot['kind']))
     return {
         'slot_id': slot['id'],
         'style_id': input_task['style_id'],
@@ -716,7 +717,28 @@ def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label
         'prompt': '',
         'snapshot': snapshot,
         'regenerate_mode': 'face_swap',
-        'source_version_id': input_version_id,
+        'source_version_id': input_task['version_id'],
+    }
+
+
+def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label: str, explicit_model: str | None) -> dict:
+    """An AI face fix (V7.1) of the slot's picture: likeness from the uploaded photos behind it."""
+    input_task = _face_fix_input(conn, slot, project, request, slot_label=slot_label, what='AI 修脸')
+    model_id = explicit_model or request.app.state.db.get_default_model()
+    if get_model(model_id) is None:
+        invalid_model()
+    references = face_fix_reference_ids(conn, _parse_json_list(input_task['reference_image_ids'], slot_label))
+    return {
+        'slot_id': slot['id'],
+        'style_id': input_task['style_id'],
+        'pose_id': input_task['pose_id'],
+        'moment_title': input_task['moment_title'],
+        'moment_shot_size': input_task['moment_shot_size'],
+        'references': json.dumps(references, ensure_ascii=False),
+        'prompt': '',
+        'snapshot': face_fix_snapshot(model_id),
+        'regenerate_mode': 'face_fix',
+        'source_version_id': input_task['version_id'],
     }
 
 
@@ -758,7 +780,7 @@ def _settings_response(request: Request) -> dict:
     db = request.app.state.db
     return {'default_model': db.get_default_model(), 'batch_reference_mode': db.get_batch_reference_mode(),
             'director_model': db.get_director_model(), 'portrait_ratio': db.get_portrait_ratio(),
-            'auto_face_swap': db.get_auto_face_swap()}
+            'auto_face_fix': db.get_auto_face_fix()}
 
 
 @router.get('/settings', response_model=Settings)
@@ -784,8 +806,8 @@ def patch_settings(body: SettingsPatch, request: Request):
         if ratio not in PORTRAIT_RATIOS:
             error(422, 'invalid_portrait_ratio', '请选择有效的竖版比例')
         request.app.state.db.set_portrait_ratio(ratio)
-    if changes.get('auto_face_swap') is not None:
-        request.app.state.db.set_auto_face_swap(changes['auto_face_swap'])
+    if changes.get('auto_face_fix') is not None:
+        request.app.state.db.set_auto_face_fix(changes['auto_face_fix'])
     if 'director_model' in changes:
         director_model = changes['director_model']
         if director_model == '':
@@ -1295,6 +1317,25 @@ def face_swap_slot(slot_id: str, body: FaceSwapCreate, request: Request, respons
     return result
 
 
+@router.post('/slots/{slot_id}/face-fix', response_model=Batch, status_code=201)
+def face_fix_slot(slot_id: str, body: FaceFixCreate, request: Request, response: Response):
+    """AI face fix of one picture (V7.1): two paid edits, one per face."""
+    with request.app.state.db.connect(write=True) as conn:
+        existing = conn.execute(
+            'SELECT * FROM generation_batches WHERE client_request_id=?', (body.client_request_id,)
+        ).fetchone()
+        if existing:
+            response.status_code = 200
+            return batch_response(conn, existing)
+        slot = get_slot(conn, slot_id)
+        project = get_project(conn, slot['project_id'])
+        spec = _prepare_face_fix_spec(conn, slot, project, request, slot_label=_slot_action_label(conn, slot),
+                                      explicit_model=body.model)
+        result = _insert_regenerate_batch(conn, project['id'], body.client_request_id, [spec])
+    request.app.state.task_manager.notify()
+    return result
+
+
 @router.post('/slots/{slot_id}/change-pose', response_model=Batch, status_code=201)
 def change_pose(slot_id: str, body: ChangePoseCreate, request: Request, response: Response):
     with request.app.state.db.connect(write=True) as conn:
@@ -1373,6 +1414,8 @@ def batch_action(body: BatchActionCreate, request: Request, response: Response):
             slot_label = _slot_user_label(conn, slot, position=photo_positions.get(slot['id']))
             if body.action == 'face_swap':
                 spec = _prepare_face_swap_spec(conn, slot, project, request, slot_label=slot_label)
+            elif body.action == 'face_fix':
+                spec = _prepare_face_fix_spec(conn, slot, project, request, slot_label=slot_label, explicit_model=body.model)
             else:
                 source = _slot_source_task(conn, slot)
                 selected_pose = _choose_pose(conn, project_id, slot['style_id'], slot, generated_legacy_poses) if body.action == 'change_pose' and source is not None and source['moment_title'] is None else None

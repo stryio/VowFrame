@@ -188,8 +188,10 @@ export interface Task {
 export type RegenerateMode = "same" | "identity_boost";
 /** Paid actions: they go through the model / cost confirmation dialog. */
 export type SlotAction = RegenerateMode | "change_pose" | "change_shot";
-/** Everything that can produce a version; face_swap is local and free. */
-export type VersionMode = SlotAction | "face_swap";
+/** Everything that can produce a version; face_swap is local and free, face_fix is two paid edits (V7.1). */
+export type VersionMode = SlotAction | "face_swap" | "face_fix";
+/** What is done to every generated picture with faces (V7.1). */
+export type AutoFaceFix = "ai" | "facefusion" | "off";
 /** Wide plus the four studio framings (V3.14); the only sizes new shots can use. */
 export type ShotSize = "wide" | "full" | "three_quarter" | "half" | "close";
 /** Works from V3.4–V3.11 may still carry retired sizes and faceless detail shots. */
@@ -278,7 +280,7 @@ export interface Settings {
   batch_reference_mode: BatchReferenceMode;
   director_model: string | null;
   portrait_ratio: PortraitRatio;
-  auto_face_swap: boolean;
+  auto_face_fix: AutoFaceFix;
 }
 
 export interface FaceSwapStatus {
@@ -429,6 +431,13 @@ export const api = {
     ),
   faceSwap: (slotId: string) =>
     request<Batch>(`/slots/${slotId}/face-swap`, json("POST", { client_request_id: crypto.randomUUID() })),
+  faceFix: (slotId: string) =>
+    request<Batch>(`/slots/${slotId}/face-fix`, json("POST", { client_request_id: crypto.randomUUID() })),
+  batchFaceFix: (slotIds: string[]) =>
+    request<Batch>(
+      "/slots/batch-action",
+      json("POST", { client_request_id: crypto.randomUUID(), slot_ids: slotIds, action: "face_fix" }),
+    ),
   batchFaceSwap: (slotIds: string[]) =>
     request<Batch>(
       "/slots/batch-action",
@@ -503,9 +512,10 @@ export const SLOT_ACTION_LABEL: Record<SlotAction, string> = {
 export const VERSION_MODE_LABEL: Record<VersionMode, string> = {
   ...SLOT_ACTION_LABEL,
   face_swap: "换脸修正",
+  face_fix: "AI 修脸",
 };
 
-/** The current version is a face swap whose source can be compared in place. */
+/** The current version is a face swap or AI face fix whose source can be compared in place. */
 export const isFaceSwapped = (slot: Slot) => Boolean(slot.current_version?.source_version_id);
 
 export const BATCH_TYPE_LABEL: Record<BatchType, string> = {

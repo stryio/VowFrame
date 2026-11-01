@@ -19,7 +19,7 @@ export function AttemptNotice({
 
   const swap = task.regenerate_mode === "face_swap";
   const model = task.model && !swap ? `用 ${task.model} ` : "";
-  const action = swap ? "换脸修正" : "重新生成";
+  const action = swap ? "换脸修正" : task.regenerate_mode === "face_fix" ? "AI 修脸" : "重新生成";
 
   if (isGenerating(slot)) {
     return (

@@ -390,7 +390,7 @@ def test_a_side_look_whose_file_is_gone_is_edited_again(app_factory):
 
 def test_face_swaps_use_the_looks_of_the_picture_they_fix(app_factory):
     swapper = ScriptedFaceSwapper()
-    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_swap=True, concurrency=1) as (client, app):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='facefusion', concurrency=1) as (client, app):
         project = create_project(client)
         wait_batch(client, preview_batch(client, project['id'], style_ids=['korean_minimal'])['id'])
         sample = preview_slot(client, project['id'])

@@ -193,6 +193,12 @@ def task_face_swap_reference_ids(conn, project, snapshot: dict, references: list
     return result
 
 
+def face_fix_reference_ids(conn, references: list) -> list[str]:
+    """AI face-fix references (V7.1): [bride's uploaded front photo, groom's], the photos behind the picture's own
+    front references; likeness comes from the uploaded photos, never from the looks."""
+    return [uploaded_asset_id(conn, asset_id) for asset_id in references[:2]]
+
+
 def uploaded_asset_id(conn, asset_id: str) -> str:
     """The uploaded photo behind a styled photo or look; any other asset is returned as it is."""
     row = conn.execute('SELECT asset_type,source_asset_id FROM image_assets WHERE id=?', (asset_id,)).fetchone()

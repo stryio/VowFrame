@@ -1,6 +1,7 @@
 """Database-driven scheduling with explicit recovery and durable version commits."""
 
 import asyncio
+import io
 import json
 import logging
 import math
@@ -9,14 +10,17 @@ import time
 
 from .config import Config
 from .db import Database, new_id, utc_now
+from .face_fix import FaceFixError, FaceFixer, crop, crop_rect, face_fix_snapshot, face_from_analysis, open_rgb, position
+from .face_parse import FaceParser
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
 from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, create_face_swapper,
                         face_swap_applied_snapshot, face_swap_snapshot, face_swap_weight)
 from .models import DEFAULT_MODEL
-from .prompts import DETAIL_SHOT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
+from .prompts import (DETAIL_SHOT, FACE_FIX_ASPECT_RATIO, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_face_fix_prompt,
+                      compose_look_prompt, is_faceless_shot)
 from .storage import asset_path, save_image
-from .styling import (find_side_look, look_problem, select_only, selected_look, task_face_swap_reference_ids,
-                      uploaded_asset_id)
+from .styling import (face_fix_reference_ids, find_side_look, look_problem, select_only, selected_look,
+                      task_face_swap_reference_ids, uploaded_asset_id)
 
 logger = logging.getLogger(__name__)
 # Pictures per face-scoring run.
@@ -25,12 +29,14 @@ SCORE_CHUNK = 20
 
 class TaskManager:
     def __init__(self, config: Config, db: Database, generator: ImageGenerator, swapper: FaceSwapper | None = None,
-                 stylist: ImageGenerator | None = None):
+                 stylist: ImageGenerator | None = None, face_fixer: FaceFixer | None = None):
         self.config = config
         self.db = db
         self.generator = generator
         # Edits uploaded photos into looks (V5.0); the same image model unless a test injects another.
         self.stylist = stylist or generator
+        # Lays the AI face fix's edited faces back into the picture (V7.1).
+        self.face_fixer = face_fixer or FaceFixer(FaceParser().face_skin)
         self.swapper = swapper or create_face_swapper(config)
         # One edit per side look: shots of a set run in parallel and wait for the first one to make it.
         self._styling_locks: dict[tuple, asyncio.Lock] = {}
@@ -180,6 +186,9 @@ class TaskManager:
         self._wake.set()
 
     async def _execute(self, task: dict):
+        if task['regenerate_mode'] == 'face_fix':
+            await self._execute_face_fix(task)
+            return
         snapshot = self._snapshot(task)
         model = snapshot.get('model') or self.db.get_default_model() or DEFAULT_MODEL
         references = json.loads(task['reference_image_ids'])
@@ -502,6 +511,83 @@ class TaskManager:
             logger.exception('Face-swap result persistence failed for task %s', task['id'])
             self._fail(task, 'save_failed', '换脸结果保存失败，请稍后重试', hold=False)
 
+    async def _execute_face_fix(self, task: dict):
+        """The AI face fix (V7.1, app/face_fix.py): each person's face in the source version is edited on a crop with
+        their uploaded photo and laid back; a face that cannot be laid back stays as it was."""
+        snapshot = self._snapshot(task)
+        model = snapshot.get('model') or self.db.get_default_model() or DEFAULT_MODEL
+        try:
+            with self.db.connect() as conn:
+                references = json.loads(task['reference_image_ids'])
+                photos = {role: self._asset_file(conn, asset_id) for role, asset_id in zip(('bride', 'groom'), references)}
+                source_version = conn.execute('SELECT image_asset_id FROM photo_versions WHERE id=? AND photo_slot_id=?',
+                                              (task['source_version_id'], task['target_slot_id'])).fetchone()
+                target_path = self._asset_file(conn, source_version['image_asset_id']) if source_version else None
+            if target_path is None or None in photos.values() or len(photos) < 2:
+                raise FileNotFoundError('Face-fix inputs are incomplete')
+            picture = open_rgb(await asyncio.to_thread(target_path.read_bytes))
+        except Exception:
+            logger.warning('Face-fix inputs unavailable for task %s', task['id'])
+            self._fail(task, 'reference_missing', '参考照片文件缺失或无法读取，请重新上传后重试')
+            return
+        try:
+            found = await asyncio.to_thread(self.swapper.faces, target_path)
+        except Exception:
+            logger.warning('Face finding failed for face-fix task %s', task['id'], exc_info=True)
+            self._fail(task, 'face_fix_failed', '没能在照片里找到两人的脸（人脸分析失败），已保留原图，可以重试')
+            return
+        outcome = {role: 'not_found' for role in ('bride', 'groom')}
+        faces = {role: face_from_analysis(value) for role, value in found.items() if value}
+        if not faces:
+            self._fail(task, 'face_not_found', '照片里没有找到新娘和新郎的脸，已保留原图')
+            return
+        for role, face in faces.items():
+            rect = crop_rect(picture.size, face)
+            prompt = compose_face_fix_prompt(role, position(rect, face))
+            work = self.config.temp_dir / f"face-fix-{task['id']}-{role}.png"
+            try:
+                await asyncio.to_thread(work.write_bytes, crop(picture, rect))
+                started = time.monotonic()
+                logger.info('Face-fix request started model=%s task_id=%s role=%s', model, task['id'], role)
+                content = await asyncio.to_thread(self.generator.generate_image, [work, photos[role]], prompt, model,
+                                                  FACE_FIX_ASPECT_RATIO)
+                logger.info('Face-fix request succeeded model=%s task_id=%s role=%s elapsed_seconds=%.3f',
+                            model, task['id'], role, time.monotonic() - started)
+                picture = await asyncio.to_thread(self.face_fixer.lay_back, picture, content, rect, face)
+                outcome[role] = 'fixed'
+            except GeneratorError as error:
+                # A paid request failed: the whole fix goes through the usual retry rules, the picture is kept.
+                self._handle_generator_error(task, error)
+                return
+            except FaceFixError as error:
+                logger.warning('Face-fix face not laid back task_id=%s role=%s code=%s', task['id'], role, error.code)
+                outcome[role] = error.code
+            except Exception:
+                logger.exception('Unexpected face-fix failure for task %s', task['id'])
+                self._fail(task, 'face_fix_failed', 'AI 修脸失败，已保留原图，请稍后重试')
+                return
+            finally:
+                work.unlink(missing_ok=True)
+        if 'fixed' not in outcome.values():
+            self._fail(task, 'face_fix_failed', '两张脸都没能修好（修图结果的表情或角度变了，或者没找到脸），已保留原图，可以重试')
+            return
+        try:
+            with self.db.connect(write=True) as conn:
+                conn.execute('UPDATE generation_tasks SET model_config_snapshot=? WHERE id=?',
+                             (json.dumps({**snapshot, 'faces': outcome}, ensure_ascii=False), task['id']))
+            output = io.BytesIO()
+            picture.save(output, 'PNG')
+            asset_id = new_id()
+            relative_path = await asyncio.to_thread(save_image, self.config, task['project_id'], asset_id, output.getvalue())
+            self._commit_result(task, asset_id, relative_path)
+            self._rate_limit_count = 0
+        except OSError:
+            logger.exception('Face-fix storage failed for task %s', task['id'])
+            self._fail(task, 'storage_error', f'图片保存失败，请检查存储空间及目录权限：{self.config.data_dir}', hold=True)
+        except Exception:
+            logger.exception('Face-fix result persistence failed for task %s', task['id'])
+            self._fail(task, 'save_failed', 'AI 修脸结果保存失败，请检查本地数据后重试', hold=True)
+
     def _handle_face_swap_error(self, task: dict, error: FaceSwapError):
         logger.warning('Face-swap task %s failed with %s', task['id'], error.error_code)
         if error.error_code == 'face_swap_failed' and task['auto_retry_count'] < 2:
@@ -513,16 +599,17 @@ class TaskManager:
             return
         self._fail(task, error.error_code, error.message, hold=False)
 
-    def _auto_face_swap_mode(self, task: dict) -> str | None:
-        """Swapper mode to queue after this task, or None when no automatic swap applies."""
-        if task['regenerate_mode'] == 'face_swap' or task['moment_shot_size'] == DETAIL_SHOT:
-            return None  # never swap a swap; detail shots have no faces to swap
+    def _auto_face_fix_mode(self, task: dict) -> str | None:
+        """What to queue after this task (V7.1): 'face_fix', 'face_swap', or None when nothing automatic applies."""
+        if task['regenerate_mode'] in ('face_swap', 'face_fix') or task['moment_shot_size'] == DETAIL_SHOT:
+            return None  # never fix a fix; detail shots have no faces
         if task['moment_shot_size'] and is_faceless_shot(task['prompt']):
-            return None  # back views and silhouettes show no faces; a manual swap is still available
-        if not self.db.get_auto_face_swap():
+            return None  # back views and silhouettes show no faces; a manual fix is still available
+        mode = self.db.get_auto_face_fix()
+        # Both need FaceFusion: the swap itself, or the AI fix's finding which face is whose.
+        if mode == 'off' or not self.swapper.status['available']:
             return None
-        status = self.swapper.status
-        return status['mode'] if status['available'] else None
+        return 'face_fix' if mode == 'ai' else 'face_swap'
 
     async def _execute_scoring(self, version_ids: list[str]):
         try:
@@ -564,7 +651,7 @@ class TaskManager:
                        score_later: bool = False):
         now = utc_now()
         version_id = new_id()
-        swap_mode = self._auto_face_swap_mode(task)
+        follow_up = self._auto_face_fix_mode(task)
         with self.db.connect(write=True) as conn:
             slot_kind = conn.execute('SELECT kind FROM photo_slots WHERE id=?', (task['target_slot_id'],)).fetchone()['kind']
             # Like a manual swap, an automatic one uses the project's current photos, side photos included.
@@ -597,7 +684,18 @@ class TaskManager:
                 "UPDATE generation_tasks SET status='completed', output_asset_id=?, finished_at=?, "
                 'error_code=NULL,error_message=NULL WHERE id=?', (asset_id, now, task['id']),
             )
-            if swap_mode is not None:
+            if follow_up == 'face_fix':
+                # Same transaction as the new version, like the swap below.
+                conn.execute(
+                    'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,'
+                    'style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,regenerate_mode,'
+                    "source_version_id,created_at) VALUES (?,?,?,?,'waiting',?,?,?,?,?,'',?,'face_fix',?,?)",
+                    (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'],
+                     json.dumps(face_fix_reference_ids(conn, json.loads(task['reference_image_ids']))),
+                     task['style_id'], task['pose_id'], task['moment_title'], task['moment_shot_size'],
+                     face_fix_snapshot(self.db.get_default_model() or DEFAULT_MODEL), version_id, now),
+                )
+            elif follow_up == 'face_swap':
                 # Same transaction as the new version: the swap is queued exactly when the original exists.
                 # It joins the task's batch, so the batch finishes only after the swapped image is ready.
                 conn.execute(
@@ -608,12 +706,13 @@ class TaskManager:
                      json.dumps(task_face_swap_reference_ids(conn, project, self._snapshot(task),
                                                             json.loads(task['reference_image_ids']))),
                      task['style_id'], task['pose_id'],
-                     task['moment_title'], task['moment_shot_size'], face_swap_snapshot(swap_mode, face_swap_weight(slot_kind)), version_id, now),
+                     task['moment_title'], task['moment_shot_size'], face_swap_snapshot(self.swapper.status['mode'], face_swap_weight(slot_kind)), version_id, now),
                 )
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, task['project_id']))
-        if (swap_mode is None and task['regenerate_mode'] != 'face_swap' and task['moment_shot_size'] != DETAIL_SHOT
+        if (follow_up != 'face_swap' and task['regenerate_mode'] != 'face_swap' and task['moment_shot_size'] != DETAIL_SHOT
                 and self.swapper.status['available']):
-            # A queued swap measures this picture itself; otherwise score it on its own.
+            # A queued swap measures this picture itself; otherwise score it on its own (an AI fix and the
+            # picture it starts from are both scored this way).
             self._score_queue.append(version_id)
             self._wake.set()
         elif score_later and self.swapper.status['available']:

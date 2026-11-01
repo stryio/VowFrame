@@ -100,7 +100,7 @@ class ChangePoseCreate(InputModel):
 class BatchActionCreate(InputModel):
     client_request_id: str = Field(min_length=1)
     slot_ids: list[str]
-    action: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap']
+    action: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap', 'face_fix']
     shot_size: ShotSize | None = None
     model: str | None = None
 
@@ -138,9 +138,10 @@ class SettingsPatch(InputModel):
     batch_reference_mode: str | None = None
     director_model: str | None = None
     portrait_ratio: str | None = None
-    auto_face_swap: bool | None = None
+    # V7.1: replaces auto_face_swap.
+    auto_face_fix: Literal['ai', 'facefusion', 'off'] | None = None
 
-    @field_validator('default_model', 'batch_reference_mode', 'portrait_ratio', 'auto_face_swap')
+    @field_validator('default_model', 'batch_reference_mode', 'portrait_ratio', 'auto_face_fix')
     @classmethod
     def reject_null_default_model(cls, value):
         if value is None:
@@ -153,7 +154,7 @@ class Settings(BaseModel):
     batch_reference_mode: Literal['prompt_only', 'with_preview']
     director_model: str | None
     portrait_ratio: Literal['3:4', '2:3', '9:16']
-    auto_face_swap: bool
+    auto_face_fix: Literal['ai', 'facefusion', 'off']
 
 
 class Model(BaseModel):
@@ -204,7 +205,7 @@ class VersionDetail(BaseModel):
     pose_id: str | None
     pose_name: str | None
     shot_size: StoredShotSize | None = None
-    regenerate_mode: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap'] | None
+    regenerate_mode: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap', 'face_fix'] | None
     source_version_id: str | None
     is_current: bool
     face_scores: FaceScores | None = None
@@ -216,7 +217,7 @@ class TaskBrief(BaseModel):
     error_code: str | None
     error_message: str | None
     model: str | None
-    regenerate_mode: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap'] | None
+    regenerate_mode: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap', 'face_fix'] | None
 
 
 class Slot(BaseModel):
@@ -360,7 +361,7 @@ class Task(BaseModel):
     error_message: str | None
     auto_retry_count: int
     retry_of_task_id: str | None
-    regenerate_mode: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap'] | None
+    regenerate_mode: Literal['same', 'identity_boost', 'change_pose', 'change_shot', 'face_swap', 'face_fix'] | None
     source_version_id: str | None
     model: str | None
     created_at: str
@@ -417,6 +418,12 @@ class ChangeShotCreate(InputModel):
         if value is None:
             raise ValueError('字段不能为 null')
         return value
+
+
+class FaceFixCreate(InputModel):
+    client_request_id: str = Field(min_length=1)
+    # The image model for the edits; the default model when omitted.
+    model: str | None = None
 
 
 class FaceSwapCreate(InputModel):

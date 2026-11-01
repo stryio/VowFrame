@@ -121,6 +121,14 @@ export function AlbumPage() {
     if (slots.length > 0 && (await actions.run(slots, action))) exitSelecting();
   };
 
+  const faceFixSelection = async () => {
+    if (chosenIdle.length < chosen.length) {
+      toast.info(`已跳过 ${chosen.length - chosenIdle.length} 张正在处理或尚未完成的作品`);
+    }
+    const slots = withoutDetailShots(chosenIdle);
+    if (slots.length > 0 && (await actions.faceFix(slots))) exitSelecting();
+  };
+
   const faceSwapSelection = async () => {
     if (chosenIdle.length < chosen.length) {
       toast.info(`已跳过 ${chosen.length - chosenIdle.length} 张正在处理或尚未完成的作品`);
@@ -141,6 +149,14 @@ export function AlbumPage() {
       },
       { label: "换动作", onSelect: () => actions.run([slot], "change_pose"), disabled: !idle },
       { label: "换景别…", onSelect: () => actions.run([slot], "change_shot"), disabled: !idle },
+      {
+        label: "AI 修脸",
+        onSelect: () => actions.faceFix([slot]),
+        disabled: !idle || !faceSwap?.available || !hasFaces(slot),
+        title: !hasFaces(slot)
+          ? "局部特写没有人脸，无需修脸"
+          : (swapUnavailable ?? "用上传的原照把脸修得更像本人，保留妆容和精修；每张修两次，按模型计费"),
+      },
       {
         label: "换脸修正",
         onSelect: () => actions.faceSwap([slot]),
@@ -273,6 +289,14 @@ export function AlbumPage() {
             disabled={chosenIdle.length === 0 || actions.busy}
           >
             批量换景别
+          </button>
+          <button
+            className="btn btn-sm"
+            onClick={faceFixSelection}
+            disabled={chosenIdle.length === 0 || actions.busy || !faceSwap?.available}
+            title={swapUnavailable ?? "每张修两次，按模型计费"}
+          >
+            批量 AI 修脸
           </button>
           <button
             className="btn btn-sm"
@@ -440,8 +464,8 @@ function PhotoCard({
         )}
         {version && slot.is_stale && <span className="status-chip stale-chip">旧照片生成</span>}
         {version && isFaceSwapped(slot) && !selecting && (
-          <button className="status-chip swap-chip" onClick={onCompareSource} title="与换脸前的原图对比">
-            换脸修正 · 对比
+          <button className="status-chip swap-chip" onClick={onCompareSource} title="与修脸前的原图对比">
+            修脸 · 对比
           </button>
         )}
       </div>

@@ -727,6 +727,15 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
       disabled: !idle(slot),
     },
     {
+      label: "AI 修脸",
+      onSelect: () => actions.faceFix([slot]),
+      disabled: !idle(slot) || !faceSwap?.available,
+      title:
+        faceSwap && !faceSwap.available
+          ? (faceSwap.reason ?? "AI 修脸需要 FaceFusion 找脸")
+          : "用上传的原照把脸修得更像本人，保留妆容和精修；每张修两次，按模型计费",
+    },
+    {
       label: "换脸修正",
       onSelect: () => actions.faceSwap([slot]),
       disabled: !idle(slot) || !faceSwap?.available,
@@ -1112,8 +1121,8 @@ function PreviewCard({
           <span className={`checkbox ${selected ? "checked" : ""}`}>{selected ? "✓" : ""}</span>
         )}
         {version && slot && isFaceSwapped(slot) && !selecting && (
-          <button className="status-chip swap-chip" onClick={() => onCompareSource(slot)} title="与换脸前的原图对比">
-            换脸修正 · 对比
+          <button className="status-chip swap-chip" onClick={() => onCompareSource(slot)} title="与修脸前的原图对比">
+            修脸 · 对比
           </button>
         )}
         {shotCount > 0 && !selecting && (

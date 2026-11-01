@@ -25,10 +25,10 @@ def test_registry_and_models_endpoint(client_app):
 def test_settings_patch_validation_and_persistence_across_restart(app_factory, tmp_path):
     data_dir = tmp_path / 'persistent-data'
     with app_factory(data_dir=data_dir) as (client, _):
-        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2', 'batch_reference_mode': 'prompt_only', 'director_model': None, 'portrait_ratio': '3:4', 'auto_face_swap': False}
+        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2', 'batch_reference_mode': 'prompt_only', 'director_model': None, 'portrait_ratio': '3:4', 'auto_face_fix': 'off'}
         assert client.patch('/api/settings', json={'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'portrait_ratio': '9:16'}).json() == {
             'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'director_model': None, 'portrait_ratio': '9:16',
-            'auto_face_swap': False,
+            'auto_face_fix': 'off',
         }
         invalid = client.patch('/api/settings', json={'default_model': 'unknown-model'})
         assert invalid.status_code == 422
@@ -38,7 +38,7 @@ def test_settings_patch_validation_and_persistence_across_restart(app_factory, t
         assert landscape.json()['detail']['code'] == 'invalid_portrait_ratio'
 
     with app_factory(data_dir=data_dir) as (client, _):
-        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'director_model': None, 'portrait_ratio': '9:16', 'auto_face_swap': False}
+        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'director_model': None, 'portrait_ratio': '9:16', 'auto_face_fix': 'off'}
         assert client.get('/api/health').json()['model'] == 'gpt-image-2.5-flare'
 
 

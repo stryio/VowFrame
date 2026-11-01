@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, type BatchReferenceMode, type Health, type Model, type PortraitRatio } from "../api";
+import { api, type AutoFaceFix, type BatchReferenceMode, type Health, type Model, type PortraitRatio } from "../api";
 import { EmptyState, useToast } from "../components/feedback";
+
+const AUTO_FACE_FIX_OPTIONS: [AutoFaceFix, string][] = [
+  ["ai", "AI 修脸"],
+  ["facefusion", "FaceFusion 换脸"],
+  ["off", "不修"],
+];
 
 export function SettingsPage() {
   const toast = useToast();
@@ -9,7 +15,7 @@ export function SettingsPage() {
   const [defaultModel, setDefaultModel] = useState("");
   const [referenceMode, setReferenceMode] = useState<BatchReferenceMode>("prompt_only");
   const [portraitRatio, setPortraitRatio] = useState<PortraitRatio>("3:4");
-  const [autoFaceSwap, setAutoFaceSwap] = useState(true);
+  const [autoFaceFix, setAutoFaceFix] = useState<AutoFaceFix>("ai");
   const [directorModel, setDirectorModel] = useState("");
   const [savedDirector, setSavedDirector] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -23,7 +29,7 @@ export function SettingsPage() {
         setDefaultModel(settings.default_model);
         setReferenceMode(settings.batch_reference_mode);
         setPortraitRatio(settings.portrait_ratio);
-        setAutoFaceSwap(settings.auto_face_swap);
+        setAutoFaceFix(settings.auto_face_fix);
         setDirectorModel(settings.director_model ?? "");
         setSavedDirector(settings.director_model);
       })
@@ -63,15 +69,16 @@ export function SettingsPage() {
     }
   };
 
-  const changeAutoFaceSwap = async (enabled: boolean) => {
-    setAutoFaceSwap(enabled);
+  const changeAutoFaceFix = async (mode: AutoFaceFix) => {
+    const previous = autoFaceFix;
+    setAutoFaceFix(mode);
     setSaving(true);
     try {
-      const saved = await api.updateSettings({ auto_face_swap: enabled });
-      setAutoFaceSwap(saved.auto_face_swap);
-      toast.info(enabled ? "已开启自动换脸，之后生成的照片会自动换脸" : "已关闭自动换脸，需要时可在照片菜单中手动换脸");
+      const saved = await api.updateSettings({ auto_face_fix: mode });
+      setAutoFaceFix(saved.auto_face_fix);
+      toast.info(`之后生成的照片：${AUTO_FACE_FIX_OPTIONS.find(([value]) => value === saved.auto_face_fix)?.[1]}`);
     } catch (err) {
-      setAutoFaceSwap(!enabled);
+      setAutoFaceFix(previous);
       toast.error(err);
     } finally {
       setSaving(false);
@@ -156,7 +163,7 @@ export function SettingsPage() {
             gap: 8,
           }}
         >
-          <h3>换脸修正（FaceFusion）</h3>
+          <h3>修脸（AI 修脸 / FaceFusion 换脸）</h3>
           <p className="field-hint">
             用上传的原照修正两人的脸，构图、服装和光线不变。本地运行、不产生费用，原图保留在历史版本中，可随时「对比原图」或恢复原图。
           </p>
@@ -168,18 +175,24 @@ export function SettingsPage() {
                   ? "模拟换脸（原样复制图片，用于测试）"
                   : "FaceFusion · 新娘 hyperswap_1a_256 · 新郎 hyperswap_1c_256 · 像素提升 512 · 遮罩 box + occlusion · 强度：相册 0.5，样片 1.0"}
               </span>
-              <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={autoFaceSwap}
-                  disabled={saving}
-                  onChange={(e) => changeAutoFaceSwap(e.target.checked)}
-                />
-                <span className="field-label">生成后自动换脸（推荐）</span>
+<div className="field">
+                <span className="field-label">生成后自动修脸</span>
+                <div className="shot-switch" role="group" aria-label="生成后自动修脸">
+                  {AUTO_FACE_FIX_OPTIONS.map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={`shot-pill ${autoFaceFix === value ? "active" : ""}`}
+                      disabled={saving || autoFaceFix === value}
+                      onClick={() => changeAutoFaceFix(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <span className="field-hint">
-                  每张样片和相册照片生成后自动换脸一次；关闭后可在照片菜单中手动点「换脸修正」。
+                  每张有人脸的样片和相册照片生成后自动做一次。AI 修脸：用两人上传的原照把脸修得更像本人，保留妆容和精修，每张修两次（新娘、新郎各一次），按默认模型计费；FaceFusion 换脸：本地处理、不花钱，但会把妆洗淡一些。两种都可以在照片菜单里手动点。AI 修脸也要用 FaceFusion 分清谁是新娘、谁是新郎。
                 </span>
-              </label>
+              </div>
             </>
           ) : (
             <>

@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS generation_tasks (
     error_code TEXT, error_message TEXT,
     auto_retry_count INTEGER NOT NULL DEFAULT 0 CHECK(auto_retry_count BETWEEN 0 AND 2),
     retry_of_task_id TEXT REFERENCES generation_tasks(id),
-    regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap')),
+    regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap','face_fix')),
     source_version_id TEXT,
     created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
 );
@@ -135,6 +135,8 @@ CREATE TABLE IF NOT EXISTS moment_drafts (
 """
 
 BATCH_REFERENCE_MODES = ('prompt_only', 'with_preview')
+# V7.1: replaces the on/off auto_face_swap setting, which is no longer read.
+AUTO_FACE_FIX_MODES = ('ai', 'facefusion', 'off')
 DEFAULT_BATCH_REFERENCE_MODE = 'prompt_only'
 
 
@@ -264,7 +266,7 @@ class Database:
         table_sql = (sql_row[0] or '') if sql_row else ''
         needs_rebuild = (
             'regenerate_mode' not in columns or slot_foreign_key is not None
-            or 'face_swap' not in table_sql or 'moment_title' not in columns
+            or 'face_fix' not in table_sql or 'moment_title' not in columns
             or 'source_version_id' not in columns
         )
         if not needs_rebuild:
@@ -288,7 +290,7 @@ class Database:
                 error_code TEXT, error_message TEXT,
                 auto_retry_count INTEGER NOT NULL DEFAULT 0 CHECK(auto_retry_count BETWEEN 0 AND 2),
                 retry_of_task_id TEXT REFERENCES generation_tasks_new(id),
-                regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap')),
+                regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap','face_fix')),
                 source_version_id TEXT,
                 created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
             )
@@ -371,18 +373,21 @@ class Database:
                 (ratio,),
             )
 
-    def get_auto_face_swap(self) -> bool:
+    def get_auto_face_fix(self) -> str:
+        """What is done to every generated picture with faces (V7.1): 'ai' (the AI face fix, the default),
+        'facefusion' (FaceFusion's swap) or 'off'. The original stays in the version history either way."""
         with self.connect() as connection:
-            row = connection.execute("SELECT value FROM app_settings WHERE key='auto_face_swap'").fetchone()
-        # On by default: every generated image is face-swapped once; the original stays in the version history.
-        return row is None or row['value'] == '1'
+            row = connection.execute("SELECT value FROM app_settings WHERE key='auto_face_fix'").fetchone()
+        return row['value'] if row is not None and row['value'] in AUTO_FACE_FIX_MODES else 'ai'
 
-    def set_auto_face_swap(self, enabled: bool):
+    def set_auto_face_fix(self, mode: str):
+        if mode not in AUTO_FACE_FIX_MODES:
+            raise ValueError(f'unknown auto face fix mode {mode}')
         with self.connect(write=True) as connection:
             connection.execute(
-                "INSERT INTO app_settings (key,value) VALUES ('auto_face_swap',?) "
+                "INSERT INTO app_settings (key,value) VALUES ('auto_face_fix',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ('1' if enabled else '0',),
+                (mode,),
             )
 
     def get_director_model(self) -> str | None:
