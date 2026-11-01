@@ -74,11 +74,10 @@ cp backend/config.local.example.json backend/config.local.json
 }
 ```
 
-正面造型照还要用人脸分割模型判断哪里是脸、哪里是头发（docs/prompts.md 第 8.6 节）：
-第一次生成正面造型照时，后端自动从 `storage.googleapis.com` 下载模型到数据目录的
-`models/`（约 16 MB，校验 SHA-256），运行它需要 `requirements.txt` 里的 `ai-edge-litert`，
-更新代码后请在 `backend` 目录重新安装依赖（`uv pip install --python .venv/bin/python -r requirements.txt`）。下载失败时正面造型照会
-失败并说明原因，不会发送修图。
+正面造型照还要用人脸解析模型判断哪里是脸、哪里是头发（docs/prompts.md 第 8.6 节）。
+模型是 SegFace，随代码放在 `backend/app/assets/`（28 MB），运行它需要 `requirements.txt` 里的
+`onnxruntime`。更新代码后请在 `backend` 目录重新安装依赖（`uv pip install --python .venv/bin/python -r requirements.txt`）。
+SegFace 的权重只允许非商业用途（见 `backend/app/assets/face_parsing_segface_LICENSE`）。
 
 正面造型照要带遮罩修图（docs/prompts.md 第 8.6 节），88API 不支持遮罩，这一步走
 PPTOKEN 的 `gpt-image-2.5`（`pptoken_base_url` 默认 `https://api.pptoken.cc`）。

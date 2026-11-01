@@ -34,7 +34,7 @@ class TaskManager:
         # Edits uploaded photos into looks (V5.0); the same image model unless a test injects another.
         self.stylist = stylist or generator
         # Keeps the uploaded face in a front look: a mask for the edit, the face laid back after it (V6.0).
-        self.face_keeper = face_keeper or YuNetFaceKeeper(FaceParser(config.data_dir / 'models').face_skin)
+        self.face_keeper = face_keeper or YuNetFaceKeeper(FaceParser().face_skin)
         # Makes the masked edit of front looks: PPTOKEN, since 88API takes no mask (app.pptoken).
         self.mask_editor = mask_editor or self.stylist
         self.swapper = swapper or create_face_swapper(config)

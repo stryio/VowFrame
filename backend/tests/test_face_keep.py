@@ -1,5 +1,5 @@
 """Keeping the uploaded face in a look (V6.0): the edit mask, and the photo's face laid back over the edit; only
-face skin is kept, never a fringe (V6.2)."""
+face skin is kept, never a fringe (V6.2), as the bundled SegFace model marks it (V6.3)."""
 
 import io
 
@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from app.face_parse import FaceParseError
+from app.face_parse import FaceParseError, FaceParser
 
 from app.face_keep import FaceKeepError, FaceShape, YuNetFaceKeeper
 from conftest import ScriptedGenerator, create_project, wait_until
@@ -67,10 +67,10 @@ def test_a_fringe_in_the_photo_is_left_free_in_the_mask():
 
 def test_a_missing_segmentation_model_stops_the_look_before_the_edit():
     def unavailable(image, box):
-        raise FaceParseError('face_model_download_failed', '人脸分割模型下载失败')
+        raise FaceParseError('face_model_missing', '人脸分割模型文件缺失')
     with pytest.raises(FaceKeepError) as raised:
         keeper([FACE], skin=unavailable).mask(picture('red'))
-    assert raised.value.code == 'face_model_download_failed'
+    assert raised.value.code == 'face_model_missing'
 
 
 def test_a_photo_without_a_face_gets_no_mask():
@@ -151,3 +151,11 @@ def test_a_look_whose_face_cannot_be_kept_fails_with_the_reason(app_factory):
         look = wait_until(lambda: client.get(f"/api/projects/{project['id']}").json()['looks'][0],
                           lambda look: look['status'] not in ('waiting', 'running'))
         assert look['status'] == 'failed' and look['error_code'] == 'look_face_lost'
+
+
+def test_the_bundled_face_parser_runs_and_gives_a_probability_per_pixel():
+    image = Image.new('RGB', (400, 500), (230, 200, 180))
+    skin = FaceParser().face_skin(image, FACE.box)
+    assert skin.shape == (500, 400) and skin.dtype == np.float32
+    assert 0 <= skin.min() and skin.max() <= 1.0001
+    assert skin[:5, :5].max() == 0                                    # outside the square parsed around the face
