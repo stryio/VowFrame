@@ -25,6 +25,7 @@ from app.prompts import (
     HAIRSTYLES,
     MAKEUP_COLORS,
     STYLE_MAKEUP_COLORS,
+    STYLE_MAKEUP_FINISH,
     UPDO_STYLES,
     is_styled,
     is_faceless_shot,
@@ -89,6 +90,15 @@ def test_styled_shot_prompts_keep_the_looks_hair_and_draw_the_makeup_and_match_d
         assert '原照片' not in identity and '比造型照白' in identity
         assert '妆容和精修按本提示词绘制' in identity and '严格保持两人的长相和发型' in identity
         assert not any(term in identity for term in ('瘦脸', '收窄', '补低', '鼻梁', '苹果肌'))
+        # V6.4: the bride's makeup part by part; aegyo-sal and contour only as the user worded them; no eyeliner,
+        # nose shadow or drawn highlight; nothing asks for makeup "stronger than everyday".
+        for part in ('底妆：', '眉妆：', '眼影：', '睫毛：', '腮红：', '唇妆：'):
+            assert part in identity
+        assert '卧蚕：微弱提亮，不改变眼睛大小' in identity and '修容：极轻微的光影修饰，不重塑骨骼' in identity
+        assert '不另画眼线' in identity and '不另画鼻影和高光亮条' in identity
+        assert '不画卧蚕' not in identity and '不修容' not in identity and '比日常妆更浓' not in identity
+        assert '眉头、眉峰、眉尾的位置和粗细不变' in identity or level == 'light'
+        assert '眉毛只修掉原眉轮廓以外零散的杂毛' in identity
     for style in STYLES:
         prompt = compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4', scene=1, makeup=natural, styled=True)
         assert_six_paragraphs(prompt, '镜头：')
@@ -98,8 +108,10 @@ def test_styled_shot_prompts_keep_the_looks_hair_and_draw_the_makeup_and_match_d
         clothes = style['costume'].split('妆容方向：')[0]
         color = MAKEUP_COLORS[[item.id for item in MAKEUP_COLORS].index(STYLE_MAKEUP_COLORS[style['id']][0])]
         assert '妆容方向' not in paragraph and '发型：' not in paragraph
-        assert paragraph.startswith('服装与风格：' + clothes + '新娘妆色：' + color.text + UPDO_STYLES.get(style['id'], '') +
-                                    style['look'])
+        assert paragraph.startswith('服装与风格：' + clothes + '新娘妆色：' + color.text + '新娘妆面：' +
+                                    STYLE_MAKEUP_FINISH[style['id']] + UPDO_STYLES.get(style['id'], '') + style['look'])
+        # V6.4: every style has a finish, listed in the docs.
+        assert f"| {style['name']} `{style['id']}` | `{STYLE_MAKEUP_FINISH[style['id']]}` |" in DOC
         assert not has_makeup(prompt)
     sides = compose_moment_prompt('korean_minimal', EXAMPLE_SHOT, '3:4', makeup=natural, styled=True, with_preview=True,
                                   side_references=[('bride', 'left'), ('groom', 'right')]).split('\n\n')[1]

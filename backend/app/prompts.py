@@ -697,22 +697,33 @@ def _makeup_sentence(makeup: Makeup) -> str:
 STYLING_VERSION = 3
 # Styled photos stay head and shoulders like the prepared uploads (app/photo_prep.py).
 STYLING_ASPECT_RATIO = '3:4'
-# Skin and makeup only: slimming, hairline filling, nose shadow and cheek shine change the face's structure and
-# are left out of styled photos for now. V6.0: drawn by the shot, on the bare face of the look.
+# The bride's makeup by level, part by part (V6.4); drawn by the shot on the bare face of the look (V6.0). The
+# colours come from the style's colour family and the finish from its STYLE_MAKEUP_FINISH, so the levels only say
+# how much. Aegyo-sal and contour are back at the user's request (V6.4), each limited to an effect that keeps the
+# shape; eyeliner, nose shadow, slimming and a lower hairline stay out.
 _BRIDE_STYLING = {
-    'light': '新娘化清透的新娘妆：皮肤比原照片白半个到一个色号，修匀轻微的泛红和暗沉，减弱痘痘和痘印，淡化黑眼圈；'
-             '轻薄透亮的底妆，淡淡的眼影，自然的睫毛，淡淡的腮红，水润的唇色',
-    'natural': '新娘化标准的婚纱照新娘妆：皮肤白皙透亮，比原照片白一到两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
-               '去掉痘痘、痘印、色斑和干纹，淡化黑眼圈；干净有光泽的底妆，带一点细闪的眼影，自然卷翘的睫毛，明显的腮红，饱满有光泽的唇色',
-    'refined': '新娘化精致的影楼新娘妆：皮肤非常白皙透亮，比原照片白两个色号，肤色均匀通透；'
-               '去掉痘痘、痘印、色斑和干纹，淡化黑眼圈和细纹；无瑕有光泽的底妆，有光泽感的细闪眼影，根根分明的卷翘睫毛，饱满的腮红，浓郁饱满的唇色',
+    'light': '新娘化清透的新娘妆。底妆：皮肤比造型照白半个到一个色号，修匀轻微的泛红和暗沉，减弱痘痘和痘印，淡化黑眼圈，底妆轻薄透亮；'
+             '眉妆：保留原有的毛流，只在原眉范围内补上少量空缺；眼影：薄透着色；睫毛：自然清楚；'
+             '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：轻透但看得出气色；唇妆：轻透着色，保留原有唇形',
+    'natural': '新娘化标准的婚纱照新娘妆。底妆：皮肤白皙透亮，比造型照白一到两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
+               '去掉痘痘、痘印、色斑和干纹，淡化黑眼圈，底妆干净服帖；'
+               '眉妆：沿原有眉毛的生长方向，在原眉范围内补足稀疏处的自然毛流，眉头、眉峰、眉尾的位置和粗细不变；'
+               '眼影：颜色和层次清楚，着色范围在本人原有的上眼睑内；睫毛：卷翘、根根分明；'
+               '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：气色清楚、晕染均匀；唇妆：着色均匀清楚，保留原有唇形',
+    'refined': '新娘化精致的影楼新娘妆。底妆：皮肤非常白皙透亮，比造型照白两个色号，肤色均匀通透；'
+               '去掉痘痘、痘印、色斑和干纹，淡化黑眼圈和细纹，底妆无瑕服帖；'
+               '眉妆：沿原有眉毛的生长方向，在原眉范围内细致地补足稀疏处，保留原有的疏密，眉头、眉峰、眉尾的位置和粗细不变；'
+               '眼影：层次细腻、着色饱满，范围在本人原有的上眼睑内；睫毛：卷翘、分束细致、根根分明，不加长加密；'
+               '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：着色充分、边缘柔和；唇妆：着色饱满、边缘完整，保留原有唇形',
 }
+# V6.4: the brows are tidied only outside their own outline.
+_GROOM_BROWS = '眉毛只修掉原眉轮廓以外零散的杂毛，保留原有的眉形、粗细和疏密'
 _GROOM_STYLING = {
-    'light': '新郎不化妆，只修干净：皮肤比原照片白一点，减弱痘痘和痘印，没有大面积油光，眉毛修掉杂毛',
-    'natural': '新郎不化妆，按婚纱照精修：皮肤比原照片白半个到一个色号，修正泛红和暗沉，去掉痘痘、痘印和色斑，淡化黑眼圈，'
-               '没有大面积油光；眉毛修掉杂毛',
-    'refined': '新郎化淡淡的男士妆：皮肤比原照片白一个色号，肤色均匀，轻薄的底妆遮住痘印、色斑和黑眼圈，没有大面积油光；'
-               '眉毛修掉杂毛；唇色自然红润',
+    'light': '新郎不化妆，只修干净：皮肤比造型照白一点，减弱痘痘和痘印，没有大面积油光；' + _GROOM_BROWS,
+    'natural': '新郎不化妆，按婚纱照精修：皮肤比造型照白半个到一个色号，修正泛红和暗沉，去掉痘痘、痘印和色斑，淡化黑眼圈，'
+               '没有大面积油光；' + _GROOM_BROWS,
+    'refined': '新郎化淡淡的男士妆：皮肤比造型照白一个色号，肤色均匀，轻薄的底妆遮住痘印、色斑和黑眼圈，没有大面积油光；'
+               + _GROOM_BROWS + '；唇色自然红润',
 }
 _HAIR_FINISH = {
     'bride': {'light': '头发梳理整齐，碎发和毛躁收干净', 'natural': '发丝光洁服帖', 'refined': '发丝光亮、整齐有层次'},
@@ -721,11 +732,13 @@ _HAIR_FINISH = {
               'refined': '干净整齐，定型清楚，带有克制的光泽'},
 }
 _STYLING_AVOID = '避免：照搬原照片的头发状态、毛躁乱翘的头发、油腻扁塌的头发、头盔一样僵硬的头发、生硬的贴片状发际线、改变脸和五官、化妆、磨皮、文字和水印。'
-# What retouching and makeup may change on a face (V4.0 looks; the shot since V6.0).
-_RETOUCH_LIMITS = ('精修和妆容只调整肤色、皮肤的干净程度和妆面的颜色光泽，不改变长相：保留原本的眉形、眼型、双眼皮、鼻子和嘴唇的形状；'
-                   '不画卧蚕，不拉长或加粗眼线，不修容；保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；'
-                   '明显的痣、胎记和疤痕是本人的特征，保留不去；提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，'
-                   '两人脸、脖子和手臂的肤色一致，提白但不是惨白；底妆轻薄服帖，不卡粉。')
+# What retouching and makeup may change on a face (V4.0 looks; the shot since V6.0). V6.4: aegyo-sal and contour
+# are allowed as the levels word them; eyeliner, nose shadow and drawn highlights stay out.
+_RETOUCH_LIMITS = ('精修和妆容只调整肤色、皮肤的干净程度、妆色和表面质感，不改变长相：保留原本的眉形、眼型、双眼皮、鼻子和嘴唇的形状以及脸部轮廓；'
+                   '不另画眼线，不拉长或上挑眼尾；不另画鼻影和高光亮条，皮肤的细微亮泽只跟随场景主光；'
+                   '保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；明显的痣、胎记和疤痕是本人的特征，保留不去；'
+                   '提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，每个人脸、脖子和手臂的肤色衔接自然，提白但不是惨白；'
+                   '底妆轻薄服帖，不卡粉，没有大面积油光、浮粉和结块。')
 
 
 # Written after every hairstyle (V5.1): the photo's hair is not kept, only its length limits the hairstyle.
@@ -795,7 +808,7 @@ MAKEUP_COLORS = (
     MakeupColor('rose_bean', '玫瑰豆沙', '眼影用玫瑰棕和藕粉色，腮红用豆沙粉和柔雾玫瑰色，唇色是玫瑰豆沙或干玫瑰色。'),
     MakeupColor('peach_coral', '蜜桃珊瑚', '眼影用蜜桃杏和暖橘棕，腮红用蜜桃粉和珊瑚橘，唇色是蜜桃珊瑚或杏橘色。'),
     MakeupColor('champagne', '香槟金棕', '眼影用香槟金和浅摩卡棕，腮红用杏棕和奶油杏色，唇色是玫瑰裸棕或焦糖豆沙。'),
-    MakeupColor('soft_pink', '柔雾粉', '眼影用浅粉棕和樱花粉，腮红用嫩粉和浅玫瑰色，唇色是蔷薇粉或水润的粉豆沙。'),
+    MakeupColor('soft_pink', '柔雾粉', '眼影用浅粉棕和樱花粉，腮红用嫩粉和浅玫瑰色，唇色是蔷薇粉或粉豆沙。'),
     MakeupColor('classic_red', '正红朱砂', '眼影用暖棕、赤茶和浅金色，腮红用暖粉和杏红色，唇色是正红或朱砂红。'),
     MakeupColor('terracotta', '赤陶砖红', '眼影用焦糖棕和赤陶棕，腮红用杏棕和陶土橘，唇色是砖红或红棕色。'),
     MakeupColor('berry', '莓果酒红', '眼影用玫瑰棕和灰紫棕，腮红用冷玫瑰和莓果粉，唇色是莓果红或酒红色。'),
@@ -830,6 +843,37 @@ STYLE_MAKEUP_COLORS = {
     'republic_qipao': ('classic_red', ('rose_bean',)),
     'hanfu': ('soft_pink', ('classic_red', 'rose_bean')),
     'northwest_desert': ('terracotta', ('milk_tea',)),
+}
+# Each style's makeup finish (V6.4): base, eye shadow, lip surface and where the blush sits, never a colour (the
+# colours are its STYLE_MAKEUP_COLORS family), so styles with the same colours still look different.
+STYLE_MAKEUP_FINISH = {
+    'korean_minimal': '底妆是清透柔光的质感；眼影柔和有层次，珠光细微；唇面薄润；腮红在脸颊中部小范围柔和晕开。',
+    'french_vintage': '底妆是奶油柔缎的质感；眼影柔雾，眼妆和唇妆轻重均衡；唇面柔缎；腮红从脸颊中部向外自然晕开。',
+    'forest_natural': '底妆是清透柔光的质感；眼影过渡柔和，珠光克制；唇面薄润；腮红从脸颊中部向周围柔和晕开。',
+    'seaside_sunset': '底妆是通透柔缎的质感；眼影着色清楚，带细微珠光；唇面润泽但不是镜面；腮红在脸颊中部均匀晕开。',
+    'chinese_traditional': '底妆是细腻柔缎的质感；眼影以柔雾为主，唇色是妆容的重点；唇面柔缎；腮红在脸颊中部小范围晕开。',
+    'cinematic_light': '底妆是克制柔缎的质感；眼影层次清楚，少用珠光；唇面柔缎；腮红在脸颊中部柔和过渡。',
+    'new_chinese': '底妆是温润柔缎的质感；眼影柔雾，边缘柔和；唇面柔缎；腮红在脸颊中部小范围晕开。',
+    'hongkong_retro': '底妆是细腻柔缎的质感；眼影柔雾，唇色是妆容的重点；唇面柔雾；腮红从脸颊中部向外轻轻晕开。',
+    'city_night': '底妆是控油柔缎的质感；眼影带细微珠光，眼妆和唇妆都清楚；唇面柔缎；腮红集中在脸颊中部。',
+    'flower_field': '底妆是自然柔缎的质感；眼影柔雾，着色清楚；唇面柔雾；腮红从脸颊中部向外铺开。',
+    'snow_winter': '底妆是细腻柔光的质感；眼影柔雾，突出健康的气色；唇面薄润；腮红在脸颊中部柔和晕开。',
+    'european_church': '底妆是细腻柔缎的质感；眼影细腻，眼妆和唇妆轻重均衡；唇面柔缎；腮红在脸颊中部小范围晕开。',
+    'black_white': '底妆是克制柔缎的质感；眼影画面是黑白的，眼妆的灰阶层次清楚可辨；唇面柔雾；腮红以柔和的灰阶过渡表现气色。',
+    'daily_life': '底妆是轻薄的自然光泽的质感；眼影颜色轻透、层次完整；唇面薄润；腮红在脸颊中部自然晕开。',
+    'snow_mountain': '底妆是控油柔缎的质感；眼影色彩清楚，少用珠光；唇面柔缎；腮红在脸颊中部均匀晕开。',
+    'lawn_floral': '底妆是通透柔光的质感；眼影柔和细腻；唇面薄润；腮红从脸颊中部向外柔和晕开。',
+    'white_floral': '底妆是细腻柔光的质感；眼影过渡柔和，珠光克制；唇面薄润；腮红在脸颊中部柔和晕开。',
+    'french_estate': '底妆是奶油柔缎的质感；眼影带细微珠光；唇面柔雾；腮红从脸颊中部向外轻轻晕开。',
+    'minimal_architecture': '底妆是干净柔缎的质感；眼影柔雾，边缘干净；唇面柔雾；腮红在脸颊中部小范围晕开。',
+    'luxury_interior': '底妆是细腻柔缎的质感；眼影带细微珠光，眼妆和唇妆轻重均衡；唇面柔缎；腮红在脸颊中部均匀晕开。',
+    'lakeside': '底妆是通透柔光的质感；眼影柔和有层次，珠光细微；唇面薄润；腮红从脸颊中部向外柔和晕开。',
+    'vintage_interior': '底妆是奶油柔缎的质感；眼影柔雾，唇色是妆容的重点；唇面柔雾；腮红集中在脸颊中部。',
+    'dark_studio': '底妆是克制柔缎的质感；眼影层次清楚，珠光细微；唇面柔雾；腮红集中在脸颊中部。',
+    'japanese_film': '底妆是清透的自然光泽的质感；眼影柔雾，颜色清楚但边缘轻柔；唇面薄润；腮红在脸颊中部短距离横向晕开。',
+    'republic_qipao': '底妆是奶油柔缎的质感；眼影柔雾，唇色是妆容的重点；唇面柔雾；腮红在脸颊中部小范围晕开。',
+    'hanfu': '底妆是温润柔缎的质感；眼影柔雾细腻，不画戏剧化的眼妆；唇面柔缎；腮红在脸颊中部小范围晕开。',
+    'northwest_desert': '底妆是控油柔缎的质感；眼影柔雾，层次清楚；唇面柔雾；腮红从脸颊中部向外柔和晕开。',
 }
 # Styles whose bride needs an updo (a bride with short hair keeps her own); their headwear is added in the shot,
 # on top of the look's hairstyle, since adding things works through the edit endpoint and changing hair does not.
@@ -879,11 +923,13 @@ _STYLED_MARKER = '造型照是两人做好发型后的样子'
 
 
 def _styled_makeup_sentence(makeup: Makeup) -> str:
-    return ('妆容和精修按本提示词绘制，不照搬造型照里素颜的皮肤状态：' +
-            _BRIDE_STYLING[makeup.bride].replace('原照片', '造型照') + '；' +
-            _GROOM_STYLING[makeup.groom].replace('原照片', '造型照') + '。'
-            '新娘眼影、腮红和唇色的颜色按「服装与风格」里的新娘妆色；照片会把妆吃淡，所以新娘的妆色要比日常妆更浓、更清楚，'
-            '一眼能看出是精心化过的新娘妆；妆面的质感跟着这张照片的光线。' + _RETOUCH_LIMITS)
+    # V6.4: "makeup stronger than everyday" made the model enlarge people in wide shots to show it; the colours and
+    # finish now come from the style paragraph, and the light changes how the makeup looks, not what it is.
+    return ('妆容和精修按本提示词绘制，不照搬造型照里素颜的皮肤状态：' + _BRIDE_STYLING[makeup.bride] + '。' +
+            _GROOM_STYLING[makeup.groom] + '。'
+            '新娘眼影、腮红和唇色的颜色按「服装与风格」里的新娘妆色，底妆、眼影和唇面的质感以及腮红的分布按其中的新娘妆面，着色强度按上面的档位；'
+            '妆色在当前景别下清楚可辨，一眼能看出是精心化过的新娘妆，但不为显示妆容而改变眼型、唇形或人物在画面里的大小；'
+            '同一套妆的质感不随场景改变，光线只改变它在照片里的明暗和反光。' + _RETOUCH_LIMITS)
 
 
 def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None, makeup: Makeup) -> str:
@@ -957,12 +1003,12 @@ def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] |
 def _style_paragraph(style: dict, *, scene: int | None, hair: Hair | None = None, styled: bool = False) -> str:
     """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34).
     hair: None (prompts before V3.45) names no hairstyle. styled: the hair comes from the looks (V4.0), so the
-    clothes, the bride's makeup colour family (V6.0), the headwear of the updo styles (V5.0) and the visual
+    clothes, the bride's makeup colour family (V6.0) and finish (V6.4), the headwear of the updo styles (V5.0) and the visual
     language are written."""
     if styled:
         color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style['id']][0]]
-        paragraph = ('服装与风格：' + _clothes(style) + '新娘妆色：' + color.text + UPDO_STYLES.get(style['id'], '') +
-                     style['look'])
+        paragraph = ('服装与风格：' + _clothes(style) + '新娘妆色：' + color.text + '新娘妆面：' + STYLE_MAKEUP_FINISH[style['id']] +
+                     UPDO_STYLES.get(style['id'], '') + style['look'])
     elif hair is None:
         paragraph = style['scene_prompt']
     else:

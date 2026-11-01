@@ -315,6 +315,8 @@ def test_scheduler_respects_concurrency_and_wakes_promptly(app_factory):
     generator = BlockingGenerator()
     with app_factory(generator=generator, concurrency=2) as (client, app):
         project = create_project(client)
+        # Samples need looks (V5.0); make them first, so the timing covers only the scheduler picking up the shots.
+        ensure_looks(client, project['id'])
         started = time.monotonic()
         batch = preview_batch(client, project['id'])
         tasks = wait_until(lambda: batch_tasks(client, batch['id']), lambda rows: sum(t['status'] == 'running' for t in rows) == 2)
