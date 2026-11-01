@@ -78,7 +78,7 @@ export interface LookPair {
 
 export type LookStatus = "waiting" | "running" | "ready" | "failed" | "interrupted";
 
-/** A styled photo candidate (V5.0): one hairstyle and, for the bride, one makeup colour family. */
+/** A styled photo candidate (V5.0): one hairstyle on the uploaded face (V6.0; V5.x looks also carry a colour). */
 export interface Look {
   id: string;
   person: "a" | "b";
@@ -104,11 +104,10 @@ export interface Look {
 
 export interface LookItem {
   hairstyle_id: string;
-  makeup_color: string | null;
 }
 
 export interface LookOptions {
-  hairstyles: { id: string; name: string; role: Role; lengths: string[]; updo: boolean; default_color: string | null }[];
+  hairstyles: { id: string; name: string; role: Role; lengths: string[]; updo: boolean }[];
   makeup_colors: { id: string; name: string; text: string }[];
   styles: Record<string, { primary: string; alternates: string[]; needs_updo: boolean }>;
   max_selected: number;

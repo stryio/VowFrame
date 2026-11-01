@@ -692,11 +692,13 @@ def _makeup_sentence(makeup: Makeup) -> str:
 # photo; every shot then copies the styled photos.
 # V5.0: styled photos are "looks" the user generates and picks before any sample: one hairstyle and, for the
 # bride, one makeup colour family each, made by a single edit of the uploaded photo and shared by every style.
-STYLING_VERSION = 2
+# V6.0: a look is only the new hairstyle on the uploaded face (app/face_keep.py lays the photo's face back), since
+# every bolder hair edit moved the face too; the shot draws the makeup and retouching from its prompt again.
+STYLING_VERSION = 3
 # Styled photos stay head and shoulders like the prepared uploads (app/photo_prep.py).
 STYLING_ASPECT_RATIO = '3:4'
 # Skin and makeup only: slimming, hairline filling, nose shadow and cheek shine change the face's structure and
-# are left out of styled photos for now.
+# are left out of styled photos for now. V6.0: drawn by the shot, on the bare face of the look.
 _BRIDE_STYLING = {
     'light': '新娘化清透的新娘妆：皮肤比原照片白半个到一个色号，修匀轻微的泛红和暗沉，减弱痘痘和痘印，淡化黑眼圈；'
              '轻薄透亮的底妆，淡淡的眼影，自然的睫毛，淡淡的腮红，水润的唇色',
@@ -718,7 +720,12 @@ _HAIR_FINISH = {
     'groom': {'light': '干净整齐，光泽克制', 'natural': '干净整齐，定型自然，发束不结块',
               'refined': '干净整齐，定型清楚，带有克制的光泽'},
 }
-_STYLING_AVOID = '避免：照搬原照片的头发状态、毛躁乱翘的头发、油腻扁塌的头发、网红脸、整容脸、幼态脸、过度磨皮的塑料皮肤、厚重结块的底妆、面部大面积油光、头盔一样僵硬的头发、生硬的贴片状发际线、文字和水印。'
+_STYLING_AVOID = '避免：照搬原照片的头发状态、毛躁乱翘的头发、油腻扁塌的头发、头盔一样僵硬的头发、生硬的贴片状发际线、改变脸和五官、化妆、磨皮、文字和水印。'
+# What retouching and makeup may change on a face (V4.0 looks; the shot since V6.0).
+_RETOUCH_LIMITS = ('精修和妆容只调整肤色、皮肤的干净程度和妆面的颜色光泽，不改变长相：保留原本的眉形、眼型、双眼皮、鼻子和嘴唇的形状；'
+                   '不画卧蚕，不拉长或加粗眼线，不修容；保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；'
+                   '明显的痣、胎记和疤痕是本人的特征，保留不去；提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，'
+                   '两人脸、脖子和手臂的肤色一致，提白但不是惨白；底妆轻薄服帖，不卡粉。')
 
 
 # Written after every hairstyle (V5.1): the photo's hair is not kept, only its length limits the hairstyle.
@@ -839,56 +846,57 @@ def _clothes(style: dict) -> str:
     return style['costume'].split('妆容方向：')[0]
 
 
-def compose_look_prompt(role: str, hairstyle_id: str, level: str, makeup_color: str | None = None, *,
-                        facing: str | None = None) -> str:
-    """Edit prompt that turns one person's uploaded photo into a look (their styled photo, V5.0).
+def compose_look_prompt(role: str, hairstyle_id: str, level: str, *, facing: str | None = None) -> str:
+    """Edit prompt that redoes one person's hair in their uploaded photo: a look (V5.0; hair only since V6.0).
 
-    makeup_color: the bride's colour family (MAKEUP_COLORS); None for the groom.
-    facing: None for the front photo; 'left' / 'right' for a side photo, which is sent together with the
-    person's front look as the second image so both carry the same hairstyle and makeup.
+    level: the person's makeup level, which only sets how polished the hair is.
+    facing: None for the front photo, sent with a mask that keeps the face; 'left' / 'right' for a side photo,
+    which is sent together with the person's front look as the second image so both carry the same hairstyle.
     """
     name = _ROLE_NAMES[role]
-    # The edit endpoint keeps whatever the photo shows unless told plainly that the hair is redone (V5.1): the
-    # photo fixes the face, the hair follows the hairstyle, and the head-and-shoulders composition no longer
-    # includes the hair.
+    # The face, skin and clothes stay as they are: makeup and retouching are the shot's (V6.0). The hair is still
+    # redone boldly (V5.1, V5.2), now that the face no longer moves with it.
     if facing is None:
-        opening = (f'把这张照片修成{name}婚礼当天化好妆、由造型师重新做好发型后的造型照。原照片用来确定这个人的长相：'
-                   '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与原照片一致，不要改变五官；'
-                   '头部的角度和表情保持原照片的样子。头发按下面的发型大胆地重新做，画面里的头发可以和原照片完全不同。')
+        opening = (f'把这张照片修成{name}由造型师重新做好发型后的造型照，只改头发和背景。'
+                   '脸、五官、表情、头部角度、肤色、皮肤和衣服都保持原照片的样子，不化妆，不修皮肤。'
+                   '头发按下面的发型大胆地重新做，可以和原照片完全不同。')
     else:
-        opening = (f'第一张图是要修的照片，{name}脸朝画面{_FACING_NAMES[facing]}侧；第二张图是同一个人已经做好的正面造型照。'
-                   '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。第一张图用来确定这个人的长相：'
-                   '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与第一张图一致，不要改变五官；'
-                   '头部的角度和表情保持第一张图的样子。头发按第二张图的发型重新画，不照搬第一张图里的头发。')
+        opening = (f'第一张图是要修的照片，{name}脸朝画面{_FACING_NAMES[facing]}侧；第二张图是同一个人已经做好发型的正面造型照。'
+                   '把第一张图里的头发改成第二张图的发型和发色，只是角度不同；'
+                   '第一张图的脸、五官、表情、头部角度、肤色、皮肤和衣服都保持原样，不化妆，不修皮肤。'
+                   '头发按第二张图的发型重新画，不照搬第一张图里的头发。')
     hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES
-    if role == 'bride':
-        makeup = (f'皮肤和妆容：{_BRIDE_STYLING[level]}。妆容颜色：{MAKEUP_COLOR_BY_ID[makeup_color].text}'
-                  '照片会把妆吃淡，所以妆色要比日常妆更浓、更清楚，一眼能看出是精心化过的新娘妆。')
-    else:
-        makeup = f'皮肤和妆容：{_GROOM_STYLING[level]}。'
-    makeup += ('只调整肤色、皮肤的干净程度和妆面的颜色光泽，不改变长相：保留原本的眉形、眼型、双眼皮、鼻子和嘴唇的形状；'
-               '不画卧蚕，不拉长或加粗眼线，不修容；保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；'
-               '明显的痣、胎记和疤痕是本人的特征，保留不去；提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，'
-               '脸和脖子的肤色一致，提白但不是惨白；底妆轻薄服帖，不卡粉。')
-    background = '背景和光线：背景换成干净均匀的浅灰色纯色背景；柔和均匀的正面光，脸上没有明显的阴影；衣服保持原样。'
-    return '\n\n'.join((opening, hair, makeup, background, _STYLING_AVOID))
+    # The face keeps the photo's light (it is laid back unchanged), so the hair is lit the same way.
+    background = '背景和光线：背景换成干净均匀的浅灰色纯色背景；光线的方向、亮度和色温与原照片一致，头发的受光和脸一致。'
+    return '\n\n'.join((opening, hair, background, _STYLING_AVOID))
 
 
-# Every styled shot prompt (V4.0) carries this sentence; it tells such prompts apart from older ones.
-_STYLED_MARKER = '造型照就是两人婚礼当天化好妆、做好发型后的样子'
+# Every styled shot prompt carries one of these sentences; it tells such prompts apart from older ones.
+# V4.0–V5.2: the styled photos already wore the makeup.
+_LEGACY_STYLED_MARKER = '造型照就是两人婚礼当天化好妆、做好发型后的样子'
+# V6.0: the looks are the new hairstyle on the bare face; the shot draws makeup and retouching.
+_STYLED_MARKER = '造型照是两人做好发型后的样子'
 
 
-def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None) -> str:
+def _styled_makeup_sentence(makeup: Makeup) -> str:
+    return ('妆容和精修按本提示词绘制，不照搬造型照里素颜的皮肤状态：' +
+            _BRIDE_STYLING[makeup.bride].replace('原照片', '造型照') + '；' +
+            _GROOM_STYLING[makeup.groom].replace('原照片', '造型照') + '。'
+            '新娘眼影、腮红和唇色的颜色按「服装与风格」里的新娘妆色；照片会把妆吃淡，所以新娘的妆色要比日常妆更浓、更清楚，'
+            '一眼能看出是精心化过的新娘妆；妆面的质感跟着这张照片的光线。' + _RETOUCH_LIMITS)
+
+
+def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None, makeup: Makeup) -> str:
     labels = ['第一张图是新娘的造型照', '第二张图是新郎的造型照']
     for role, facing in side_references or ():
         labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}脸朝画面{_FACING_NAMES[facing]}侧时的造型照')
     roles = '，'.join(labels) + '。'
     if with_preview:
         roles += _PREVIEW_REFERENCE_INSERTION.replace('第三张', _IMAGE_ORDINALS[len(labels)], 1)
-    return ('图片角色：' + roles + _STYLED_MARKER + '。'
-            '严格保持两人的长相和造型：脸型、五官比例、眼型、鼻型、唇形、肤色、发际线和年龄感，以及发型、发色、妆容和皮肤状态，都与造型照一致；'
-            '不要美颜、瘦脸、磨皮或改变五官。允许改变的只有服装、姿态、场景和光线：头发随姿态自然垂落，'
-            '妆面和皮肤的质感跟着这张照片的光线；造型照里的纯色背景和衣服不参考。' + _BODY_SENTENCE +
+    return ('图片角色：' + roles + _STYLED_MARKER + '，脸还是素颜，没有化妆和精修。'
+            '严格保持两人的长相和发型：脸型、五官比例、眼型、鼻型、唇形、发际线和年龄感，以及发型和发色，都与造型照一致；'
+            '不要改变五官。允许改变的只有妆容、皮肤精修、服装、姿态、场景和光线：头发随姿态自然垂落；'
+            '造型照里的纯色背景和衣服不参考。' + _styled_makeup_sentence(makeup) + _BODY_SENTENCE +
             '风格要求与长相冲突时，以长相为准。')
 
 
@@ -948,10 +956,13 @@ def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] |
 
 def _style_paragraph(style: dict, *, scene: int | None, hair: Hair | None = None, styled: bool = False) -> str:
     """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34).
-    hair: None (prompts before V3.45) names no hairstyle. styled: hair and makeup come from the styled photos
-    (V4.0), so only the clothes, the headwear of the updo styles (V5.0) and the visual language are written."""
+    hair: None (prompts before V3.45) names no hairstyle. styled: the hair comes from the looks (V4.0), so the
+    clothes, the bride's makeup colour family (V6.0), the headwear of the updo styles (V5.0) and the visual
+    language are written."""
     if styled:
-        paragraph = '服装与风格：' + _clothes(style) + UPDO_STYLES.get(style['id'], '') + style['look']
+        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style['id']][0]]
+        paragraph = ('服装与风格：' + _clothes(style) + '新娘妆色：' + color.text + UPDO_STYLES.get(style['id'], '') +
+                     style['look'])
     elif hair is None:
         paragraph = style['scene_prompt']
     else:
@@ -973,9 +984,11 @@ def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_previ
                     hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
                     styled: bool = False) -> str:
     style = STYLE_BY_ID[style_id]
+    if styled and makeup is None:
+        raise ValueError('a shot from looks needs the makeup levels: the looks carry no makeup (V6.0)')
     return '\n\n'.join((
         _aspect_paragraph(aspect_ratio),
-        _styled_identity_paragraph(with_preview, side_references) if styled else
+        _styled_identity_paragraph(with_preview, side_references, makeup) if styled else
         _identity_paragraph(with_preview, side_references, makeup),
         _style_paragraph(style, scene=scene, hair=hair, styled=styled),
         action,
@@ -1011,7 +1024,8 @@ def has_makeup(prompt: str) -> bool:
 
 def is_styled(prompt: str) -> bool:
     """Whether a stored prompt copies styled photos (V4.0 on)."""
-    return _STYLED_MARKER in prompt.split('\n\n')[1]
+    identity = prompt.split('\n\n')[1]
+    return _STYLED_MARKER in identity or _LEGACY_STYLED_MARKER in identity
 
 
 def director_scene_text(style_id: str, *, single_variant: bool) -> str:

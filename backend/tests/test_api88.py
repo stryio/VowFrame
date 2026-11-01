@@ -23,9 +23,11 @@ from app.api88 import (
     SERVICE_MESSAGE, Api88Generator, retry_after_seconds,
 )
 from app.config import Config, load_config
+from app.face_keep import PassthroughFaceKeeper
 from app.generator import GeneratorError, MockGenerator, OutcomeKind
 from app.main import create_app
 from app.photo_prep import PassthroughPhotoPreparer
+from app.prompts import STYLING_VERSION
 from app.storage import outgoing_image
 from conftest import PNG, create_project, preview_batch, uploaded_ids, wait_batch
 
@@ -88,6 +90,28 @@ def test_openai_multipart_and_b64_response(config, images, model):
     generator = make_generator(replace(config, model=model, base_url=config.base_url + '/'), handler)
     assert generator.generate_image(images, PROMPT, model, '3:4') == PNG
     assert len(calls) == 1
+
+
+def test_a_look_edit_sends_its_mask_after_the_photo(config, images):
+    """V6.0: the mask that keeps the face goes with the single photo; Gemini models get no mask."""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if request.url.path.endswith('/images/edits'):
+            parts = [part for part in multipart_parts(request) if part[1] is not None]
+            assert parts == [('image[]', 'bride.png', 'image/png', sent(images[0])), ('mask', 'mask.png', 'image/png', b'MASK')]
+            return image_response()
+        assert b'MASK' not in request.content
+        uri = 'data:image/png;base64,' + base64.b64encode(PNG).decode()
+        return httpx.Response(200, json={'choices': [{'message': {'content': f'![image]({uri})'}}]})
+
+    generator = make_generator(config, handler)
+    assert generator.generate_image(images[:1], PROMPT, 'gpt-image-2', '3:4', mask=b'MASK') == PNG
+    assert generator.generate_image(images[:1], PROMPT, 'gemini-nano-banana-2.1', '3:4', mask=b'MASK') == PNG
+    assert len(calls) == 2
+    with pytest.raises(ValueError):
+        generator.generate_image(images, PROMPT, 'gpt-image-2', '3:4', mask=b'MASK')
 
 
 @pytest.mark.parametrize('aspect_ratio,sizes', [('3:4', OPENAI_SIZES['3:4'])])
@@ -340,8 +364,8 @@ def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handl
             return image_response()  # the two looks (V5.0)
         raise httpx.ReadError(f'provider echoed {TEST_KEY}', request=request)
 
-    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
-    second_app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper())
+    second_app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper())
     assert app is not second_app
     with TestClient(app, backend_options={'use_uvloop': True}):
         pass
@@ -468,7 +492,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
         calls.append(request)
         return image_response()
 
-    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper())
     with caplog.at_level(logging.DEBUG):
         with TestClient(app, backend_options={'use_uvloop': True}) as client:
             health = client.get('/api/health')
@@ -487,7 +511,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
                     'aspect_ratio': '3:4', 'resolution': '2K',
                     # V5.0: the looks the sample was shot from and what each reference image is.
-                    'looks': {'version': 2, 'bride': looks['bride'], 'groom': looks['groom']},
+                    'looks': {'version': STYLING_VERSION, 'bride': looks['bride'], 'groom': looks['groom']},
                     'reference_slots': [['bride', 'front'], ['groom', 'front']],
                 }
                 assert TEST_KEY not in repr(dict(row))
@@ -522,7 +546,7 @@ def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected,
             raise exception('simulated network failure')
         return image_response()
 
-    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
+    app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer(), face_keeper=PassthroughFaceKeeper())
     with TestClient(app, backend_options={'use_uvloop': True}) as client:
         project = create_project(client)
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])

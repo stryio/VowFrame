@@ -21,12 +21,12 @@ from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
 from .face_swap import face_scores, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
-from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, MAKEUP_COLOR_BY_ID, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
+from .prompts import DEFAULT_PREVIEW_STYLE_IDS, Makeup, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .photo_prep import PhotoRejected
 from .storage import asset_path, image_format, save_image
-from .styling import (LOOK_PROBLEM_MESSAGES, MAX_SELECTED_LOOKS, SUGGESTED_COLORS, default_assignment, default_look_items, fits_style, hair_length_of,
+from .styling import (LOOK_PROBLEM_MESSAGES, MAX_SELECTED_LOOKS, default_assignment, default_look_items, fits_style, hair_length_of,
                       look_problem, look_response, look_snapshot, makeup_level_of, reference_slots, role_of,
                       task_face_swap_reference_ids, uploaded_asset_id)
 
@@ -262,8 +262,7 @@ def project_response(conn, project, *, detail: bool = True):
                       "SELECT * FROM looks WHERE project_id=? AND angle='front' AND discarded_at IS NULL ORDER BY created_at,rowid",
                       (project['id'],))],
                   default_looks=default_assignment(conn, project),
-                  default_look_items={role: [{'hairstyle_id': hairstyle, 'makeup_color': color}
-                                             for hairstyle, color in default_look_items(project, role)]
+                  default_look_items={role: [{'hairstyle_id': hairstyle} for hairstyle in default_look_items(project, role)]
                                       for role in ('bride', 'groom')})
     return result
 
@@ -375,6 +374,11 @@ def _build_references(project, bride_facing: str = 'front', groom_facing: str = 
     if preview_asset_id:
         references.append(preview_asset_id)
     return references, sides
+
+
+def _shot_makeup(project) -> Makeup:
+    """Makeup levels a shot from looks draws: the project's current ones (V6.0; looks carry no makeup)."""
+    return Makeup(project['makeup_level'], project['groom_makeup_level'])
 
 
 def _style_preview_reference(conn, project_id: str, style_id: str, slot_label: str) -> str:
@@ -597,16 +601,16 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         pose_id = source['pose_id']
         prompt = (compose_identity_boost_moment_prompt(style_id, shot_text_from_prompt(source['prompt']), aspect_ratio,
                                                        scene=scene_from_prompt(style_id, source['prompt']), with_preview=with_preview,
-                                                       styled=True)
+                                                       makeup=_shot_makeup(project), styled=True)
                   if source['moment_shot_size'] else compose_identity_boost_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview,
-                                                                                   styled=True))
+                                                                                   makeup=_shot_makeup(project), styled=True))
         regenerate_mode = 'identity_boost'
     elif action == 'change_pose':
         if slot['kind'] != 'photo':
             error(409, 'slot_not_ready', f'{slot_label}不是相册作品，不能更换动作')
         if source['moment_title'] is None and selected_pose is not None:
             pose_id = selected_pose
-            prompt = compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, styled=True)
+            prompt = compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=_shot_makeup(project), styled=True)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = None, None
         else:
@@ -626,7 +630,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
                                                                _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None,
                                                                looks=looks)
             prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=moment.scene, faces_clear=moment.faces_clear,
-                                           with_preview=with_preview, side_references=side_references, styled=True)
+                                           with_preview=with_preview, side_references=side_references, makeup=_shot_makeup(project), styled=True)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = moment.title, moment.shot_size
     elif action == 'change_shot':
@@ -648,7 +652,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         # Changing the shot size keeps the scene and whether it is an atmosphere shot.
         prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=scene_from_prompt(style_id, source['prompt']),
                                        faces_clear=not is_faceless_shot(source['prompt']),
-                                       with_preview=with_preview, side_references=side_references, styled=True)
+                                       with_preview=with_preview, side_references=side_references, makeup=_shot_makeup(project), styled=True)
         regenerate_mode = 'change_shot'
         moment_title, moment_shot_size = moment.title, moment.shot_size
     else:
@@ -806,8 +810,7 @@ def styles():
 @router.get('/look-options', response_model=LookOptions)
 def look_options():
     return {
-        'hairstyles': [{'id': item.id, 'name': item.name, 'role': item.role, 'lengths': list(item.lengths), 'updo': item.updo,
-                        'default_color': SUGGESTED_COLORS[item.id] if item.role == 'bride' else None}
+        'hairstyles': [{'id': item.id, 'name': item.name, 'role': item.role, 'lengths': list(item.lengths), 'updo': item.updo}
                        for item in HAIRSTYLES],
         'makeup_colors': [item._asdict() for item in MAKEUP_COLORS],
         'styles': {style_id: {'primary': primary, 'alternates': list(alternates), 'needs_updo': style_id in UPDO_STYLES}
@@ -825,7 +828,8 @@ def _get_look(conn, look_id: str):
 
 @router.post('/projects/{project_id}/looks', response_model=list[Look], status_code=201)
 def create_looks(project_id: str, body: LookCreate, request: Request, response: Response):
-    """Look candidates for one person (V5.0): each item is one paid edit of their uploaded photo."""
+    """Look candidates for one person (V5.0): each item is one paid edit of their uploaded photo, redoing only the
+    hair (V6.0)."""
     with request.app.state.db.connect(write=True) as conn:
         project = get_project(conn, project_id)
         existing = conn.execute('SELECT * FROM looks WHERE client_request_id=? ORDER BY rowid', (body.client_request_id,)).fetchall()
@@ -845,16 +849,12 @@ def create_looks(project_id: str, body: LookCreate, request: Request, response: 
             hairstyle = HAIRSTYLE_BY_KEY.get((role, item.hairstyle_id))
             if hairstyle is None or length not in hairstyle.lengths:
                 error(422, 'invalid_hairstyle', '这个发型不适合当前的头发长度，请换一个')
-            if role == 'bride' and item.makeup_color not in MAKEUP_COLOR_BY_ID:
-                error(422, 'invalid_makeup_color', '请为新娘选择一种妆色')
-            if role == 'groom' and item.makeup_color is not None:
-                error(422, 'invalid_makeup_color', '新郎不选妆色')
             look_id = new_id()
             conn.execute(
                 'INSERT INTO looks (id,project_id,person,role,angle,hairstyle_id,hair_length,makeup_color,makeup_level,'
                 "source_asset_id,styling_version,status,model,prompt,client_request_id,created_at) VALUES (?,?,?,?,'front',?,?,?,?,?,?,'waiting',?,?,?,?)",
-                (look_id, project_id, body.person, role, item.hairstyle_id, length, item.makeup_color, level, source,
-                 STYLING_VERSION, model_id, compose_look_prompt(role, item.hairstyle_id, level, item.makeup_color),
+                (look_id, project_id, body.person, role, item.hairstyle_id, length, None, level, source,
+                 STYLING_VERSION, model_id, compose_look_prompt(role, item.hairstyle_id, level),
                  body.client_request_id, now))
             ids.append(look_id)
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
@@ -872,6 +872,8 @@ def retry_look(look_id: str, request: Request):
         project = get_project(conn, look['project_id'])
         if project[f"person_{look['person']}_image_id"] != look['source_asset_id']:
             error(409, 'look_unusable', LOOK_PROBLEM_MESSAGES['photo_replaced'])
+        if look['styling_version'] != STYLING_VERSION:
+            error(409, 'look_unusable', LOOK_PROBLEM_MESSAGES['outdated'])
         conn.execute("UPDATE looks SET status='waiting',error_code=NULL,error_message=NULL,finished_at=NULL WHERE id=?", (look_id,))
         result = look_response(project, _get_look(conn, look_id))
     request.app.state.task_manager.notify()
@@ -1105,7 +1107,7 @@ def create_previews(project_id: str, body: PreviewCreate, request: Request, resp
             conn.execute(
                 'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
                 (new_id(), project_id, batch_id, slot_id, 'waiting', json.dumps(references), style_id,
-                 compose_preview_prompt(style_id, preview_ratio, styled=True), snapshot, utc_now()),
+                 compose_preview_prompt(style_id, preview_ratio, makeup=_shot_makeup(project), styled=True), snapshot, utc_now()),
             )
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
         result = batch_response(conn, get_batch(conn, batch_id))
@@ -1263,7 +1265,7 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
             conn.execute('INSERT INTO photo_slots (id,project_id,batch_id,kind,style_id,pose_id,pose_name,shot_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)', (slot_id, project_id, batch_id, 'photo', preview['style_id'], None, moment.title, moment.shot_size, utc_now()))
             prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, scene=moment.scene,
                                            faces_clear=moment.faces_clear, with_preview=mode == 'with_preview',
-                                           side_references=side_references, styled=True)
+                                           side_references=side_references, makeup=_shot_makeup(project), styled=True)
             conn.execute('INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (task_id, project_id, batch_id, slot_id, 'waiting', json.dumps(references), preview['style_id'], None, moment.title, moment.shot_size, prompt, snapshot, utc_now()))
         conn.execute('UPDATE moment_drafts SET used_by_batch_id=?,updated_at=? WHERE id=?', (batch_id, now, body.draft_id))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))

@@ -38,13 +38,16 @@ class GeneratorError(Exception):
 
 
 class ImageGenerator(Protocol):
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes: ...
+    # mask: only for looks (V6.0), a PNG transparent where the single image may change.
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *,
+                       mask: bytes | None = None) -> bytes: ...
 
 
 class MockGenerator:
     def __init__(self, delay_seconds: float = 2):
         self.delay_seconds = delay_seconds
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *,
+                       mask: bytes | None = None) -> bytes:
         time.sleep(self.delay_seconds)
         return images[0].read_bytes()

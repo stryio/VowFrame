@@ -19,6 +19,7 @@ os.environ['VOWFRAME_LOCAL_CONFIG'] = str(Path(__file__).resolve().parent / 'con
 
 from app.config import Config
 from app.main import create_app
+from app.face_keep import PassthroughFaceKeeper
 from app.photo_prep import PassthroughPhotoPreparer
 from app.prompts import DEFAULT_PREVIEW_STYLE_IDS
 
@@ -43,11 +44,13 @@ class ScriptedGenerator:
         self.calls = []
         self.models = []
         self.aspect_ratios = []
+        self.masks = []
         self.lock = threading.Lock()
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *, mask=None) -> bytes:
         with self.lock:
             self.calls.append((list(images), prompt, time.monotonic()))
+            self.masks.append(mask)
             self.models.append(model)
             self.aspect_ratios.append(aspect_ratio)
             outcome = self.outcomes.pop(0) if self.outcomes else None
@@ -63,7 +66,7 @@ class BlockingGenerator(ScriptedGenerator):
         self.release = threading.Event()
         self.models = []
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *, mask=None) -> bytes:
         with self.lock:
             self.calls.append((list(images), prompt, time.monotonic()))
             self.models.append(model)
@@ -77,13 +80,16 @@ class BlockingGenerator(ScriptedGenerator):
 @pytest.fixture
 def app_factory(tmp_path):
     @contextmanager
-    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_swap=False, stylist=None):
+    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_swap=False, stylist=None,
+                face_keeper=None):
         config = Config(data_dir or tmp_path / 'data', concurrency, 'mock', 0)
         # Test photos are tiny placeholders without faces; photo preparation has its own tests.
         # Styled photos (V4.0) are edited by their own scripted model, so tests counting shot requests are not
         # thrown off by the styling edits; app.state.stylist lets a test inspect them.
         stylist = stylist or ScriptedGenerator()
-        app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer(), stylist)
+        # Keeping the face (V6.0) needs real faces too; tests that check it pass their own keeper.
+        app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer(), stylist,
+                         face_keeper or PassthroughFaceKeeper())
         app.state.stylist = stylist
         # uvicorn[standard] uses uvloop on this Linux/Python 3.14 environment.
         # Match that loop in TestClient to avoid the stdlib portal wake-up stall.
@@ -125,7 +131,7 @@ DEFAULT_TEST_STYLE_IDS = ['korean_minimal', 'french_vintage', 'forest_natural', 
 def ensure_looks(client, project_id):
     """Give each person one selected look (V5.0) unless they have a usable one; returns the project detail.
 
-    The bride gets an updo in classic red, which every style accepts; with short hair she keeps her own.
+    The bride gets an updo, which every style accepts; with short hair she keeps her own.
     """
     detail = client.get(f'/api/projects/{project_id}').json()
     for person in ('a', 'b'):
@@ -135,9 +141,9 @@ def ensure_looks(client, project_id):
         if role == 'groom':
             item = {'hairstyle_id': 'keep'}
         elif detail['bride_hair_length'] == 'short':
-            item = {'hairstyle_id': 'keep', 'makeup_color': 'classic_red'}
+            item = {'hairstyle_id': 'keep'}
         else:
-            item = {'hairstyle_id': 'low_bun', 'makeup_color': 'classic_red'}
+            item = {'hairstyle_id': 'low_bun'}
         response = client.post(f'/api/projects/{project_id}/looks',
                                json={'client_request_id': f'look-{uuid.uuid4()}', 'person': person, 'items': [item]})
         assert response.status_code == 201, response.text

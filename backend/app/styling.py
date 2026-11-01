@@ -1,9 +1,13 @@
 """Looks (V5.0): styled photos the user generates and picks, and which look a shot uses.
 
-The image edit endpoint copies what the reference photos show, so hairstyle, skin and makeup cannot be asked of
-a shot. Instead each person's uploaded photo is edited into "looks" when the user asks for candidates (one edit
-each: a hairstyle and, for the bride, a makeup colour family); the user selects some, and every sample is shot
-from one selected look per person. Photo sets and slot actions keep the looks of the picture they start from.
+The image edit endpoint copies what the reference photos show, so a hairstyle cannot be asked of a shot. Instead
+each person's uploaded photo is edited into "looks" when the user asks for candidates, one edit per hairstyle;
+the user selects some, and every sample is shot from one selected look per person. Photo sets and slot actions
+keep the looks of the picture they start from.
+
+V6.0: a look is only the hairstyle. Its face is the uploaded photo's, laid back after the edit (app/face_keep.py),
+and the shot draws makeup and retouching, with the bride's colour family set by the style. Looks from V5.x wear
+makeup and are not used for new shots.
 
 A shot task records its looks in its model snapshot:
     'looks': {'version': STYLING_VERSION, 'bride': look id, 'groom': look id}
@@ -17,26 +21,17 @@ automatic styling is retired.
 """
 
 from .face_swap import face_swap_reference_ids
-from .prompts import HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLES, STYLING_VERSION, UPDO_STYLES
+from .prompts import HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLES, STYLING_VERSION, UPDO_STYLES
 
 # Order of face_swap_reference_ids().
 FACE_SWAP_SLOTS = (('bride', 'front'), ('groom', 'front'), ('bride', 'left'), ('bride', 'right'),
                    ('groom', 'left'), ('groom', 'right'))
 MAX_SELECTED_LOOKS = 3
-# Candidates offered first (V5.2: six for the bride, four for the groom). The bride's six cover updos and loose
-# hair and the most recommended colour families, so most styles get a look in their recommended colour.
+# Candidates checked first (V5.2: six for the bride, four for the groom), covering updos and loose hair.
 # A hairstyle the stated hair length cannot do is replaced by the next one of its length list that is unused.
 DEFAULT_LOOKS = {
-    'bride': (('keep', 'milk_tea'), ('low_bun', 'classic_red'), ('soft_waves', 'peach_coral'), ('half_up', 'soft_pink'),
-              ('high_bun', 'rose_bean'), ('french_bun', 'champagne')),
-    'groom': (('keep', None), ('side_part', None), ('textured', None), ('side_back', None)),
-}
-# The colour family suggested next to each bride hairstyle when all of them are listed for picking (V5.2).
-SUGGESTED_COLORS = {
-    'keep': 'milk_tea', 'low_bun': 'classic_red', 'high_bun': 'rose_bean', 'french_bun': 'champagne',
-    'chinese_bun': 'classic_red', 'finger_waves': 'classic_red', 'half_up': 'soft_pink', 'big_waves': 'berry',
-    'soft_waves': 'peach_coral', 'low_ponytail': 'rose_bean', 'side_braid': 'terracotta', 'short_inward': 'peach_coral',
-    'short_curls': 'berry', 'slick_short': 'classic_red',
+    'bride': ('keep', 'low_bun', 'soft_waves', 'half_up', 'high_bun', 'french_bun'),
+    'groom': ('keep', 'side_part', 'textured', 'side_back'),
 }
 # Replacements for a bride with short hair, in order.
 SHORT_BRIDE_HAIRSTYLES = ('slick_short', 'short_inward', 'short_curls')
@@ -60,20 +55,20 @@ def makeup_level_of(project, role: str) -> str:
     return project['makeup_level'] if role == 'bride' else project['groom_makeup_level']
 
 
-def default_look_items(project, role: str) -> list[tuple[str, str | None]]:
-    """The default candidates for this person's stated hair length, without duplicates.
+def default_look_items(project, role: str) -> list[str]:
+    """The default hairstyles for this person's stated hair length, without duplicates.
 
     A hairstyle the length cannot do becomes the next unused short-hair style (a bride with short hair), else the
-    photo's own hairstyle, keeping the colour; a groom with a buzz cut only keeps his own.
+    photo's own hairstyle; a groom with a buzz cut only keeps his own.
     """
     length = hair_length_of(project, role)
     spare = [item for item in SHORT_BRIDE_HAIRSTYLES if role == 'bride' and length in HAIRSTYLE_BY_KEY[(role, item)].lengths]
     items = []
-    for hairstyle_id, color in DEFAULT_LOOKS[role]:
+    for hairstyle_id in DEFAULT_LOOKS[role]:
         if length not in HAIRSTYLE_BY_KEY[(role, hairstyle_id)].lengths:
             hairstyle_id = spare.pop(0) if spare else 'keep'
-        if (hairstyle_id, color) not in items:
-            items.append((hairstyle_id, color))
+        if hairstyle_id not in items:
+            items.append(hairstyle_id)
     return items
 
 
@@ -83,6 +78,8 @@ def look_problem(project, look) -> str | None:
         return 'unavailable'
     if look['status'] != 'ready' or look['image_asset_id'] is None:
         return 'not_ready'
+    if look['styling_version'] != STYLING_VERSION:
+        return 'outdated'
     if role_of(project, look['person']) != look['role']:
         return 'role_changed'
     if project[f"person_{look['person']}_image_id"] != look['source_asset_id']:
@@ -92,6 +89,7 @@ def look_problem(project, look) -> str | None:
 
 LOOK_PROBLEM_MESSAGES = {
     'unavailable': '这套造型不存在或已删除',
+    'outdated': '这是旧版本的造型，脸上带着妆容；现在妆容在拍摄时按风格绘制，请重新生成造型',
     'not_ready': '这套造型还没有生成好',
     'role_changed': '交换新娘和新郎之后，这套造型不能再用于新照片',
     'photo_replaced': '这个人的照片已经更换，这套造型不能再用于新照片',
@@ -113,29 +111,15 @@ def selected_looks(conn, project, role: str) -> list:
     return [row for row in rows if look_problem(project, row) is None]
 
 
-def color_match(style_id: str, color: str | None) -> str | None:
-    """'primary' / 'alternate' / 'other' for the bride's colour against the style's recommendation."""
-    if color is None:
-        return None
-    primary, alternates = STYLE_MAKEUP_COLORS[style_id]
-    return 'primary' if color == primary else 'alternate' if color in alternates else 'other'
-
-
 def default_assignment(conn, project) -> dict:
-    """Per style, the looks a new sample uses unless the user picks others.
-
-    Among the selected looks that fit the style: the first in the style's recommended colour, else the first in
-    one of its alternate colours, else the first. Shown before generating, so the rule never acts unseen.
+    """Per style, the looks a new sample uses unless the user picks others: the first selected look that fits the
+    style. Shown before generating, so the rule never acts unseen. (V5.x also preferred the bride look in the
+    style's colour; since V6.0 the shot draws that colour.)
     """
     brides, grooms = selected_looks(conn, project, 'bride'), selected_looks(conn, project, 'groom')
     result = {}
     for style in STYLES:
-        fitting = [look for look in brides if fits_style(look, style['id'])]
-        bride = None
-        for wanted in ('primary', 'alternate', 'other'):
-            bride = next((look for look in fitting if color_match(style['id'], look['makeup_color']) == wanted), None)
-            if bride is not None:
-                break
+        bride = next((look for look in brides if fits_style(look, style['id'])), None)
         result[style['id']] = {'bride': bride['id'] if bride else None, 'groom': grooms[0]['id'] if grooms else None}
     return result
 

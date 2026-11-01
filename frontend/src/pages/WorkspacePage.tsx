@@ -161,8 +161,9 @@ const GROOM_HAIR_OPTIONS: [GroomHairLength, string][] = [
 
 type LookField = "makeup_level" | "groom_makeup_level" | "bride_hair_length" | "groom_hair_length";
 
-/** Shown on the looks step: these settings only affect look candidates generated afterwards. */
-function MakeupCard({ project }: { project: ProjectDetail }) {
+/** Hair lengths on the looks step (they decide the hairstyles offered); makeup levels on the style step, since the
+ * shot draws makeup and retouching (V6.0). Either only affects what is generated afterwards. */
+function MakeupCard({ project, kind }: { project: ProjectDetail; kind: "hair" | "makeup" }) {
   const { refresh } = useCurrentProject();
   const toast = useToast();
 
@@ -195,18 +196,25 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
 
   return (
     <div className="card tips makeup-card">
-      <h3>造型与精修</h3>
-      <div className="makeup-rows">
-        {row("makeup_level", "新娘妆容", BRIDE_MAKEUP_OPTIONS)}
-        {row("groom_makeup_level", "新郎精修", GROOM_MAKEUP_OPTIONS)}
-        {row("bride_hair_length", "新娘头发", BRIDE_HAIR_OPTIONS)}
-        {row("groom_hair_length", "新郎头发", GROOM_HAIR_OPTIONS)}
-        <span className="muted">
-          头发长度请按照片里的实际长度选，它决定能做哪些发型，长度保持和照片一致。
-          档位决定提白、去瑕疵和妆容的强度，越高修得越多；新郎只在「精致」一档化淡妆。
-          改了只影响之后生成的造型候选，已经生成的造型和照片不变。
-        </span>
-      </div>
+      <h3>{kind === "hair" ? "头发长度" : "妆容与精修"}</h3>
+      {kind === "hair" ? (
+        <div className="makeup-rows">
+          {row("bride_hair_length", "新娘头发", BRIDE_HAIR_OPTIONS)}
+          {row("groom_hair_length", "新郎头发", GROOM_HAIR_OPTIONS)}
+          <span className="muted">
+            请按照片里的实际长度选，它决定能做哪些发型，长度保持和照片一致。改了只影响之后生成的造型候选。
+          </span>
+        </div>
+      ) : (
+        <div className="makeup-rows">
+          {row("makeup_level", "新娘妆容", BRIDE_MAKEUP_OPTIONS)}
+          {row("groom_makeup_level", "新郎精修", GROOM_MAKEUP_OPTIONS)}
+          <span className="muted">
+            造型照是素颜，拍摄时按档位化妆、提白、去瑕疵，越高修得越多；新郎只在「精致」一档化淡妆；新娘的妆色按风格配。
+            改了只影响之后生成的样片和照片，已经生成的不变。
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -241,7 +249,7 @@ function UploadStep({ project, onNext }: { project: ProjectDetail; onNext: () =>
           <li>正面照必传：正脸或接近正脸，自然光</li>
           <li>半身照效果优于证件照；证件照可以用，但效果可能较弱</li>
           <li>侧面照可选：约 45° 侧脸，只在脸朝同一侧的镜头里使用</li>
-          <li>素颜照也可以，发型和妆容在下一步「选造型」里统一做；不要用美颜或修过图的照片</li>
+          <li>素颜照也可以，发型在下一步「选造型」里做，妆容在拍摄时化；不要用美颜或修过图的照片</li>
           <li>上传后会自动裁到头部和肩膀，缩略图就是实际使用的照片；照片里只能有本人</li>
         </ul>
       </div>
@@ -381,25 +389,14 @@ function PersonUpload({
   );
 }
 
-// ---------- Step 2: looks (V5.0) ----------
+// ---------- Step 2: looks (V5.0; hair only since V6.0) ----------
 
+// V5.x looks also name their makeup colour.
 const lookLabel = (look: Look) =>
   [look.hairstyle_name, look.makeup_color_name].filter(Boolean).join(" · ");
 
-/** Styles that recommend a colour (first) or accept it as an alternate, by name. */
-function colorHint(options: LookOptions, styles: Style[] | null, color: string) {
-  if (!styles) return "";
-  const active = styles.filter((style) => !style.retired);
-  const primary = active.filter((style) => options.styles[style.id]?.primary === color).map((style) => style.name);
-  const alternate = active.filter((style) => options.styles[style.id]?.alternates.includes(color)).map((style) => style.name);
-  return [primary.length ? `主推：${primary.join("、")}` : "", alternate.length ? `备选：${alternate.join("、")}` : ""]
-    .filter(Boolean)
-    .join("；");
-}
-
 function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack: () => void; onNext: () => void }) {
   const options = usePolledResource(api.lookOptions, []);
-  const styles = usePolledResource(api.styles, []);
   const ready = hasSelectedLooks(project);
   const people = (["a", "b"] as const)
     .map((which) => ({ which, person: which === "a" ? project.person_a : project.person_b }))
@@ -411,12 +408,12 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
     <>
       <div className="page-header">
         <p className="muted">
-          每张造型候选是从上传的照片修一次（一次付费修图）：换好发型、化好妆、提白去瑕疵，背景换成纯色。
+          每张造型候选是从上传的照片修一次（一次付费修图）：只换发型，背景换成纯色；脸保持照片里的原样，妆容和精修在拍摄时做。
           每人选用 1～{options.data.max_selected} 套，之后的样片和成片都照着选用的造型拍；排在第一的是默认造型。
         </p>
       </div>
 
-      <MakeupCard project={project} />
+      <MakeupCard project={project} kind="hair" />
 
       {people.map(({ which, person }) => (
         <PersonLooks
@@ -425,7 +422,6 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
           which={which}
           role={person.role}
           options={options.data!}
-          styles={styles.data}
         />
       ))}
 
@@ -447,13 +443,11 @@ function PersonLooks({
   which,
   role,
   options,
-  styles,
 }: {
   project: ProjectDetail;
   which: "a" | "b";
   role: Role;
   options: LookOptions;
-  styles: Style[] | null;
 }) {
   const { refresh } = useCurrentProject();
   const toast = useToast();
@@ -461,14 +455,11 @@ function PersonLooks({
   const length = role === "bride" ? project.bride_hair_length : project.groom_hair_length;
   const hairstyles = options.hairstyles.filter((item) => item.role === role && item.lengths.includes(length));
   const defaults = project.default_look_items[role];
-  // Every hairstyle the stated length allows, each with its colour; the default candidates start checked.
+  // Every hairstyle the stated length allows; the default candidates start checked.
   const initialPicks = () =>
     Object.fromEntries(
-      hairstyles.map((hairstyle) => {
-        const preset = defaults.find((item) => item.hairstyle_id === hairstyle.id);
-        return [hairstyle.id, { on: Boolean(preset), color: preset?.makeup_color ?? hairstyle.default_color }];
-      }),
-    ) as Record<string, { on: boolean; color: string | null }>;
+      hairstyles.map((hairstyle) => [hairstyle.id, defaults.some((item) => item.hairstyle_id === hairstyle.id)]),
+    ) as Record<string, boolean>;
   const [picks, setPicks] = useState(initialPicks);
   const [submitting, setSubmitting] = useState(false);
   const [viewing, setViewing] = useState<Look | null>(null);
@@ -482,13 +473,9 @@ function PersonLooks({
   const defaultsKey = JSON.stringify([defaults, hairstyles.map((item) => item.id)]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setPicks(initialPicks()), [defaultsKey]);
-  const chosen: LookItem[] = hairstyles
-    .filter((hairstyle) => picks[hairstyle.id]?.on)
-    .map((hairstyle) => ({ hairstyle_id: hairstyle.id, makeup_color: role === "bride" ? picks[hairstyle.id].color : null }));
-  const setPick = (id: string, patch: Partial<{ on: boolean; color: string | null }>) =>
-    setPicks((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  const chosen: LookItem[] = hairstyles.filter((hairstyle) => picks[hairstyle.id]).map((hairstyle) => ({ hairstyle_id: hairstyle.id }));
   const checkAll = (on: (id: string) => boolean) =>
-    setPicks((prev) => Object.fromEntries(Object.entries(prev).map(([id, pick]) => [id, { ...pick, on: on(id) }])));
+    setPicks((prev) => Object.fromEntries(Object.keys(prev).map((id) => [id, on(id)])));
 
   const act = async (operation: () => Promise<unknown>) => {
     try {
@@ -514,37 +501,21 @@ function PersonLooks({
       </div>
 
       <div className="look-form">
-        {hairstyles.map((hairstyle) => {
-          const pick = picks[hairstyle.id];
-          if (!pick) return null;
-          return (
-            <div className={`look-form-row ${pick.on ? "" : "off"}`} key={hairstyle.id}>
-              <label className="look-check">
-                <input type="checkbox" checked={pick.on} onChange={(event) => setPick(hairstyle.id, { on: event.target.checked })} />
-                <span>
-                  {hairstyle.name}
-                  {hairstyle.updo && <span className="muted">（盘发）</span>}
-                </span>
-              </label>
-              {role === "bride" && (
-                <select
-                  value={pick.color ?? ""}
-                  onChange={(event) => setPick(hairstyle.id, { color: event.target.value, on: true })}
-                  aria-label={`${hairstyle.name}的妆色`}
-                >
-                  {options.makeup_colors.map((color) => (
-                    <option key={color.id} value={color.id}>
-                      {color.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {role === "bride" && pick.color && (
-                <span className="field-hint look-hint">{colorHint(options, styles, pick.color)}</span>
-              )}
-            </div>
-          );
-        })}
+        <div className="look-checks">
+          {hairstyles.map((hairstyle) => (
+            <label className={`look-check ${picks[hairstyle.id] ? "" : "off"}`} key={hairstyle.id}>
+              <input
+                type="checkbox"
+                checked={Boolean(picks[hairstyle.id])}
+                onChange={(event) => setPicks((prev) => ({ ...prev, [hairstyle.id]: event.target.checked }))}
+              />
+              <span>
+                {hairstyle.name}
+                {hairstyle.updo && <span className="muted">（盘发）</span>}
+              </span>
+            </label>
+          ))}
+        </div>
         <div className="look-form-actions">
           <button className="btn btn-ghost btn-sm" onClick={() => checkAll(() => true)}>
             全选（{hairstyles.length} 种）
@@ -596,10 +567,7 @@ function PersonLooks({
                 </div>
                 <div className="look-body">
                   <strong>{lookLabel(look)}</strong>
-                  <span className="muted">
-                    {(role === "bride" ? BRIDE_MAKEUP_OPTIONS : GROOM_MAKEUP_OPTIONS).find(([value]) => value === look.makeup_level)?.[1]}
-                    {look.face_score !== null && ` · 相似度 ${look.face_score.toFixed(2)}`}
-                  </span>
+                  {look.face_score !== null && <span className="muted">相似度 {look.face_score.toFixed(2)}</span>}
                   {look.unusable_reason && <span className="error-text">{look.unusable_reason}</span>}
                   <div className="look-actions">
                     {look.status === "ready" && look.usable && (
@@ -618,9 +586,9 @@ function PersonLooks({
                     {look.status === "ready" && (
                       <button
                         className="btn btn-ghost btn-sm"
-                        onClick={() => generate([{ hairstyle_id: look.hairstyle_id, makeup_color: look.makeup_color }])}
+                        onClick={() => generate([{ hairstyle_id: look.hairstyle_id }])}
                         disabled={submitting || !hairstyles.some((item) => item.id === look.hairstyle_id)}
-                        title="同样的发型和妆色再修一张（1 次修图）"
+                        title="同样的发型再修一张（1 次修图）"
                       >
                         再来一张
                       </button>
@@ -852,6 +820,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
       <div className="page-header">
         <p className="muted">
           每种风格先生成 1 张样片。喜欢哪种，就点「用这个风格拍一组」；可以拍多种风格，也可以同一风格多拍几组。
+          拍摄时按下面的档位化妆和精修，新娘的妆色按风格配。
         </p>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-ghost" onClick={onBack}>
@@ -869,6 +838,8 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           </button>
         </div>
       </div>
+
+      <MakeupCard project={project} kind="makeup" />
 
       {pickable.length > 0 && (
         <div className="card style-picker">

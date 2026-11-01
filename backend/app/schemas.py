@@ -119,8 +119,8 @@ class BatchActionCreate(InputModel):
 
 
 class LookItem(InputModel):
+    # Only the hairstyle (V6.0): the bride's makeup colour is set per style when the shot is drawn.
     hairstyle_id: str
-    makeup_color: str | None = None
 
 
 class LookCreate(InputModel):
@@ -272,8 +272,6 @@ class HairstyleOption(BaseModel):
     role: Role
     lengths: list[str]
     updo: bool
-    # The bride's suggested colour family next to this hairstyle; null for the groom.
-    default_color: str | None
 
 
 class MakeupColorOption(BaseModel):
@@ -290,7 +288,6 @@ class StyleMakeup(BaseModel):
 
 class LookDefault(BaseModel):
     hairstyle_id: str
-    makeup_color: str | None
 
 
 class LookOptions(BaseModel):

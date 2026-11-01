@@ -165,7 +165,13 @@ class Api88Generator(ImageGenerator):
             raise GeneratorError(OutcomeKind.REJECTED, message)
         return response
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *,
+                       mask: bytes | None = None) -> bytes:
+        """mask: a PNG the size of the single image, transparent where the edit may change it (looks, V6.0). Only
+        the edits endpoint takes one; Gemini models get the picture without it, and the caller's own face
+        restoration still keeps the face."""
+        if mask is not None and len(images) != 1:
+            raise ValueError('a mask goes with exactly one image')
         if aspect_ratio not in SUPPORTED_RATIOS:
             raise ValueError(f'unsupported aspect_ratio {aspect_ratio}')
         model_id = model
@@ -195,7 +201,8 @@ class Api88Generator(ImageGenerator):
                     model=model_id,
                     data={'model': model_id, 'prompt': prompt,
                           'size': OPENAI_SIZES[aspect_ratio][self._config.resolution], 'n': '1'},
-                    files=[('image[]', reference) for reference in references],
+                    files=[('image[]', reference) for reference in references] +
+                          ([('mask', ('mask.png', mask, 'image/png'))] if mask is not None else []),
                 )
             else:
                 content = [{'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{base64.b64encode(data).decode()}'}}
