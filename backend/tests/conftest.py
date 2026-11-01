@@ -47,16 +47,21 @@ class ScriptedGenerator:
         self.masks = []
         self.lock = threading.Lock()
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *, mask=None) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
         with self.lock:
             self.calls.append((list(images), prompt, time.monotonic()))
-            self.masks.append(mask)
             self.models.append(model)
             self.aspect_ratios.append(aspect_ratio)
             outcome = self.outcomes.pop(0) if self.outcomes else None
         if isinstance(outcome, Exception):
             raise outcome
         return images[0].read_bytes()
+
+    def edit_with_mask(self, image: Path, mask, prompt: str) -> bytes:
+        """The masked edit of a front look (PPTOKEN in the app); counted with the other edits."""
+        with self.lock:
+            self.masks.append(mask)
+        return self.generate_image([image], prompt, 'gpt-image-2.5', '3:4')
 
 
 class BlockingGenerator(ScriptedGenerator):
@@ -66,7 +71,7 @@ class BlockingGenerator(ScriptedGenerator):
         self.release = threading.Event()
         self.models = []
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *, mask=None) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
         with self.lock:
             self.calls.append((list(images), prompt, time.monotonic()))
             self.models.append(model)
@@ -88,8 +93,9 @@ def app_factory(tmp_path):
         # thrown off by the styling edits; app.state.stylist lets a test inspect them.
         stylist = stylist or ScriptedGenerator()
         # Keeping the face (V6.0) needs real faces too; tests that check it pass their own keeper.
+        # The stylist also makes the masked edits of front looks, which go to PPTOKEN in the app.
         app = create_app(config, generator, face_swapper, PassthroughPhotoPreparer(), stylist,
-                         face_keeper or PassthroughFaceKeeper())
+                         face_keeper or PassthroughFaceKeeper(), mask_editor=stylist)
         app.state.stylist = stylist
         # uvicorn[standard] uses uvloop on this Linux/Python 3.14 environment.
         # Match that loop in TestClient to avoid the stdlib portal wake-up stall.

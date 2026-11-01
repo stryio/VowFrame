@@ -5,5 +5,7 @@
   "model": "gpt-image-2",
   "timeout": 600,
   "aspect_ratio": "3:4",
-  "resolution": "2K"
+  "resolution": "2K",
+  "pptoken_api_key": "sk-...",
+  "pptoken_base_url": "https://api.pptoken.cc"
 }

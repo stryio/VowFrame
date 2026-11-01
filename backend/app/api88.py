@@ -65,9 +65,12 @@ def retry_after_seconds(value: str | None) -> float | None:
 
 
 class Api88Generator(ImageGenerator):
+    # Names the provider in log lines; app.pptoken reuses this class for another provider.
+    PROVIDER = '88API'
+
     def __init__(self, config: Config, *, transport: httpx.BaseTransport | None = None):
         if not isinstance(config.api_key, str) or not config.api_key.strip():
-            raise ValueError('使用 88API 时必须在本地配置文件中填写非空 api_key')
+            raise ValueError(f'使用 {self.PROVIDER} 时必须在本地配置文件中填写非空 api_key')
         if get_model(config.model) is None:
             raise ValueError('暂不支持此模型，请使用模型列表中的模型')
         if config.aspect_ratio not in SUPPORTED_RATIOS:
@@ -99,7 +102,7 @@ class Api88Generator(ImageGenerator):
         detail = self._error_detail(response).replace(self._config.api_key, '[REDACTED]')
         escaped_key = json.dumps(self._config.api_key)[1:-1]
         detail = detail.replace(escaped_key, '[REDACTED]')
-        logger.warning('88API HTTP %s: %s', response.status_code, detail[:2000])
+        logger.warning('%s HTTP %s: %s', self.PROVIDER, response.status_code, detail[:2000])
 
     def _redact(self, value: object) -> str:
         text = str(value)
@@ -117,7 +120,7 @@ class Api88Generator(ImageGenerator):
         }
         if url is not None:
             fields['url_host'] = urlsplit(url).hostname or ''
-        logger.warning('88API transport failure %s', ' '.join(f'{key}={value}' for key, value in fields.items()))
+        logger.warning('%s transport failure %s', self.PROVIDER, ' '.join(f'{key}={value}' for key, value in fields.items()))
 
     def _check_request_url(self, request: httpx.Request):
         # HTTPX logs request URLs, including redirect targets. Stop any echoed
@@ -165,13 +168,7 @@ class Api88Generator(ImageGenerator):
             raise GeneratorError(OutcomeKind.REJECTED, message)
         return response
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *,
-                       mask: bytes | None = None) -> bytes:
-        """mask: a PNG the size of the single image, transparent where the edit may change it (looks, V6.0). Only
-        the edits endpoint takes one; Gemini models get the picture without it, and the caller's own face
-        restoration still keeps the face."""
-        if mask is not None and len(images) != 1:
-            raise ValueError('a mask goes with exactly one image')
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
         if aspect_ratio not in SUPPORTED_RATIOS:
             raise ValueError(f'unsupported aspect_ratio {aspect_ratio}')
         model_id = model
@@ -201,8 +198,7 @@ class Api88Generator(ImageGenerator):
                     model=model_id,
                     data={'model': model_id, 'prompt': prompt,
                           'size': OPENAI_SIZES[aspect_ratio][self._config.resolution], 'n': '1'},
-                    files=[('image[]', reference) for reference in references] +
-                          ([('mask', ('mask.png', mask, 'image/png'))] if mask is not None else []),
+                    files=[('image[]', reference) for reference in references],
                 )
             else:
                 content = [{'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{base64.b64encode(data).decode()}'}}

@@ -38,16 +38,36 @@ class GeneratorError(Exception):
 
 
 class ImageGenerator(Protocol):
-    # mask: only for looks (V6.0), a PNG transparent where the single image may change.
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *,
-                       mask: bytes | None = None) -> bytes: ...
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes: ...
+
+
+class MaskEditor(Protocol):
+    """Edits one photo with a mask (front looks, V6.0): 88API does not take masks, so this is PPTOKEN
+    (app.pptoken). mask: a PNG the photo's size, transparent where the edit may change it."""
+    mask_model: str
+
+    def edit_with_mask(self, image: Path, mask: bytes | None, prompt: str) -> bytes: ...
 
 
 class MockGenerator:
+    mask_model = 'mock'
+
     def __init__(self, delay_seconds: float = 2):
         self.delay_seconds = delay_seconds
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, *,
-                       mask: bytes | None = None) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
         time.sleep(self.delay_seconds)
         return images[0].read_bytes()
+
+    def edit_with_mask(self, image: Path, mask: bytes | None, prompt: str) -> bytes:
+        time.sleep(self.delay_seconds)
+        return image.read_bytes()
+
+
+class MissingMaskEditor:
+    """Stands in when no PPTOKEN key is configured: front looks fail with the reason, before anything is sent."""
+    mask_model = 'gpt-image-2.5'
+
+    def edit_with_mask(self, image: Path, mask: bytes | None, prompt: str) -> bytes:
+        raise GeneratorError(OutcomeKind.NOT_SENT, '造型照的遮罩修图走 PPTOKEN，请在 backend/config.local.json 里填写 pptoken_api_key 后重试',
+                             error_code='mask_editor_missing')

@@ -55,7 +55,8 @@ SQLite 的 `app_settings` 键值表中，并会影响之后新建的拍组任务
 cp backend/config.local.example.json backend/config.local.json
 ```
 
-在本地编辑 `backend/config.local.json`，将 `api_key` 替换成自己的 88API 密钥。
+在本地编辑 `backend/config.local.json`，将 `api_key` 替换成自己的 88API 密钥，
+`pptoken_api_key` 替换成自己的 PPTOKEN 密钥。
 该文件已加入 `.gitignore`，请勿提交、打印或分享其中的密钥。不要复用或读取
 图片生成 skill 的私有配置文件。配置示例：
 
@@ -67,9 +68,16 @@ cp backend/config.local.example.json backend/config.local.json
   "model": "gpt-image-2",
   "timeout": 600,
   "aspect_ratio": "3:4",
-  "resolution": "2K"
+  "resolution": "2K",
+  "pptoken_api_key": "sk-...",
+  "pptoken_base_url": "https://api.pptoken.cc"
 }
 ```
+
+正面造型照要带遮罩修图（docs/prompts.md 第 8.6 节），88API 不支持遮罩，这一步走
+PPTOKEN 的 `gpt-image-2.5`（`pptoken_base_url` 默认 `https://api.pptoken.cc`）。
+样片、成片和侧面造型照仍走 88API。没有填 `pptoken_api_key` 时服务照常启动，只有
+正面造型照会失败，提示补填密钥（`mask_editor_missing`，请求没有发出，不扣费）。
 
 没有本地文件时使用模拟生成器；设置 `VOWFRAME_GENERATOR=mock` 可以临时覆盖
 文件中的真实生成器选择。配置在启动时读取，修改后需要重启。选择 `88api` 时，

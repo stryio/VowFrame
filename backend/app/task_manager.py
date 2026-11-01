@@ -10,7 +10,7 @@ import time
 from .config import Config
 from .db import Database, new_id, utc_now
 from .face_keep import FaceKeepError, FaceKeeper, YuNetFaceKeeper
-from .generator import GeneratorError, ImageGenerator, OutcomeKind
+from .generator import GeneratorError, ImageGenerator, MaskEditor, OutcomeKind
 from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, create_face_swapper,
                         face_swap_applied_snapshot, face_swap_snapshot, face_swap_weight)
 from .models import DEFAULT_MODEL
@@ -25,7 +25,8 @@ SCORE_CHUNK = 20
 
 class TaskManager:
     def __init__(self, config: Config, db: Database, generator: ImageGenerator, swapper: FaceSwapper | None = None,
-                 stylist: ImageGenerator | None = None, face_keeper: FaceKeeper | None = None):
+                 stylist: ImageGenerator | None = None, face_keeper: FaceKeeper | None = None,
+                 mask_editor: MaskEditor | None = None):
         self.config = config
         self.db = db
         self.generator = generator
@@ -33,6 +34,8 @@ class TaskManager:
         self.stylist = stylist or generator
         # Keeps the uploaded face in a front look: a mask for the edit, the face laid back after it (V6.0).
         self.face_keeper = face_keeper or YuNetFaceKeeper()
+        # Makes the masked edit of front looks: PPTOKEN, since 88API takes no mask (app.pptoken).
+        self.mask_editor = mask_editor or self.stylist
         self.swapper = swapper or create_face_swapper(config)
         # One edit per side look: shots of a set run in parallel and wait for the first one to make it.
         self._styling_locks: dict[tuple, asyncio.Lock] = {}
@@ -339,9 +342,10 @@ class TaskManager:
         """Edit an uploaded photo into a look candidate the user asked for: only the hair changes (V6.0).
 
         The edit is sent with a mask that keeps the face, and the photo's face is laid back over the result, so
-        the look's face is the uploaded one whatever the edit did to it (app/face_keep.py).
+        the look's face is the uploaded one whatever the edit did to it (app/face_keep.py). The edit goes to the
+        mask editor (PPTOKEN), whatever image model the project uses for shots.
         """
-        model = look['model'] or self.db.get_default_model() or DEFAULT_MODEL
+        model = getattr(self.mask_editor, 'mask_model', None) or look['model'] or self.db.get_default_model() or DEFAULT_MODEL
         try:
             with self.db.connect() as conn:
                 path = self._asset_file(conn, look['source_asset_id'])
@@ -352,8 +356,7 @@ class TaskManager:
             mask, face = await asyncio.to_thread(self.face_keeper.mask, photo)
             started = time.monotonic()
             logger.info('Look request started model=%s look_id=%s masked=%s', model, look['id'], mask is not None)
-            content = await asyncio.to_thread(self.stylist.generate_image, [path], look['prompt'], model, STYLING_ASPECT_RATIO,
-                                              mask=mask)
+            content = await asyncio.to_thread(self.mask_editor.edit_with_mask, path, mask, look['prompt'])
             logger.info('Look request succeeded model=%s look_id=%s elapsed_seconds=%.3f', model, look['id'], time.monotonic() - started)
             content = await asyncio.to_thread(self.face_keeper.restore, photo, content, face)
         except FaceKeepError as error:
