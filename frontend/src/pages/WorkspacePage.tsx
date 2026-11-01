@@ -384,11 +384,55 @@ function PersonUpload({
 
 const lookLabel = (look: Look) => look.hairstyle_name;
 
+// Example pictures of a fictional couple, made once by backend/scripts/make_examples.py.
+const hairExample = (role: Role, hairstyleId: string) => `/examples/hair/${role}_${hairstyleId}.webp`;
+const styleExample = (styleId: string) => `/examples/styles/${styleId}.webp`;
+
+/** A choice shown with its example picture: the card toggles it, the corner button enlarges the picture. */
+function ExampleCard({
+  src,
+  label,
+  on,
+  disabled,
+  title,
+  onToggle,
+  onZoom,
+}: {
+  src: string;
+  label: React.ReactNode;
+  on: boolean;
+  disabled?: boolean;
+  title?: string;
+  onToggle: () => void;
+  onZoom: () => void;
+}) {
+  const [missing, setMissing] = useState(false);
+  return (
+    <div className={`example-card ${on ? "on" : ""} ${disabled ? "disabled" : ""}`} title={title}>
+      <button className="example-pick" onClick={onToggle} disabled={disabled} aria-pressed={on}>
+        <span className="example-photo">
+          {missing ? <span className="muted">暂无示例</span> : <img src={src} alt="" loading="lazy" onError={() => setMissing(true)} />}
+        </span>
+        <span className="example-label">
+          <span className={`example-check ${on ? "checked" : ""}`}>{on ? "✓" : ""}</span>
+          {label}
+        </span>
+      </button>
+      {!missing && (
+        <button className="example-zoom" onClick={onZoom} aria-label="看大图" title="看大图">
+          ⤢
+        </button>
+      )}
+    </div>
+  );
+}
+
 function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack: () => void; onNext: () => void }) {
   const options = usePolledResource(api.lookOptions, []);
   const styles = usePolledResource(api.styles, []);
   // Styles picked for the bride that have no look yet; styles with looks are always shown.
   const [picked, setPicked] = useState<string[]>([]);
+  const [zoom, setZoom] = useState<{ src: string; caption: string } | null>(null);
   const ready = hasStyleLooks(project);
   const bride = project.person_a.role === "bride" ? "a" : "b";
   const groom = bride === "a" ? "b" : "a";
@@ -420,24 +464,27 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
           <h3>新娘：选择要拍的风格</h3>
           <span className="muted">已选 {chosen.length} 种；每种风格做一套新娘造型</span>
         </div>
-        <div className="style-picker-grid">
+        <div className="example-grid style-examples">
           {offered.map((style) => {
             const on = chosen.some((item) => item.id === style.id);
             const locked = withLooks.has(style.id);
             return (
-              <button
+              <ExampleCard
                 key={style.id}
-                className={`style-option ${on ? "on" : ""}`}
-                title={locked ? "这个风格已经有造型；删掉它的全部造型后可以取消" : style.description}
+                src={styleExample(style.id)}
+                label={style.name}
+                on={on}
                 disabled={locked}
-                onClick={() => setPicked(on ? picked.filter((id) => id !== style.id) : [...picked, style.id])}
-              >
-                {style.name}
-              </button>
+                title={locked ? "这个风格已经有造型；删掉它的全部造型后可以取消" : style.description}
+                onToggle={() => setPicked(on ? picked.filter((id) => id !== style.id) : [...picked, style.id])}
+                onZoom={() => setZoom({ src: styleExample(style.id), caption: `${style.name}（示例）：${style.description}` })}
+              />
             );
           })}
         </div>
+        <span className="muted">示例图里是虚构的模特，用来看风格的场景、服装和光线。</span>
       </div>
+      {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
 
       {chosen.map((style) => (
         <PersonLooks key={style.id} project={project} which={bride} role="bride" options={options.data!} style={style} />
@@ -489,6 +536,7 @@ function PersonLooks({
   const [picks, setPicks] = useState(initialPicks);
   const [submitting, setSubmitting] = useState(false);
   const [viewing, setViewing] = useState<Look | null>(null);
+  const [zoom, setZoom] = useState<{ src: string; caption: string } | null>(null);
   const looks = project.looks.filter((look) => look.person === which && look.style_id === (style?.id ?? null));
   const inUse = looks.find((look) => look.selected && look.usable);
 
@@ -525,19 +573,21 @@ function PersonLooks({
       </div>
 
       <div className="look-form">
-        <div className="look-checks">
+        <div className="example-grid hair-examples">
           {hairstyles.map((hairstyle) => (
-            <label className={`look-check ${picks[hairstyle.id] ? "" : "off"}`} key={hairstyle.id}>
-              <input
-                type="checkbox"
-                checked={Boolean(picks[hairstyle.id])}
-                onChange={(event) => setPicks((prev) => ({ ...prev, [hairstyle.id]: event.target.checked }))}
-              />
-              <span>
-                {hairstyle.name}
-                {hairstyle.updo && <span className="muted">（盘发）</span>}
-              </span>
-            </label>
+            <ExampleCard
+              key={hairstyle.id}
+              src={hairExample(role, hairstyle.id)}
+              label={
+                <span>
+                  {hairstyle.name}
+                  {hairstyle.updo && <span className="muted">（盘发）</span>}
+                </span>
+              }
+              on={Boolean(picks[hairstyle.id])}
+              onToggle={() => setPicks((prev) => ({ ...prev, [hairstyle.id]: !prev[hairstyle.id] }))}
+              onZoom={() => setZoom({ src: hairExample(role, hairstyle.id), caption: `${hairstyle.name}（示例，虚构模特）` })}
+            />
           ))}
         </div>
         <div className="look-form-actions">
@@ -620,6 +670,7 @@ function PersonLooks({
           })}
         </div>
       )}
+      {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
       {viewing?.asset_id && (
         <CompareView
           title={`${title} · ${lookLabel(viewing)}`}
@@ -651,6 +702,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
   const styles = usePolledResource(api.styles, []);
   const [viewing, setViewing] = useState<Slot | null>(null);
   const [viewingLook, setViewingLook] = useState<{ assetId: string; caption: string } | null>(null);
+  const [zoom, setZoom] = useState<{ src: string; caption: string } | null>(null);
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [versionsFor, setVersionsFor] = useState<Slot | null>(null);
   const [planning, setPlanning] = useState<Slot | null>(null);
@@ -796,21 +848,20 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
               </button>
             )}
           </div>
-          <div className="style-picker-grid">
+          <div className="example-grid style-examples">
             {pickable.map((style) => {
               const on = chosenStyles.includes(style.id);
               return (
-                <button
+                <ExampleCard
                   key={style.id}
-                  className={`style-option ${on ? "on" : ""}`}
-                  title={hasLooks(style.id) ? style.description : "还没有这个风格的新娘造型，请先在「风格与造型」里做好并选用"}
+                  src={styleExample(style.id)}
+                  label={style.name}
+                  on={on}
                   disabled={!hasLooks(style.id)}
-                  onClick={() =>
-                    setChosen(on ? chosenStyles.filter((id) => id !== style.id) : [...chosenStyles, style.id])
-                  }
-                >
-                  {style.name}
-                </button>
+                  title={hasLooks(style.id) ? style.description : "还没有这个风格的新娘造型，请先在「风格与造型」里做好并选用"}
+                  onToggle={() => setChosen(on ? chosenStyles.filter((id) => id !== style.id) : [...chosenStyles, style.id])}
+                  onZoom={() => setZoom({ src: styleExample(style.id), caption: `${style.name}（示例）：${style.description}` })}
+                />
               );
             })}
           </div>
@@ -896,6 +947,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           onClose={() => setViewing(null)}
         />
       )}
+      {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
       {viewingLook && (
         <Lightbox src={assetUrl(viewingLook.assetId)} caption={viewingLook.caption} onClose={() => setViewingLook(null)} />
       )}
