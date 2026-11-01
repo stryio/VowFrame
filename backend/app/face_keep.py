@@ -9,8 +9,10 @@ made in two parts around the edit:
 2. restore(): the face of the uploaded photo is laid back over the edited picture, aligned on the eyes, nose and
    mouth the edit drew, with a soft edge. Inside that region the look is the uploaded photo's pixels.
 
-The forehead stays editable, so a fringe and the hairline's edge can change. Makeup and retouching are no longer
-part of a look; the shot draws them (docs/prompts.md section 8).
+V6.2: only face skin is kept. An ellipse alone laid a fringe of the photo back over the new hairstyle as a dark
+patch on the forehead, and cut off a fringe the new hairstyle has. A segmentation model (app/face_parse.py) marks
+face skin in the photo and in the edit; a pixel is laid back only where it is face skin in both, inside a bounding
+ellipse. Makeup and retouching are not part of a look; the shot draws them (docs/prompts.md section 8).
 """
 
 from __future__ import annotations
@@ -22,13 +24,18 @@ from typing import Callable, Protocol
 
 from PIL import Image, ImageOps
 
+from .face_parse import FaceParseError
 from .photo_prep import MIN_SCORE, MODEL_PATH
 
 DETECT_LONG_SIDE = 1280  # faces are found on a reduced copy, as in photo_prep
-# The kept region around the face box, in box widths/heights: an ellipse from about the eyebrows to the chin,
-# a little narrower than the cheeks so hair falling beside the face can change.
-KEEP_CENTRE_Y, KEEP_HALF_WIDTH, KEEP_HALF_HEIGHT = 0.55, 0.46, 0.48
-FEATHER = 0.05  # soft edge of the laid-back face, in face widths
+# The most that can be kept, around the face box, in box widths/heights: an ellipse from the top of the forehead
+# to the chin and out to the cheeks. Inside it only face skin is kept (V6.2), so it no longer has to stop short of
+# a possible fringe.
+KEEP_CENTRE_Y, KEEP_HALF_WIDTH, KEEP_HALF_HEIGHT = 0.45, 0.55, 0.62
+SKIN = 0.5  # face-skin probability above which a pixel counts as face
+# The laid-back face stops this far inside the face-skin edge, and fades out over FEATHER, so no hair next to the
+# edge is carried along (in face widths).
+SHRINK, FEATHER = 0.05, 0.025
 MAX_MISFIT = 0.08  # mean distance of the five points after alignment, in face widths: the face was redrawn otherwise
 
 
@@ -102,9 +109,36 @@ def _keep_ellipse(face: FaceShape) -> tuple[tuple[float, float], tuple[float, fl
     return (centre_x, y + height * KEEP_CENTRE_Y), (width * KEEP_HALF_WIDTH, height * KEEP_HALF_HEIGHT)
 
 
+def _ellipse(size: tuple[int, int], face: FaceShape):
+    import cv2
+    import numpy as np
+
+    region = np.zeros((size[1], size[0]), np.float32)
+    (cx, cy), (ax, ay) = _keep_ellipse(face)
+    cv2.ellipse(region, (round(cx), round(cy)), (round(ax), round(ay)), 0, 0, 360, 1.0, -1)
+    return region
+
+
+def _shrink(region, face_width: float):
+    import cv2
+
+    radius = max(1, round(face_width * SHRINK))
+    return cv2.erode(region, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1)))
+
+
 class YuNetFaceKeeper:
-    def __init__(self, detect: Callable[[Image.Image], list[FaceShape]] | None = None):
+    """skin: the face-skin probability of every pixel of an image around a face box (FaceParser.face_skin)."""
+
+    def __init__(self, skin: Callable[[Image.Image, tuple], object],
+                 detect: Callable[[Image.Image], list[FaceShape]] | None = None):
+        self._skin = skin
         self._detect = detect or _yunet_faces()
+
+    def _face_skin(self, image: Image.Image, face: FaceShape):
+        try:
+            return self._skin(image, face.box) > SKIN
+        except FaceParseError as error:
+            raise FaceKeepError(error.code, error.message) from None
 
     def _main_face(self, image: Image.Image) -> FaceShape | None:
         scale = min(1.0, DETECT_LONG_SIDE / max(image.size))
@@ -124,9 +158,8 @@ class YuNetFaceKeeper:
         face = self._main_face(image)
         if face is None:
             raise FaceKeepError(*NO_FACE)
-        alpha = np.zeros((image.height, image.width), np.uint8)
-        (cx, cy), (ax, ay) = _keep_ellipse(face)
-        cv2.ellipse(alpha, (round(cx), round(cy)), (round(ax), round(ay)), 0, 0, 360, 255, -1)
+        # Hair inside the ellipse (a fringe) is left free, so the edit may take it away.
+        alpha = ((_ellipse(image.size, face) > 0) & self._face_skin(image, face)).astype(np.uint8) * 255
         mask = Image.new('RGBA', image.size, (0, 0, 0, 0))
         mask.putalpha(Image.fromarray(alpha))
         output = io.BytesIO()
@@ -154,14 +187,14 @@ class YuNetFaceKeeper:
         misfit = float(np.linalg.norm(moved - target_points, axis=1).mean()) / drawn.box[2]
         if misfit > MAX_MISFIT:
             raise FaceKeepError(*FACE_LOST)
-        keep = np.zeros((source.height, source.width), np.float32)
-        (cx, cy), (ax, ay) = _keep_ellipse(face)
-        cv2.ellipse(keep, (round(cx), round(cy)), (round(ax), round(ay)), 0, 0, 360, 1.0, -1)
-        sigma = max(1.0, face.box[2] * FEATHER)
-        keep = cv2.GaussianBlur(keep, (0, 0), sigma)
+        # Face skin of the photo (its fringe excluded), moved to where the edit drew the face, and face skin of the
+        # edit (a new fringe excluded): only pixels that are face in both are laid back.
+        keep = _ellipse(source.size, face) * self._face_skin(source, face).astype(np.float32)
         size = (target.width, target.height)
+        moved_keep = cv2.warpAffine(keep, matrix, size, flags=cv2.INTER_NEAREST, borderValue=0)
+        both = np.minimum(moved_keep, self._face_skin(target, drawn).astype(np.float32))
+        weight = cv2.GaussianBlur(_shrink(both, drawn.box[2]), (0, 0), max(1.0, drawn.box[2] * FEATHER))[..., None]
         laid = cv2.warpAffine(np.asarray(source, np.float32), matrix, size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
-        weight = cv2.warpAffine(keep, matrix, size, flags=cv2.INTER_LINEAR, borderValue=0)[..., None]
         result = laid * weight + np.asarray(target, np.float32) * (1 - weight)
         output = io.BytesIO()
         Image.fromarray(np.clip(result + 0.5, 0, 255).astype(np.uint8)).save(output, 'JPEG', quality=95, subsampling=0)

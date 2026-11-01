@@ -189,7 +189,7 @@ ProjectSummary 加上：
 ```
 
 - `role`、`makeup_level`、`hair_length`：生成时这个人的角色、档位和头发长度。V6.0 起造型只换发型、脸保持上传照片的原样（docs/prompts.md 第 8.6 节），档位只决定头发的完成度，`makeup_color` 为 null；V5.x 的新娘造型带妆色。
-- `status` 为 `failed` 时，`error_code` 除了生成失败的原因，还可能是 `look_no_face`（照片里没检测到脸，没有发送修图）、`look_face_lost`（修图结果里找不到对得上的脸，没法贴回原脸，可能已经扣费）或 `mask_editor_missing`（没有配置 PPTOKEN 密钥，没有发送修图）。
+- `status` 为 `failed` 时，`error_code` 除了生成失败的原因，还可能是 `look_no_face`（照片里没检测到脸，没有发送修图）、`look_face_lost`（修图结果里找不到对得上的脸，没法贴回原脸，可能已经扣费）、`mask_editor_missing`（没有配置 PPTOKEN 密钥，没有发送修图），或 `face_model_download_failed` / `face_model_runtime_missing`（V6.2：人脸分割模型第一次使用时下载失败，或缺少 `ai-edge-litert` 运行库，没有发送修图）。
 - `selected_order`：选用顺序，越小越靠前，最小的是默认造型；未选用为 null。
 - `usable`：能否用于新照片。换了这个人的正面照（`unusable_reason`「这个人的照片已经更换……」）、交换了新娘和新郎，或者是 V6.0 以前带妆的造型（「这是旧版本的造型……」，拍摄时会再化一次妆）时为 false；还没生成好时也为 false，但 `unusable_reason` 为 null。
 - `face_score`：造型与上传照片的人脸相似度（FaceFusion 的 ArcFace 余弦相似度）；换脸不可用、还没测或没检测到脸时为 null。
