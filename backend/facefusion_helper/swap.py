@@ -75,6 +75,11 @@ def _cuda_face_swapper_used(tracked_sessions, expected_models):
 
 
 def _run(payload):
+    people = {'bride': 'female', 'groom': 'male'}
+    roles = payload.get('roles', list(people))
+    if not isinstance(roles, list) or not roles or any(role not in people for role in roles) or len(set(roles)) != len(roles):
+        raise ValueError('Face-swap roles must be a nonempty list of distinct bride/groom roles')
+    roles = [role for role in people if role in roles]
     facefusion_dir = Path(payload['facefusion_dir']).resolve()
     sys.path.insert(0, str(facefusion_dir))
 
@@ -156,7 +161,6 @@ def _run(payload):
                 raise RuntimeError('A face-swap input image could not be decoded')
             return _largest_face(get_static_faces([frame]), sort_faces_by_order)
 
-        people = {'bride': 'female', 'groom': 'male'}
         references = {}
         for role, gender in people.items():
             face = largest_face(payload[role]['front'])
@@ -170,7 +174,8 @@ def _run(payload):
         target_faces = get_static_faces([target_frame])
         targets = {role: _largest_face([face for face in target_faces if face.gender == gender], sort_faces_by_order)
                    for role, gender in people.items()}
-        missing = [role for role, face in targets.items() if face is None]
+        # V7.13: 'roles' names who is swapped (the groom only, after the bride's AI face fix); both by default.
+        missing = [role for role, face in targets.items() if face is None and role in roles]
         if missing:
             return {'ok': False, 'error_code': 'face_not_found', 'missing': missing}
 
@@ -178,6 +183,8 @@ def _run(payload):
         faces = {}
         plans = {}
         for role, gender in people.items():
+            if role not in roles:
+                continue
             turn = _face_turn(targets[role])
             facing = _facing(turn, payload['side_turn'])
             sources = [payload[role]['front']]
@@ -204,8 +211,11 @@ def _run(payload):
             'face_mask_types': ['box', 'occlusion'],
             'face_selector_mode': 'many',
         })
-        passes = (('bride', payload['target_path'], bride_output_path),
-                  ('groom', str(bride_output_path), raw_output_path))
+        if roles == ['bride', 'groom']:
+            passes = (('bride', payload['target_path'], bride_output_path),
+                      ('groom', str(bride_output_path), raw_output_path))
+        else:
+            passes = ((roles[0], payload['target_path'], raw_output_path),)
         for role, target_path, output_path in passes:
             pass_args.update({
                 'face_selector_gender': people[role],

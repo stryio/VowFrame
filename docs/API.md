@@ -56,7 +56,7 @@
   "face_scores": { "bride": 0.62, "groom": null } | null }
 ```
 
-- `model`：生成该版本的任务所用模型（取自任务的模型配置快照）；换脸版本为两人实际所用模型「新娘/新郎」，如 `hyperswap_1c_256/hyperswap_1b_256`（2026-10-28 之前的换脸版本为 `hyperswap_1a_256/hyperswap_1c_256`）；模拟生成或无法确定时为 null。既有版本仍按其创建时的快照显示。
+- `model`：生成该版本的任务所用模型（取自任务的模型配置快照）；换脸版本为实际处理人物所用模型，两人都换时为「新娘/新郎」，如 `hyperswap_1c_256/hyperswap_1b_256`；V7.13 只换新郎时只记录新郎的模型，如 `hyperswap_1b_256`（2026-10-28 之前的换脸版本为 `hyperswap_1a_256/hyperswap_1c_256`）；模拟生成或无法确定时为 null。既有版本仍按其创建时的快照显示。
 - `source_version_id`：换脸版本的来源版本（换脸时输入的那个版本）；其他版本为 null。
 - `face_scores`：新娘、新郎各自与生成该版本所用正脸照的人脸相似度（FaceFusion ArcFace 余弦相似度，保留 3 位小数，PRD 4.6）。某人为 null 表示画面里没找到这个人的脸；整个字段为 null 表示尚未测量（FaceFusion 不可用、细节特写、或排队中）。
   - 测量时机：换脸任务在同一次 FaceFusion 调用里测量换脸前后两张图，换脸前的分数写到来源版本（来源版本已有分数时保留原值）；没有排队换脸的生成版本，在换脸通道空闲时单独测量（每次最多 20 张）。后端启动时为所有尚未测量的版本补算。测量失败只记日志，不重试，下次启动再试。
@@ -252,9 +252,12 @@ ProjectSummary 加上：
   "created_at": "…",
   "status": "running",
   "total": 6,
-  "counts": { "waiting": 0, "held": 0, "running": 2, "completed": 3, "failed": 1, "cancelled": 0, "interrupted": 0 }
+  "counts": { "waiting": 0, "held": 0, "running": 2, "completed": 3, "failed": 1, "cancelled": 0, "interrupted": 0 },
+  "paused": false
 }
 ```
+
+`paused`（V7.12）：用户暂停了这批任务，排队的任务都是 `held`，点继续前不会发出。
 
 `batch_type`：`preview | photo | regenerate`。`style_id` / `style_name`：拍组批次（`photo`）的风格；样片批次为 null。
 
@@ -386,7 +389,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 ### Settings
 
 ```json
-{ "default_model": "gpt-image-2", "batch_reference_mode": "prompt_only", "director_model": "gpt-6.1-sol" | null, "portrait_ratio": "3:4", "auto_face_fix": "ai" | "facefusion" | "off",
+{ "default_model": "gpt-image-2", "batch_reference_mode": "prompt_only", "director_model": "gpt-6.1-sol" | null, "portrait_ratio": "3:4", "auto_face_fix": "split" | "ai" | "facefusion" | "off",
   "image_provider": "88api" | "pptoken",
   "image_providers": [{"id": "88api", "name": "88API", "available": true, "reason": null}, {"id": "pptoken", "name": "PPTOKEN", "available": false, "reason": "没有配置 PPTOKEN 的密钥：…"}] }
 ```
@@ -402,7 +405,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 
 默认 `prompt_only`：样片里的人脸本身是模型的近似结果，作为参考可能让成片偏离本人长相。是否改为 `with_preview` 以实际对比为准。
 
-`auto_face_fix`（V7.1，取代 `auto_face_swap`）：生成后自动做什么，`ai`（AI 修脸，默认）、`facefusion`（FaceFusion 换脸，FaceFusion 不可用时不生效）或 `off`（不修）。见下文「AI 修脸」「换脸修正」。
+`auto_face_fix`（V7.1，取代 `auto_face_swap`）：生成后自动做什么，`split`（V7.13 起默认，新娘 AI 修脸后新郎 FaceFusion 换脸）、`ai`（两人都 AI 修脸）、`facefusion`（两人都 FaceFusion 换脸，FaceFusion 不可用时不生效）或 `off`（不修）。`split` 在 FaceFusion 不可用时只修新娘，设置页显示不可用原因；不会改用 AI 修新郎。已有的有效设置保留，不覆盖用户选定的模式。见下文「AI 修脸」「分人物自动修脸」「换脸修正」。
 
 `portrait_ratio`：竖版比例，`3:4`（默认）、`2:3` 或 `9:16`；横版使用同一比例横过来（`4:3`、`3:2`、`16:9`）。样片固定为竖版；拍组按每个镜头的 `orientation` 选择。首次启动时取 `config.local.json` 的 `aspect_ratio`（是这三个值之一时），之后以设置为准。只影响之后新建的任务；重新生成、加强长相、换景别沿用原任务快照中的比例。
 
@@ -417,7 +420,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/health` | — | `{"ok": true, "generator": "mock" \| "88api", "model": "<当前默认模型>", "face_swap": FaceSwapStatus}` |
 | GET | `/api/models` | — | `Model[]` |
 | GET | `/api/settings` | — | `Settings` |
-| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "ai" \| "facefusion" \| "off", "image_provider"?: "88api" \| "pptoken"}` | `Settings`；切换服务时默认模型不是它提供的，改为它的第一个模型；服务没有配置密钥时 409 `provider_unavailable`；模型不在列表中或不是（切换后的）服务提供的时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
+| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "split" \| "ai" \| "facefusion" \| "off", "image_provider"?: "88api" \| "pptoken"}` | `Settings`；切换服务时默认模型不是它提供的，改为它的第一个模型；服务没有配置密钥时 409 `provider_unavailable`；模型不在列表中或不是（切换后的）服务提供的时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
 | GET | `/api/styles` | — | `Style[]`（内置风格，固定顺序，见 docs/prompts.md 第 3 节） |
 | GET | `/api/projects` | — | `ProjectSummary[]`，按 `updated_at` 倒序 |
 | POST | `/api/projects` | `{"name"?: string}` | `ProjectDetail`（201），默认名「我的婚纱照」 |
@@ -445,8 +448,10 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/projects/{id}/photo-batches` | `{"client_request_id": string, "draft_id": string, "model"?: string}` | `Batch`（201，`batch_type = "photo"`），张数 = 方案中瞬间的数量 |
 | GET | `/api/projects/{id}/batches` | — | `Batch[]`，按创建时间倒序 |
 | GET | `/api/batches/{id}` | — | `Batch` |
-| POST | `/api/batches/{id}/continue` | — | `Batch`（`held` → `waiting`） |
-| POST | `/api/batches/{id}/cancel` | — | `Batch`（`waiting`/`held` → `cancelled`） |
+| POST | `/api/batches/{id}/pause` | — | `Batch`（V7.12：`paused` 置为 true，`waiting` → `held`；正在生成的继续完成，它们排出的自动修脸或换脸任务也以 `held` 排队） |
+| POST | `/api/batches/{id}/continue` | — | `Batch`（`held` → `waiting`，`paused` 置为 false；用户暂停的和重启、失败后搁置的都恢复） |
+| POST | `/api/batches/{id}/cancel` | — | `Batch`（`waiting`/`held` → `cancelled`；正在生成的继续完成） |
+| POST | `/api/batches/{id}/stop` | — | `Batch`（V7.12：`waiting`/`held` → `cancelled`，`running` → `cancelled` 且 `error_code = "stopped"`；请求已经发出，服务商停不下来，可能已经扣费，结果回来后丢弃，不生成版本） |
 | POST | `/api/slots/{id}/regenerate` | `{"client_request_id": string, "mode": "same" \| "identity_boost", "model"?: string}` | `Batch`（201，`batch_type = "regenerate"`） |
 | POST | `/api/slots/{id}/change-pose` | `{"client_request_id": string, "model"?: string}` | `Batch`（201）；仅 `kind = "photo"` |
 | POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "wide" \| "full" \| "three_quarter" \| "half" \| "close", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；停用景别 `medium`、`extreme_close`、`detail` 不能作为目标（422） |
@@ -458,8 +463,10 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | DELETE | `/api/slots/{id}` | — | 204；仅 `kind = "photo"`；存在 `running` 任务时 409 `slot_busy` |
 | POST | `/api/projects/{id}/export` | `{"slot_ids"?: string[]}` | `application/zip`（附件下载），缺省为全部有版本的作品 |
 | GET | `/api/tasks` | 查询参数 `project_id`、`batch_id`、`status`（均可选） | `Task[]`，按创建时间倒序 |
-| POST | `/api/tasks/{id}/retry` | — | 新 `Task`（201）；仅 `failed`/`interrupted` 可重试 |
-| POST | `/api/tasks/{id}/cancel` | — | `Task`；仅 `waiting`/`held` 可取消 |
+| POST | `/api/tasks/{id}/retry` | — | 新 `Task`（201）；仅 `failed`/`interrupted` 可重试；批次暂停时新任务为 `held`，否则为 `waiting` |
+| POST | `/api/tasks/{id}/cancel` | — | `Task`；`waiting`/`held` → `cancelled`；V7.12 起 `running` 也可以中断：→ `cancelled`，`error_code = "stopped"`，结果回来后丢弃；其他状态 409 `task_not_cancellable` |
+| POST | `/api/tasks/{id}/pause` | — | `Task`（V7.12）；`waiting` → `held`；其他状态 409 `task_not_pausable` |
+| POST | `/api/tasks/{id}/continue` | — | `Task`（V7.12）；`held` → `waiting`；其他状态 409 `task_not_held`；整批已暂停时 409 `batch_paused`，须先继续整批任务 |
 
 **上传照片的预处理**（`backend/app/photo_prep.py`）：生图模型会把参考图缩到约 1024 像素再看，手机全身照里的脸只剩百余像素，长相还原差；所以上传时先用 YuNet 人脸检测（OpenCV，模型在 `backend/app/assets/`，MIT 许可）检查，再裁到头肩。
 
@@ -535,5 +542,12 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘化妆图或正面造型照, 新郎正面造型照]`（由输入版本任务的前两张参考图得出；V4.0 以前的作品是上传照片）；`prompt` 为空字符串（提示词按 `bride_reference` 选固定的 `FACE_FIX_MAKEUP_PROMPT` 或 `FACE_FIX_PROMPT`）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "aspect_ratio": 输入版本的比例, "bride_reference": "makeup" | "look"}`（V7.9 以前的任务没有 `bride_reference`，按 `look` 处理）。
   - 失败处理与生成任务相同（含自动重试、`interrupted` 和余额搁置），失败不影响当前版本。
   - 验收（V7.5）：修好的版本和它的来源版本都有 `face_scores` 后，新娘或新郎任意一人比来源低 0.02 以上（或修后为 null 而来源有分数），作品的当前版本换回来源版本，修好的版本留在历史里，任务快照追加 `"kept_original": ["bride" | "groom", …]`。没有 FaceFusion 或分数不全时不判断。调度：和生成任务同一条队列，计入 `max_concurrency`；启动恢复时按生成任务处理（`running` 改为 `interrupted`，`waiting` 改为 `held`），因为修图会扣费。
-  - **自动修脸**：设置 `auto_face_fix = "ai"`（默认）时，任何生成任务成功保存版本的同一个事务里，插入一个 AI 修脸任务（同一批次、同一位置，`source_version_id` 为刚保存的版本）；`"facefusion"` 时改为插入换脸任务（需要 FaceFusion 可用，见上文）；细节特写、背影和剪影镜头不插入。修脸和换脸任务完成后不会再触发修脸。重新生成、加强长相等操作读取「来源任务」时，同样沿 `source_version_id` 越过 AI 修脸任务。
+  - **自动修脸**：设置 `auto_face_fix = "ai"` 时，任何生成任务成功保存版本的同一个事务里，插入一个 AI 修脸任务（同一批次、同一位置，`source_version_id` 为刚保存的版本）；`"facefusion"` 时改为插入换脸任务（需要 FaceFusion 可用，见上文）；`"split"` 时按下述分人物流程处理。细节特写、背影和剪影镜头不插入。修脸和换脸任务完成后不会再触发新一轮自动修脸。重新生成、加强长相等操作读取「来源任务」时，同样沿 `source_version_id` 越过 AI 修脸任务。
+- **分人物自动修脸（V7.13，`auto_face_fix = "split"`，默认）**：
+  - 先排一个 `face_fix` 任务，快照追加 `roles: ["bride"]`、`then: "groom_swap"`；实际只发送 `[要修的照片, 新娘化妆图或造型照]`，使用只修新娘的提示词，新郎保持原样。仍记录两人的参考图，供相似度评分使用。
+  - 保存新娘 AI 修图版本的同一个事务里，FaceFusion 可用时创建只换新郎的 `face_swap` 任务（同批次、同位置，快照 `roles: ["groom"]`），并在 AI 任务快照记录 `groom_swap_queued: true`。因此评分期间批次仍未完成，暂停、中断、重启都能识别这个后续任务。
+  - 新郎任务先在换脸通道中为原图和 AI 修图评分，已测过的分数保留。验收只看新娘：相似度降低超过 0.02 或原本能识别、修后无法识别时，退回原图；AI 修图留在历史版本。然后更新新郎任务的 `source_version_id`，只在保留的图片上换新郎。评分失败不阻断换脸，保留 AI 修图；作品已切换到其他版本时取消这次自动换脸（`source_changed`）。
+  - 新郎使用这张作品原本的新郎造型照和适用的侧面照，按目标转头程度选模型；样片强度 1.0，相册 0.5。只要求目标图能识别到新郎，`faces` 和成功后的 `model` 只记录新郎；两个人的分数仍照常返回。
+  - 批次暂停时后续任务以 `held` 排队；重启后仍保持暂停。新郎失败后重试只重做本地换脸，不重发付费的新娘 AI 修图。新娘 AI 修图失败时不创建新郎任务，原图保留。未配置 FaceFusion 时只生成新娘 AI 修图版本。
+  - 照片菜单里的「AI 修脸」「换脸修正」仍分别处理两人；从分步结果再次手动修正时，沿完整的 `source_version_id` 链找到最初的生成版本及其造型。
 - **数据库升级**：启动时通过 `PRAGMA table_info` 检查 `generation_tasks.regenerate_mode`。升级保留现有任务和版本数据；为使删除作品后仍能保留任务行，任务表升级时会以事务复制原有列、增加可空的 `regenerate_mode`，并解除任务目标位置的级联外键；删除后 `target_slot_id` 继续保存原位置 ID 供追溯。

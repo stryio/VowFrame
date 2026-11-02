@@ -53,6 +53,19 @@ export function TaskDrawer({
     if (ok) await act(() => api.cancelBatch(batch.id), "已取消剩余任务");
   };
 
+  const stopAll = async (batch: Batch) => {
+    const ok = await confirm({
+      title: "中断这批任务",
+      message:
+        batch.counts.running > 0
+          ? `尚未开始的任务会被取消。正在生成的 ${batch.counts.running} 张请求已经发出，服务商那边停不下来，可能已经扣费；结果回来后不会保存。已完成的照片保留。`
+          : "尚未开始的任务会被取消，已完成的照片保留。",
+      confirmText: "中断",
+      danger: true,
+    });
+    if (ok) await act(() => api.stopBatch(batch.id), "已中断");
+  };
+
   const retryAll = async (batch: Batch) => {
     const tasks = await api.listTasks({ batch_id: batch.id });
     const targets = tasks.filter((t) => t.status === "failed" || t.status === "interrupted");
@@ -92,8 +105,10 @@ export function TaskDrawer({
                 batch={batch}
                 expanded={expanded === batch.id}
                 onToggle={() => setExpanded(expanded === batch.id ? null : batch.id)}
-                onContinue={() => act(() => api.continueBatch(batch.id), "已继续剩余任务")}
+                onContinue={() => act(() => api.continueBatch(batch.id), "已继续")}
+                onPause={() => act(() => api.pauseBatch(batch.id), "已暂停：排队中的任务不会开始，正在生成的会完成")}
                 onCancel={() => cancelRest(batch)}
+                onStop={() => stopAll(batch)}
                 onRetryAll={() => retryAll(batch)}
                 onTaskAction={act}
               />
@@ -111,7 +126,9 @@ function BatchCard({
   expanded,
   onToggle,
   onContinue,
+  onPause,
   onCancel,
+  onStop,
   onRetryAll,
   onTaskAction,
 }: {
@@ -119,7 +136,9 @@ function BatchCard({
   expanded: boolean;
   onToggle: () => void;
   onContinue: () => void;
+  onPause: () => void;
   onCancel: () => void;
+  onStop: () => void;
   onRetryAll: () => void;
   onTaskAction: (run: () => Promise<unknown>, done?: string) => Promise<void>;
 }) {
@@ -156,17 +175,21 @@ function BatchCard({
       <div className="batch-counts">
         {c.running > 0 && <span>生成中 {c.running}</span>}
         {c.waiting > 0 && <span>等待中 {c.waiting}</span>}
-        {c.held > 0 && <span>已搁置 {c.held}</span>}
+        {c.held > 0 && <span>已暂停 {c.held}</span>}
         {c.failed > 0 && <span>失败 {c.failed}</span>}
         {c.interrupted > 0 && <span>已中断 {c.interrupted}</span>}
         {c.cancelled > 0 && <span>已取消 {c.cancelled}</span>}
         <span>{new Date(batch.created_at).toLocaleString("zh-CN")}</span>
       </div>
 
-      {batch.status === "held" && (
-        <div className="notice">
-          这些任务尚未发出请求，需要你确认后才会继续（例如服务重启后或账户异常后）。
-        </div>
+      {batch.paused ? (
+        <div className="notice">已暂停：排队中的任务不会开始，正在生成的会完成。点「继续」恢复。</div>
+      ) : (
+        c.held > 0 && (
+          <div className="notice">
+            有 {c.held} 个任务尚未发出请求，需要你确认后才会继续（例如服务重启后、账户异常后，或你暂停了单个任务）。
+          </div>
+        )
       )}
       {c.interrupted > 0 && (
         <div className="notice">
@@ -175,9 +198,14 @@ function BatchCard({
       )}
 
       <div className="batch-actions">
-        {c.held > 0 && (
+        {!batch.paused && (c.waiting > 0 || c.running > 0) && (
+          <button className="btn btn-sm" onClick={onPause}>
+            暂停
+          </button>
+        )}
+        {(c.held > 0 || batch.paused) && (
           <button className="btn btn-gold btn-sm" onClick={onContinue}>
-            继续剩余
+            继续
           </button>
         )}
         {broken > 0 && (
@@ -186,8 +214,13 @@ function BatchCard({
           </button>
         )}
         {pending > 0 && (
-          <button className="btn btn-danger btn-sm" onClick={onCancel}>
+          <button className="btn btn-ghost btn-sm" onClick={onCancel} title="取消尚未开始的任务，正在生成的继续完成">
             取消剩余
+          </button>
+        )}
+        {pending + c.running > 0 && (
+          <button className="btn btn-danger btn-sm" onClick={onStop} title="取消尚未开始的任务，并中断正在生成的">
+            中断
           </button>
         )}
         <button className="btn btn-ghost btn-sm" onClick={onToggle}>
@@ -207,6 +240,7 @@ function TaskList({
   batchId: string;
   onTaskAction: (run: () => Promise<unknown>, done?: string) => Promise<void>;
 }) {
+  const { confirm, dialog } = useConfirm();
   const tasks = usePolledResource(
     () => api.listTasks({ batch_id: batchId }),
     [batchId],
@@ -237,13 +271,41 @@ function TaskList({
               重试
             </button>
           )}
+          {t.status === "waiting" && (
+            <button className="btn btn-sm" onClick={() => run(() => api.pauseTask(t.id), "已暂停")}>
+              暂停
+            </button>
+          )}
+          {t.status === "held" && (
+            <button className="btn btn-gold btn-sm" onClick={() => run(() => api.continueTask(t.id), "已继续")}>
+              继续
+            </button>
+          )}
           {(t.status === "waiting" || t.status === "held") && (
             <button className="btn btn-ghost btn-sm" onClick={() => run(() => api.cancelTask(t.id), "已取消")}>
               取消
             </button>
           )}
+          {t.status === "running" && (
+            <button
+              className="btn btn-danger btn-sm"
+              title="请求已经发出，可能已经扣费；中断后结果不会保存"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "中断这个任务",
+                  message: "请求已经发出，服务商那边停不下来，可能已经扣费；中断后结果回来也不会保存。",
+                  confirmText: "中断",
+                  danger: true,
+                });
+                if (ok) await run(() => api.cancelTask(t.id), "已中断，结果回来后不会保存");
+              }}
+            >
+              中断
+            </button>
+          )}
         </div>
       ))}
+      {dialog}
     </div>
   );
 }

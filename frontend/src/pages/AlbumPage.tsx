@@ -446,7 +446,7 @@ function PhotoCard({
                 )}
               </>
             ) : slot.latest_task?.status === "held" ? (
-              <span>已搁置，可在任务中心继续</span>
+              <span>已暂停，可在任务中心继续</span>
             ) : slot.latest_task?.status === "cancelled" ? (
               <span>已取消</span>
             ) : (

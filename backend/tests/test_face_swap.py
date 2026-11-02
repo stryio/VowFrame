@@ -3,13 +3,18 @@
 import json
 import sqlite3
 import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from app.db import Database
 from app.config import load_config
-from app.face_swap import HELPER_PATH, FaceFusionSwapper, FaceSwapError, FaceSwapResult, MockFaceSwapper, create_face_swapper
+from app.face_swap import (HELPER_PATH, FaceFusionSwapper, FaceSources, FaceSwapError, FaceSwapResult,
+                           MockFaceSwapper, create_face_swapper, face_swap_applied_snapshot, face_swap_snapshot)
 from app.task_manager import TaskManager
 from app.storage import asset_path
-from facefusion_helper.swap import _cuda_face_swapper_used, _face_turn, _facing, _scores, _similarity
+from facefusion_helper.swap import _cuda_face_swapper_used, _face_turn, _facing, _run, _scores, _similarity
 from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, preview_batch, uploaded_ids, wait_batch, wait_until
 
 
@@ -27,18 +32,20 @@ class ScriptedFaceSwapper:
     def __init__(self, outcomes=()):
         self.outcomes = list(outcomes)
         self.calls = []
+        self.roles = []
         self.scored = []
 
     @property
     def status(self):
         return {'available': True, 'mode': 'mock', 'reason': None}
 
-    def swap(self, bride, groom, target, weight):
+    def swap(self, bride, groom, target, weight, roles=('bride', 'groom')):
         self.calls.append((bride, groom, target, weight))
+        self.roles.append(tuple(roles))
         outcome = self.outcomes.pop(0) if self.outcomes else None
         if isinstance(outcome, Exception):
             raise outcome
-        return FaceSwapResult(target.read_bytes(), SCRIPTED_FACES, SCRIPTED_SCORES)
+        return FaceSwapResult(target.read_bytes(), {role: SCRIPTED_FACES[role] for role in roles}, SCRIPTED_SCORES)
 
     def score(self, items):
         self.scored.extend(items)
@@ -452,10 +459,41 @@ def test_previous_task_schema_migrates_face_swap_fields_and_preserves_indexes(ap
     assert {'task_queue', 'task_batch', 'task_project', 'task_slot', 'task_retry_once'} <= indexes
 
 
-def test_the_automatic_ai_face_fix_is_on_by_default_for_a_new_database(tmp_path):
+def test_the_bride_ai_fix_and_groom_swap_are_on_by_default_for_a_new_database(tmp_path):
+    # V7.13: the bride by the AI face fix, the groom by FaceFusion.
     db = Database(tmp_path / 'fresh.db')
     db.initialize()
-    assert db.get_auto_face_fix() == 'ai'
+    assert db.get_auto_face_fix() == 'split'
+
+
+def test_a_groom_only_helper_result_records_only_the_model_it_used(monkeypatch, tmp_path):
+    facefusion_dir = tmp_path / 'facefusion'
+    (facefusion_dir / '.venv' / 'bin').mkdir(parents=True)
+    (facefusion_dir / 'run.sh').touch()
+    (facefusion_dir / '.venv' / 'bin' / 'python').touch()
+    swapper = FaceFusionSwapper(facefusion_dir)
+    target = tmp_path / 'target.png'
+    target.write_bytes(PNG)
+
+    def call_helper(payload, timeout):
+        assert payload['roles'] == ['groom'] and timeout == swapper.timeout_seconds
+        Path(payload['output_path']).write_bytes(PNG)
+        return SimpleNamespace(returncode=0), {
+            'ok': True, 'cuda_face_swapper_used': True,
+            'faces': {'groom': SCRIPTED_FACES['groom']}, 'scores': SCRIPTED_SCORES,
+        }
+
+    monkeypatch.setattr(swapper, '_call_helper', call_helper)
+    result = swapper.swap(FaceSources(target), FaceSources(target), target, 0.5, ('groom',))
+    snapshot = json.loads(face_swap_applied_snapshot(face_swap_snapshot('facefusion', 0.5, ('groom',)), result.faces))
+    assert result.content == PNG
+    assert snapshot['model'] == 'hyperswap_1b_256' and snapshot['faces'] == {'groom': SCRIPTED_FACES['groom']}
+
+
+@pytest.mark.parametrize('roles', [[], ['other'], ['groom', 'groom'], None, 'groom'])
+def test_the_helper_rejects_invalid_roles_before_loading_facefusion(roles):
+    with pytest.raises(ValueError, match='Face-swap roles'):
+        _run({'roles': roles})
 
 
 def test_generated_images_are_face_swapped_automatically_and_keep_the_original(app_factory):
@@ -479,9 +517,10 @@ def test_generated_images_are_face_swapped_automatically_and_keep_the_original(a
         assert task['batch_id'] == batch['id']
 
 
-def test_album_photos_are_swapped_at_half_strength_and_samples_at_full_strength(app_factory):
+@pytest.mark.parametrize('mode', ['facefusion', 'split'])
+def test_album_photos_are_swapped_at_half_strength_and_samples_at_full_strength(app_factory, mode):
     swapper = ScriptedFaceSwapper()
-    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='facefusion', concurrency=1) as (client, app):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix=mode, concurrency=1) as (client, app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts",

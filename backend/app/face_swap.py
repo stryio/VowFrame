@@ -114,7 +114,8 @@ class FaceSwapper(Protocol):
     @property
     def status(self) -> dict: ...
 
-    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult: ...
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float,
+             roles: tuple[str, ...] = ('bride', 'groom')) -> FaceSwapResult: ...
 
     def score(self, items: list[ScoreItem]) -> list[dict | None]: ...
 
@@ -124,7 +125,8 @@ class MockFaceSwapper:
     def status(self) -> dict:
         return {'available': True, 'mode': 'mock', 'reason': None}
 
-    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float,
+             roles: tuple[str, ...] = ('bride', 'groom')) -> FaceSwapResult:
         return FaceSwapResult(target.read_bytes())
 
     def score(self, items: list[ScoreItem]) -> list[dict | None]:
@@ -139,7 +141,8 @@ class UnavailableFaceSwapper:
     def status(self) -> dict:
         return {'available': False, 'mode': None, 'reason': self.reason}
 
-    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float,
+             roles: tuple[str, ...] = ('bride', 'groom')) -> FaceSwapResult:
         raise FaceSwapError('face_swap_failed')
 
     def score(self, items: list[ScoreItem]) -> list[dict | None]:
@@ -166,7 +169,10 @@ class FaceFusionSwapper:
             return {'available': False, 'mode': None, 'reason': '换脸辅助脚本不存在，请检查后端安装'}
         return {'available': True, 'mode': 'facefusion', 'reason': None}
 
-    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float) -> FaceSwapResult:
+    def swap(self, bride: FaceSources, groom: FaceSources, target: Path, weight: float,
+             roles: tuple[str, ...] = ('bride', 'groom')) -> FaceSwapResult:
+        """roles: who is swapped (V7.13: the groom only after the bride's AI face fix); both photos are still sent,
+        since the helper checks the roles and scores both people."""
         if not self.status['available']:
             raise FaceSwapError('face_swap_failed')
 
@@ -187,6 +193,7 @@ class FaceFusionSwapper:
                 'front_model': FRONT_FACE_MODEL,
                 'side_model': SIDE_FACE_MODEL,
                 'side_turn': SIDE_FACE_TURN,
+                'roles': list(roles),
             }
             completed, result = self._call_helper(payload, self.timeout_seconds)
             if completed.returncode != 0 or not isinstance(result, dict) or not result.get('ok'):
@@ -302,8 +309,9 @@ def create_face_swapper(config: Config) -> FaceSwapper:
     return swapper
 
 
-def face_swap_snapshot(mode: str, weight: float) -> str:
-    """Model record stored on face-swap tasks; never contains secrets.
+def face_swap_snapshot(mode: str, weight: float, roles: tuple[str, ...] | None = None) -> str:
+    """Model record stored on face-swap tasks; never contains secrets. roles (V7.13): who is swapped, recorded
+    only when it is not both (the groom after the bride's AI face fix).
 
     Which model each face gets is only known once the generated face is measured, so `model` starts as the
     rule summary and face_swap_applied_snapshot records what was actually used.
@@ -317,13 +325,15 @@ def face_swap_snapshot(mode: str, weight: float) -> str:
         'pixel_boost': '512x512',
         'face_mask_types': ['box', 'occlusion'],
         'weight': weight,
+        **({'roles': list(roles)} if roles else {}),
     }, ensure_ascii=False)
 
 
 def face_swap_applied_snapshot(snapshot: str, faces: dict) -> str:
-    """Add the per-face outcome; `model` then reads bride model / groom model as actually applied."""
+    """Record the models actually applied, in bride/groom order for the roles this task swaps."""
     value = json.loads(snapshot)
     if faces:
-        value['faces'] = faces
-        value['model'] = f"{faces['bride']['model']}/{faces['groom']['model']}"
+        roles = value.get('roles') or ('bride', 'groom')
+        value['faces'] = {role: faces[role] for role in roles}
+        value['model'] = '/'.join(faces[role]['model'] for role in roles)
     return json.dumps(value, ensure_ascii=False)

@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS generation_batches (
     batch_type TEXT NOT NULL CHECK(batch_type IN ('preview','photo','regenerate')),
     client_request_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
     style_id TEXT REFERENCES style_presets(id),
-    reference_preview_version_id TEXT REFERENCES photo_versions(id)
+    reference_preview_version_id TEXT REFERENCES photo_versions(id),
+    -- V7.12: set while the user has paused the batch; its follow-up tasks are queued held too.
+    paused_at TEXT
 );
 CREATE TABLE IF NOT EXISTS photo_slots (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS moment_drafts (
 
 BATCH_REFERENCE_MODES = ('prompt_only', 'with_preview')
 # V7.1: replaces the on/off auto_face_swap setting, which is no longer read.
-AUTO_FACE_FIX_MODES = ('ai', 'facefusion', 'off')
+AUTO_FACE_FIX_MODES = ('split', 'ai', 'facefusion', 'off')
 IMAGE_PROVIDERS = ('88api', 'pptoken')
 DEFAULT_BATCH_REFERENCE_MODE = 'prompt_only'
 
@@ -201,6 +203,7 @@ class Database:
                     connection.execute(f'ALTER TABLE {table} ADD COLUMN {definition}')
 
             add_column('generation_batches', 'style_id TEXT REFERENCES style_presets(id)')
+            add_column('generation_batches', 'paused_at TEXT')
             add_column('looks', 'style_id TEXT')
             add_column('looks', 'hair_prompt TEXT')
             add_column('looks', 'makeup_asset_id TEXT REFERENCES image_assets(id)')
@@ -400,11 +403,12 @@ class Database:
             )
 
     def get_auto_face_fix(self) -> str:
-        """What is done to every generated picture with faces (V7.1): 'ai' (the AI face fix, the default),
-        'facefusion' (FaceFusion's swap) or 'off'. The original stays in the version history either way."""
+        """What is done to every generated picture with faces (V7.1): 'split' (V7.13, the default: the AI face fix
+        for the bride, then FaceFusion for the groom), 'ai' (the AI face fix for both), 'facefusion' (FaceFusion's
+        swap for both) or 'off'. The original stays in the version history either way."""
         with self.connect() as connection:
             row = connection.execute("SELECT value FROM app_settings WHERE key='auto_face_fix'").fetchone()
-        return row['value'] if row is not None and row['value'] in AUTO_FACE_FIX_MODES else 'ai'
+        return row['value'] if row is not None and row['value'] in AUTO_FACE_FIX_MODES else 'split'
 
     def set_auto_face_fix(self, mode: str):
         if mode not in AUTO_FACE_FIX_MODES:

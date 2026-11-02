@@ -222,6 +222,7 @@ def batch_response(conn, batch):
         'id': batch['id'], 'project_id': batch['project_id'], 'batch_type': batch['batch_type'],
         'style_id': style_id, 'style_name': STYLE_BY_ID.get(style_id, {}).get('name') if style_id else None,
         'created_at': batch['created_at'], 'status': status, 'total': sum(counts.values()), 'counts': counts,
+        'paused': 'paused_at' in batch.keys() and batch['paused_at'] is not None,
     }
 
 
@@ -705,7 +706,7 @@ def _face_fix_input(conn, slot, project, *, slot_label: str, what: str):
     input_task = version_task(slot['current_version_id'])
     if input_task is None:
         error(409, 'slot_not_ready', f'{slot_label}的当前版本记录不存在，暂时无法{what}')
-    if input_task['regenerate_mode'] in FACE_FIX_MODES:
+    while input_task['regenerate_mode'] in FACE_FIX_MODES:
         input_task = version_task(input_task['source_version_id']) if input_task['source_version_id'] else None
         if input_task is None:
             error(409, 'slot_not_ready', f'{slot_label}的来源版本不存在，暂时无法{what}')
@@ -1736,15 +1737,49 @@ def batch_detail(batch_id: str, request: Request):
         return batch_response(conn, get_batch(conn, batch_id))
 
 
-@router.post('/batches/{batch_id}/continue', response_model=Batch)
-def continue_batch(batch_id: str, request: Request):
+@router.post('/batches/{batch_id}/pause', response_model=Batch)
+def pause_batch(batch_id: str, request: Request):
+    """Pause a batch (V7.12): its queued tasks are held and are not sent until it continues; tasks already being
+    generated finish, and the follow-ups they queue (a face fix or swap) are held too."""
     with request.app.state.db.connect(write=True) as conn:
         batch = get_batch(conn, batch_id)
+        conn.execute('UPDATE generation_batches SET paused_at=? WHERE id=?', (utc_now(), batch_id))
+        conn.execute("UPDATE generation_tasks SET status='held' WHERE batch_id=? AND status='waiting'", (batch_id,))
+        conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), batch['project_id']))
+        return batch_response(conn, get_batch(conn, batch_id))
+
+
+@router.post('/batches/{batch_id}/continue', response_model=Batch)
+def continue_batch(batch_id: str, request: Request):
+    """Queue a batch's held tasks again: paused by the user, or held after a restart or a failure."""
+    with request.app.state.db.connect(write=True) as conn:
+        batch = get_batch(conn, batch_id)
+        conn.execute('UPDATE generation_batches SET paused_at=NULL WHERE id=?', (batch_id,))
         conn.execute("UPDATE generation_tasks SET status='waiting' WHERE batch_id=? AND status='held'", (batch_id,))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), batch['project_id']))
-        result = batch_response(conn, batch)
+        result = batch_response(conn, get_batch(conn, batch_id))
     request.app.state.task_manager.notify()
     return result
+
+
+# A task stopped while its request was out (V7.12): the provider cannot be told to stop, so the result is not kept.
+STOPPED_MESSAGE = '已中断：请求已经发出，可能已经扣费；结果回来后不会保存'
+
+
+@router.post('/batches/{batch_id}/stop', response_model=Batch)
+def stop_batch(batch_id: str, request: Request):
+    """Stop a batch now (V7.12): queued and held tasks are cancelled, and tasks being generated are stopped and
+    their results discarded when they come back."""
+    with request.app.state.db.connect(write=True) as conn:
+        batch = get_batch(conn, batch_id)
+        now = utc_now()
+        conn.execute("UPDATE generation_tasks SET status='cancelled',finished_at=? WHERE batch_id=? AND status IN ('waiting','held')",
+                     (now, batch_id))
+        conn.execute("UPDATE generation_tasks SET status='cancelled',error_code='stopped',error_message=?,finished_at=? "
+                     "WHERE batch_id=? AND status='running'", (STOPPED_MESSAGE, now, batch_id))
+        conn.execute('UPDATE generation_batches SET paused_at=NULL WHERE id=?', (batch_id,))
+        conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, batch['project_id']))
+        return batch_response(conn, get_batch(conn, batch_id))
 
 
 @router.post('/batches/{batch_id}/cancel', response_model=Batch)
@@ -1781,10 +1816,11 @@ def retry_task(task_id: str, request: Request):
         if original['status'] not in ('failed', 'interrupted'):
             error(409, 'task_not_retryable', '只有失败或已中断的任务可以重试')
         new_task_id = new_id()
+        status = 'held' if get_batch(conn, original['batch_id'])['paused_at'] else 'waiting'
         fields = ('project_id', 'batch_id', 'target_slot_id', 'reference_image_ids', 'style_id', 'pose_id', 'moment_title', 'moment_shot_size', 'prompt', 'model_config_snapshot', 'regenerate_mode', 'source_version_id')
         try:
             conn.execute('INSERT INTO generation_tasks (id,' + ','.join(fields) + ',status,retry_of_task_id,created_at) VALUES (' + ','.join('?' for _ in range(len(fields) + 4)) + ')',
-                         (new_task_id, *(original[key] for key in fields), 'waiting', task_id, utc_now()))
+                         (new_task_id, *(original[key] for key in fields), status, task_id, utc_now()))
         except sqlite3.IntegrityError:
             if conn.execute('SELECT 1 FROM generation_tasks WHERE retry_of_task_id=? LIMIT 1', (task_id,)).fetchone():
                 error(409, 'task_already_retried', '该任务已经重试过，请查看最新的任务')
@@ -1797,10 +1833,42 @@ def retry_task(task_id: str, request: Request):
 
 @router.post('/tasks/{task_id}/cancel', response_model=Task)
 def cancel_task(task_id: str, request: Request):
+    """Cancel a queued or held task; since V7.12 also stop one being generated, whose result is then discarded."""
     with request.app.state.db.connect(write=True) as conn:
         task = get_task(conn, task_id)
-        if task['status'] not in ('waiting', 'held'):
-            error(409, 'task_not_cancellable', '只有等待或已搁置的任务可以取消')
-        conn.execute("UPDATE generation_tasks SET status='cancelled',finished_at=? WHERE id=? AND status IN ('waiting','held')", (utc_now(), task_id))
+        if task['status'] not in ('waiting', 'held', 'running'):
+            error(409, 'task_not_cancellable', '只有等待、已暂停或正在生成的任务可以取消')
+        now = utc_now()
+        conn.execute("UPDATE generation_tasks SET status='cancelled',finished_at=? WHERE id=? AND status IN ('waiting','held')", (now, task_id))
+        conn.execute("UPDATE generation_tasks SET status='cancelled',error_code='stopped',error_message=?,finished_at=? "
+                     "WHERE id=? AND status='running'", (STOPPED_MESSAGE, now, task_id))
+        conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, task['project_id']))
+        return task_response(get_task(conn, task_id))
+
+
+@router.post('/tasks/{task_id}/pause', response_model=Task)
+def pause_task(task_id: str, request: Request):
+    """Hold one queued task until it is continued (V7.12)."""
+    with request.app.state.db.connect(write=True) as conn:
+        task = get_task(conn, task_id)
+        if task['status'] != 'waiting':
+            error(409, 'task_not_pausable', '只有排队中的任务可以暂停；正在生成的请求已经发出，只能中断')
+        conn.execute("UPDATE generation_tasks SET status='held' WHERE id=? AND status='waiting'", (task_id,))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), task['project_id']))
         return task_response(get_task(conn, task_id))
+
+
+@router.post('/tasks/{task_id}/continue', response_model=Task)
+def continue_task(task_id: str, request: Request):
+    """Queue one held task again (V7.12)."""
+    with request.app.state.db.connect(write=True) as conn:
+        task = get_task(conn, task_id)
+        if task['status'] != 'held':
+            error(409, 'task_not_held', '只有已暂停的任务可以继续')
+        if get_batch(conn, task['batch_id'])['paused_at']:
+            error(409, 'batch_paused', '这批任务已暂停，请先继续整批任务')
+        conn.execute("UPDATE generation_tasks SET status='waiting' WHERE id=? AND status='held'", (task_id,))
+        conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), task['project_id']))
+        result = task_response(get_task(conn, task_id))
+    request.app.state.task_manager.notify()
+    return result

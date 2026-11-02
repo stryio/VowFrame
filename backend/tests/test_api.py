@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 
 from app.prompts import POSES, RETIRED_STYLE_IDS, STYLES, compose_photo_prompt
-from conftest import PNG, BlockingGenerator, create_project, ensure_looks, preview_batch, uploaded_ids, wait_batch
+from conftest import PNG, BlockingGenerator, create_project, ensure_looks, preview_batch, uploaded_ids, wait_batch, wait_until
 
 
 def test_health_styles_and_pose_library(client_app):
@@ -214,14 +214,14 @@ def test_slot_not_ready_project_busy_and_single_cancel(app_factory):
         assert client.post(f"/api/tasks/{waiting['id']}/cancel").json()['status'] == 'cancelled'
         assert client.post(f"/api/tasks/{waiting['id']}/retry").status_code == 409
         running = next(t for t in tasks if t['status'] == 'running')
-        assert client.post(f"/api/tasks/{running['id']}/cancel").status_code == 409
         busy = client.delete(f"/api/projects/{project['id']}")
         assert busy.status_code == 409 and busy.json()['detail']['code'] == 'project_busy'
         progress = client.get(f"/api/batches/{batch['id']}").json()
         assert progress['counts']['cancelled'] == 5 and progress['counts']['running'] == 1
+        # V7.12: a running task can be stopped too; its result is discarded when it comes back.
+        assert client.post(f"/api/tasks/{running['id']}/cancel").json()['error_code'] == 'stopped'
         generator.release.set()
-        done = wait_batch(client, batch['id'])
-        assert done['counts']['completed'] == 1
+        wait_until(lambda: generator.calls, lambda calls: len(calls) == 1)
         assert client.delete(f"/api/projects/{project['id']}").status_code == 204
 
 

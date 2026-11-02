@@ -12,8 +12,9 @@ import {
 import { EmptyState, useToast } from "../components/feedback";
 
 const AUTO_FACE_FIX_OPTIONS: [AutoFaceFix, string][] = [
-  ["ai", "AI 修脸"],
-  ["facefusion", "FaceFusion 换脸"],
+  ["split", "新娘 AI 修脸 + 新郎 FaceFusion"],
+  ["ai", "两人都 AI 修脸"],
+  ["facefusion", "两人都 FaceFusion 换脸"],
   ["off", "不修"],
 ];
 
@@ -26,7 +27,7 @@ export function SettingsPage() {
   const [providers, setProviders] = useState<ImageProvider[]>([]);
   const [referenceMode, setReferenceMode] = useState<BatchReferenceMode>("prompt_only");
   const [portraitRatio, setPortraitRatio] = useState<PortraitRatio>("3:4");
-  const [autoFaceFix, setAutoFaceFix] = useState<AutoFaceFix>("ai");
+  const [autoFaceFix, setAutoFaceFix] = useState<AutoFaceFix>("split");
   const [directorModel, setDirectorModel] = useState("");
   const [savedDirector, setSavedDirector] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -216,7 +217,7 @@ export function SettingsPage() {
               ))}
             </div>
             <span className="field-hint">
-              每张有人脸的样片和相册照片生成后自动做一次。AI 修脸：用两人的造型照把整张照片里的脸修得更像本人，发型、妆容和美白与造型照一致，每张修一次，按默认模型计费；FaceFusion 换脸：本地处理、不花钱，但会把妆洗淡一些，需要配置 FaceFusion。两种都可以在照片菜单里手动点。
+              每张有人脸的样片和相册照片生成后自动做一次。默认（新娘 AI + 新郎 FaceFusion）：先用 AI 只修新娘，保住她的妆容和美白，每张按默认模型计费一次；再用 FaceFusion 只换新郎的脸，本地处理、不花钱，不会动新郎的发型。没有配置 FaceFusion 时只修新娘。AI 修脸会把整张图重画一遍，FaceFusion 换脸会把妆洗淡一些。照片菜单里的「AI 修脸」「换脸修正」仍是修两个人。
             </span>
           </div>
           <span className="field-label">FaceFusion 换脸</span>
@@ -226,7 +227,7 @@ export function SettingsPage() {
                 可用 ·{" "}
                 {health.face_swap.mode === "mock"
                   ? "模拟换脸（原样复制图片，用于测试）"
-                  : "FaceFusion · 新娘 hyperswap_1a_256 · 新郎 hyperswap_1c_256 · 像素提升 512 · 遮罩 box + occlusion · 强度：相册 0.5，样片 1.0"}
+                  : "FaceFusion · 正脸 hyperswap_1c_256 · 侧脸 hyperswap_1b_256 · 像素提升 512 · 遮罩 box + occlusion · 强度：相册 0.5，样片 1.0"}
               </span>
             </>
           ) : (

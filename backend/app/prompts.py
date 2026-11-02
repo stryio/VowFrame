@@ -1301,3 +1301,35 @@ FACE_FIX_MAKEUP_PROMPT = '\n\n'.join((
     '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
 ))
 
+
+# V7.13 (the user): the AI face fix does only the bride; FaceFusion then swaps the groom's face, so the edit leaves
+# him as he is. Two images: the picture and the bride's made-up photo (her look when it has none).
+_BRIDE_ONLY_REST = (
+    '除了新娘的长相，第一张图的其余部分都保持原样：新郎的脸、发型、肤色、表情和全身，构图、两人的位置和大小、姿态、动作、手势、'
+    '头部角度、表情和视线，光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，头饰、服装、场景、背景及遮挡关系。',
+    '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
+)
+_BRIDE_ONLY_TASK = ('请只校正照片里新娘的长相，使她与第二张图中的本人一致，同时保留第一张图的拍摄状态。'
+                    '新郎不在这次修正范围内，保持第一张图的样子。')
+_BRIDE_ONLY_STRUCTURE = ('只校正偏离本人的结构，以及结构校正必需的妆容位置调整：唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现；'
+                         '不替换整颗头，不重新设计发型，不追加提白或重新上妆。光线只改变妆容和肤色在照片里的明暗和反光。')
+FACE_FIX_BRIDE_MAKEUP_PROMPT = '\n\n'.join((
+    '第一张图是需要修正的婚纱照。第二张图是新娘婚礼当天化好妆、还没有做发型时的照片，用于确定新娘的长相。',
+    _BRIDE_ONLY_TASK,
+    '长相依据第二张图：' + _IDENTITY_INVARIANTS + _EXPRESSION_ALLOWANCE +
+    '保留第一张图的笑容、嘴部开合和眼睛开合状态，不转成参考图的正面姿态和表情。',
+    '新娘的头发不参考第二张图：第二张图里是做发型之前的头发，新娘的发型、发色、刘海、鬓角和发际线都保持第一张图的样子。'
+    '第一张图中已经符合参考图的妆容和肤色保持不动；与参考图不符的地方按参考图：新娘的妆色、妆面和提白程度与第二张图相同，'
+    '她的脸、脖子和手臂的肤色衔接自然，是同一种肤色。' + _BRIDE_ONLY_STRUCTURE,
+    *_BRIDE_ONLY_REST,
+))
+FACE_FIX_BRIDE_PROMPT = '\n\n'.join((
+    '第一张图是需要修正的婚纱照。第二张图是新娘的造型照：她婚礼当天化好妆、做好发型后的样子，用于确定新娘的长相。',
+    _BRIDE_ONLY_TASK,
+    '长相依据造型照：' + _IDENTITY_INVARIANTS + _EXPRESSION_ALLOWANCE +
+    '保留第一张图的笑容、嘴部开合和眼睛开合状态，不转成造型照的正面姿态和表情。',
+    '第一张图中已经符合造型照的妆容、发型和肤色保持不动；与造型照不符的地方按造型照：新娘的妆色、妆面、提白程度、发型和发色和造型照相同，'
+    '她的脸、脖子和手臂的肤色衔接自然，是同一种肤色。' + _BRIDE_ONLY_STRUCTURE,
+    *_BRIDE_ONLY_REST,
+))
+

@@ -27,6 +27,10 @@ SCORE_CHUNK = 20
 FACE_FIX_TOLERANCE = 0.02
 
 
+class TaskStopped(Exception):
+    """The user stopped the task while its request was out (V7.12): its result is not saved."""
+
+
 class TaskManager:
     def __init__(self, config: Config, db: Database, generator: ImageGenerator, swapper: FaceSwapper | None = None,
                  stylist: ImageGenerator | None = None):
@@ -65,6 +69,8 @@ class TaskManager:
                 ('后端重启时这次请求还在进行，结果无法确认，可能已经扣费。重新生成可能产生额外费用', utc_now()),
             )
             conn.execute("UPDATE generation_tasks SET status='held' WHERE status='waiting' AND (regenerate_mode IS NULL OR regenerate_mode<>'face_swap')")
+            conn.execute("UPDATE generation_tasks SET status='held' WHERE status='waiting' AND batch_id IN "
+                         '(SELECT id FROM generation_batches WHERE paused_at IS NOT NULL)')
             # Look candidates: one still being edited may have been charged; queued ones never started.
             for table, noun in (('looks', '造型'), ('makeups', '妆容')):
                 conn.execute(f"UPDATE {table} SET status='interrupted',error_code='interrupted_by_restart',error_message=?,finished_at=? "
@@ -125,7 +131,9 @@ class TaskManager:
             else:
                 condition = "(regenerate_mode IS NULL OR regenerate_mode<>'face_swap')"
             task = conn.execute(
-                f"SELECT * FROM generation_tasks WHERE status='waiting' AND {condition} ORDER BY created_at,rowid LIMIT 1"
+                f"SELECT * FROM generation_tasks WHERE status='waiting' AND {condition} "
+                'AND batch_id IN (SELECT id FROM generation_batches WHERE paused_at IS NULL) '
+                'ORDER BY created_at,rowid LIMIT 1'
             ).fetchone()
             if task is None:
                 return None
@@ -248,6 +256,11 @@ class TaskManager:
             self._fail(task, 'reference_missing', '参考照片文件缺失或无法读取，请重新上传后重试')
             return
 
+        # Stopped while its side looks were made (V7.12): never send the paid shot request.
+        with self.db.connect() as conn:
+            if conn.execute('SELECT status FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()['status'] != 'running':
+                logger.info('Task %s stopped before its request', task['id'])
+                return
         try:
             aspect_ratio = snapshot.get('aspect_ratio') or self.config.aspect_ratio
             started = time.monotonic()
@@ -268,6 +281,8 @@ class TaskManager:
             relative_path = await asyncio.to_thread(save_image, self.config, task['project_id'], asset_id, content)
             self._commit_result(task, asset_id, relative_path)
             self._rate_limit_count = 0
+        except TaskStopped:
+            logger.info('Result discarded for stopped task %s', task['id'])
         except OSError:
             logger.exception('Image storage failed for task %s', task['id'])
             self._fail(task, 'storage_error', f'图片保存失败，请检查存储空间及目录权限：{self.config.data_dir}', hold=True)
@@ -568,6 +583,8 @@ class TaskManager:
 
     async def _execute_face_swap(self, task: dict):
         try:
+            if not await self._prepare_groom_swap(task):
+                return
             with self.db.connect() as conn:
                 references = json.loads(task['reference_image_ids'])
                 if not isinstance(references, list) or len(references) < 2 or not references[0] or not references[1]:
@@ -611,8 +628,11 @@ class TaskManager:
 
         try:
             started = time.monotonic()
-            weight = json.loads(task['model_config_snapshot'])['weight']
-            result = await asyncio.to_thread(self.swapper.swap, bride, groom, target_path, weight)
+            swap_snapshot = json.loads(task['model_config_snapshot'])
+            weight = swap_snapshot['weight']
+            # V7.13: the groom only, after the bride's AI face fix; both people otherwise.
+            roles = tuple(swap_snapshot.get('roles') or ('bride', 'groom'))
+            result = await asyncio.to_thread(self.swapper.swap, bride, groom, target_path, weight, roles)
             content = result.content
             if not content:
                 raise FaceSwapError('face_swap_failed')
@@ -633,6 +653,8 @@ class TaskManager:
             relative_path = await asyncio.to_thread(save_image, self.config, task['project_id'], asset_id, content)
             self._commit_result(task, asset_id, relative_path, None if styled_sources else result.scores,
                                 score_later=styled_sources)
+        except TaskStopped:
+            logger.info('Result discarded for stopped task %s', task['id'])
         except OSError:
             self._fail(task, 'storage_error', '图片保存失败，请检查存储空间及目录权限', hold=False)
         except Exception:
@@ -647,11 +669,13 @@ class TaskManager:
         try:
             with self.db.connect() as conn:
                 references = json.loads(task['reference_image_ids'])
-                photos = [self._asset_file(conn, asset_id) for asset_id in references[:2]]
+                # A bride-only fix (V7.13) sends only her reference; both stay recorded for the likeness scores.
+                count = 1 if snapshot.get('roles') == ['bride'] else 2
+                photos = [self._asset_file(conn, asset_id) for asset_id in references[:count]]
                 source_version = conn.execute('SELECT image_asset_id FROM photo_versions WHERE id=? AND photo_slot_id=?',
                                               (task['source_version_id'], task['target_slot_id'])).fetchone()
                 target_path = self._asset_file(conn, source_version['image_asset_id']) if source_version else None
-            if target_path is None or len(photos) < 2 or None in photos:
+            if target_path is None or len(photos) < count or None in photos:
                 raise FileNotFoundError('Face-fix inputs are incomplete')
         except Exception:
             logger.warning('Face-fix inputs unavailable for task %s', task['id'])
@@ -676,6 +700,8 @@ class TaskManager:
             relative_path = await asyncio.to_thread(save_image, self.config, task['project_id'], asset_id, content)
             self._commit_result(task, asset_id, relative_path)
             self._rate_limit_count = 0
+        except TaskStopped:
+            logger.info('Result discarded for stopped task %s', task['id'])
         except OSError:
             logger.exception('Face-fix storage failed for task %s', task['id'])
             self._fail(task, 'storage_error', f'图片保存失败，请检查存储空间及目录权限：{self.config.data_dir}', hold=True)
@@ -695,12 +721,15 @@ class TaskManager:
         self._fail(task, error.error_code, error.message, hold=False)
 
     def _auto_face_fix_mode(self, task: dict) -> str | None:
-        """What to queue after this task (V7.1): 'face_fix', 'face_swap', or None when nothing automatic applies."""
+        """What to queue after this task (V7.1): 'face_fix', 'face_fix_bride' (V7.13), 'face_swap', or None when
+        nothing automatic applies."""
         if task['regenerate_mode'] in ('face_swap', 'face_fix') or task['moment_shot_size'] == DETAIL_SHOT:
             return None  # never fix a fix; detail shots have no faces
         if task['moment_shot_size'] and is_faceless_shot(task['prompt']):
             return None  # back views and silhouettes show no faces; a manual fix is still available
         mode = self.db.get_auto_face_fix()
+        if mode == 'split':
+            return 'face_fix_bride'  # V7.13: the bride by the AI fix, then the groom by FaceFusion
         if mode == 'ai':
             return 'face_fix'
         # The swap needs FaceFusion; the AI fix does not (V7.2).
@@ -714,11 +743,12 @@ class TaskManager:
                     row = conn.execute(
                         'SELECT asset.file_path,task.reference_image_ids FROM photo_versions version '
                         'JOIN image_assets asset ON asset.id=version.image_asset_id '
-                        'JOIN generation_tasks task ON task.id=version.generation_task_id WHERE version.id=?',
+                        'JOIN generation_tasks task ON task.id=version.generation_task_id '
+                        'WHERE version.id=? AND version.face_scores IS NULL',
                         (version_id,),
                     ).fetchone()
                     if row is None:
-                        continue  # deleted while waiting
+                        continue  # already scored, or deleted while waiting
                     # Every task keeps [bride front, groom front] first.
                     # Similarity is measured against the uploaded photos, not the styled ones (V4.0).
                     references = [uploaded_asset_id(conn, asset_id) for asset_id in json.loads(row['reference_image_ids'])[:2]]
@@ -730,19 +760,87 @@ class TaskManager:
                     if bride.is_file() and groom.is_file() and target.is_file():
                         items.append(ScoreItem(bride, groom, target))
                         scored.append(version_id)
-            if not items:
-                return
-            scores = await asyncio.to_thread(self.swapper.score, items)
+            if items:
+                scores = await asyncio.to_thread(self.swapper.score, items)
+                with self.db.connect(write=True) as conn:
+                    for version_id, value in zip(scored, scores):
+                        if value is not None:
+                            conn.execute('UPDATE photo_versions SET face_scores=? WHERE id=? AND face_scores IS NULL',
+                                         (json.dumps(value), version_id))
             with self.db.connect(write=True) as conn:
-                for version_id, value in zip(scored, scores):
-                    if value is not None:
-                        conn.execute('UPDATE photo_versions SET face_scores=? WHERE id=? AND face_scores IS NULL',
-                                     (json.dumps(value), version_id))
-                for version_id in scored:
+                for version_id in version_ids:
                     self._accept_face_fix(conn, version_id)
         except Exception:
             # A score is only shown to help judge the picture; never retried in a loop, the next start tries again.
             logger.warning('Face scoring failed for %s versions', len(version_ids), exc_info=True)
+
+    async def _prepare_groom_swap(self, task: dict) -> bool:
+        """Judge a bride-only fix in the face lane before swapping the groom. The swap is already a persisted
+        task, so scoring cannot leave the batch completed, escape cancellation or lose the follow-up on restart."""
+        snapshot = self._snapshot(task)
+        if snapshot.get('roles') != ['groom']:
+            return True
+        with self.db.connect() as conn:
+            fix = conn.execute(
+                'SELECT source.source_version_id,source.model_config_snapshot FROM photo_versions version '
+                'JOIN generation_tasks source ON source.id=version.generation_task_id '
+                "WHERE version.id=? AND version.photo_slot_id=? AND source.regenerate_mode='face_fix'",
+                (task['source_version_id'], task['target_slot_id'])).fetchone()
+        allowed_sources = {task['source_version_id']}
+        if fix is not None and json.loads(fix['model_config_snapshot']).get('roles') == ['bride']:
+            allowed_sources.add(fix['source_version_id'])
+            await self._execute_scoring([fix['source_version_id'], task['source_version_id']])
+        with self.db.connect(write=True) as conn:
+            current = conn.execute('SELECT status FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
+            if current is None or current['status'] != 'running':
+                return False
+            slot = conn.execute('SELECT current_version_id FROM photo_slots WHERE id=?', (task['target_slot_id'],)).fetchone()
+            if slot is None or slot['current_version_id'] not in allowed_sources:
+                conn.execute("UPDATE generation_tasks SET status='cancelled',error_code='source_changed',"
+                             'error_message=?,finished_at=? WHERE id=?',
+                             ('作品已切换到其他版本，已取消这次自动新郎换脸', utc_now(), task['id']))
+                return False
+            task['source_version_id'] = slot['current_version_id']
+            conn.execute('UPDATE generation_tasks SET source_version_id=? WHERE id=?',
+                         (task['source_version_id'], task['id']))
+        return True
+
+    def _queue_groom_swap(self, conn, version_id: str) -> bool:
+        """Persist the groom's follow-up in the same transaction as the bride's finished fix. Its input is judged
+        in the face lane before swapping; queued once, in the fix's batch, respecting a batch pause."""
+        row = conn.execute(
+            'SELECT version.photo_slot_id,task.id AS task_id,task.batch_id,task.source_version_id,task.model_config_snapshot '
+            'FROM photo_versions version JOIN generation_tasks task ON task.id=version.generation_task_id '
+            "WHERE version.id=? AND task.regenerate_mode='face_fix'", (version_id,)).fetchone()
+        if row is None:
+            return False
+        snapshot = json.loads(row['model_config_snapshot'])
+        if snapshot.get('then') != 'groom_swap' or snapshot.get('groom_swap_queued') or not self.swapper.status['available']:
+            return False
+        slot = conn.execute('SELECT project_id,kind,current_version_id FROM photo_slots WHERE id=?', (row['photo_slot_id'],)).fetchone()
+        if slot is None or slot['current_version_id'] not in (version_id, row['source_version_id']):
+            return False  # the slot moved on (restored, regenerated): nothing to add the groom to
+        shot = conn.execute(
+            'SELECT task.* FROM photo_versions version JOIN generation_tasks task ON task.id=version.generation_task_id '
+            'WHERE version.id=?', (row['source_version_id'],)).fetchone()
+        project = conn.execute('SELECT * FROM projects WHERE id=?', (slot['project_id'],)).fetchone()
+        if shot is None or project is None:
+            return False
+        paused = conn.execute('SELECT paused_at FROM generation_batches WHERE id=?', (row['batch_id'],)).fetchone()['paused_at']
+        conn.execute(
+            'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,'
+            'style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,regenerate_mode,'
+            "source_version_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,'',?,'face_swap',?,?)",
+            (new_id(), slot['project_id'], row['batch_id'], row['photo_slot_id'], 'held' if paused else 'waiting',
+             json.dumps(task_face_swap_reference_ids(conn, project, self._snapshot(dict(shot)), json.loads(shot['reference_image_ids']))),
+             shot['style_id'], shot['pose_id'], shot['moment_title'], shot['moment_shot_size'],
+             face_swap_snapshot(self.swapper.status['mode'], face_swap_weight(slot['kind']), ('groom',)),
+             slot['current_version_id'], utc_now()))
+        snapshot['groom_swap_queued'] = True
+        conn.execute('UPDATE generation_tasks SET model_config_snapshot=? WHERE id=?',
+                     (json.dumps(snapshot, ensure_ascii=False), row['task_id']))
+        self._wake.set()
+        return True
 
     def _accept_face_fix(self, conn, version_id: str):
         """An AI face fix that made either person less like their uploaded photo does not replace the picture it
@@ -758,7 +856,9 @@ class TaskManager:
         after = json.loads(row['face_scores']) if row['face_scores'] else None
         if before is None or after is None:
             return  # nothing to compare: the fix stays
-        worse = [role for role in ('bride', 'groom') if before.get(role) is not None
+        # A bride-only fix (V7.13) is judged on her alone: FaceFusion swaps the groom afterwards.
+        roles = json.loads(row['model_config_snapshot']).get('roles') or ('bride', 'groom')
+        worse = [role for role in roles if before.get(role) is not None
                  and (after.get(role) is None or after[role] < before[role] - FACE_FIX_TOLERANCE)]
         if not worse:
             return
@@ -776,13 +876,19 @@ class TaskManager:
         now = utc_now()
         version_id = new_id()
         follow_up = self._auto_face_fix_mode(task)
+        groom_swap_queued = False
         with self.db.connect(write=True) as conn:
+            current = conn.execute('SELECT status FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
+            if current is None or current['status'] != 'running':
+                # Stopped by the user (or the project deleted) while the request was out: drop the file.
+                asset_path(self.config, relative_path).unlink(missing_ok=True)
+                raise TaskStopped(task['id'])
             slot_kind = conn.execute('SELECT kind FROM photo_slots WHERE id=?', (task['target_slot_id'],)).fetchone()['kind']
             # Like a manual swap, an automatic one uses the project's current photos, side photos included.
             project = conn.execute('SELECT * FROM projects WHERE id=?', (task['project_id'],)).fetchone()
-            current = conn.execute('SELECT status FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
-            if current is None or current['status'] != 'running':
-                raise RuntimeError('Cannot save result for a task that is not running')
+            # A follow-up of a paused batch waits for it to continue (V7.12).
+            follow_up_status = 'held' if conn.execute(
+                'SELECT paused_at FROM generation_batches WHERE id=?', (task['batch_id'],)).fetchone()['paused_at'] else 'waiting'
             number = conn.execute(
                 'SELECT COALESCE(MAX(version_number),0)+1 FROM photo_versions WHERE photo_slot_id=?',
                 (task['target_slot_id'],),
@@ -808,18 +914,19 @@ class TaskManager:
                 "UPDATE generation_tasks SET status='completed', output_asset_id=?, finished_at=?, "
                 'error_code=NULL,error_message=NULL WHERE id=?', (asset_id, now, task['id']),
             )
-            if follow_up == 'face_fix':
+            if follow_up in ('face_fix', 'face_fix_bride'):
                 # Same transaction as the new version, like the swap below.
                 fix_references, bride_reference = face_fix_reference_ids(conn, json.loads(task['reference_image_ids']))
                 conn.execute(
                     'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,'
                     'style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,regenerate_mode,'
-                    "source_version_id,created_at) VALUES (?,?,?,?,'waiting',?,?,?,?,?,'',?,'face_fix',?,?)",
-                    (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'],
+                    "source_version_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,'',?,'face_fix',?,?)",
+                    (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'], follow_up_status,
                      json.dumps(fix_references),
                      task['style_id'], task['pose_id'], task['moment_title'], task['moment_shot_size'],
                      face_fix_snapshot(self.db.get_default_model() or DEFAULT_MODEL,
-                                       self._snapshot(task).get('aspect_ratio') or self.config.aspect_ratio, bride_reference),
+                                       self._snapshot(task).get('aspect_ratio') or self.config.aspect_ratio, bride_reference,
+                                       bride_only=follow_up == 'face_fix_bride'),
                      version_id, now),
                 )
             elif follow_up == 'face_swap':
@@ -828,15 +935,17 @@ class TaskManager:
                 conn.execute(
                     'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,'
                     'style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,regenerate_mode,'
-                    "source_version_id,created_at) VALUES (?,?,?,?,'waiting',?,?,?,?,?,'',?,'face_swap',?,?)",
-                    (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'],
+                    "source_version_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,'',?,'face_swap',?,?)",
+                    (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'], follow_up_status,
                      json.dumps(task_face_swap_reference_ids(conn, project, self._snapshot(task),
                                                             json.loads(task['reference_image_ids']))),
                      task['style_id'], task['pose_id'],
                      task['moment_title'], task['moment_shot_size'], face_swap_snapshot(self.swapper.status['mode'], face_swap_weight(slot_kind)), version_id, now),
                 )
+            if task['regenerate_mode'] == 'face_fix':
+                groom_swap_queued = self._queue_groom_swap(conn, version_id)
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, task['project_id']))
-        if (follow_up != 'face_swap' and task['regenerate_mode'] != 'face_swap' and task['moment_shot_size'] != DETAIL_SHOT
+        if (not groom_swap_queued and follow_up != 'face_swap' and task['regenerate_mode'] != 'face_swap' and task['moment_shot_size'] != DETAIL_SHOT
                 and self.swapper.status['available']):
             # A queued swap measures this picture itself; otherwise score it on its own (an AI fix and the
             # picture it starts from are both scored this way).

@@ -1266,7 +1266,7 @@ function PreviewCard({
                 </button>
               </>
             ) : task?.status === "held" ? (
-              <span>已搁置，等待你在任务中心确认继续</span>
+              <span>已暂停，等待你在任务中心继续</span>
             ) : (
               <span>尚未生成</span>
             )}

@@ -147,7 +147,7 @@ class SettingsPatch(InputModel):
     director_model: str | None = None
     portrait_ratio: str | None = None
     # V7.1: replaces auto_face_swap.
-    auto_face_fix: Literal['ai', 'facefusion', 'off'] | None = None
+    auto_face_fix: Literal['split', 'ai', 'facefusion', 'off'] | None = None
     # V7.11: the image service, '88api' or 'pptoken'.
     image_provider: Literal['88api', 'pptoken'] | None = None
 
@@ -172,7 +172,7 @@ class Settings(BaseModel):
     batch_reference_mode: Literal['prompt_only', 'with_preview']
     director_model: str | None
     portrait_ratio: Literal['3:4', '2:3', '9:16']
-    auto_face_fix: Literal['ai', 'facefusion', 'off']
+    auto_face_fix: Literal['split', 'ai', 'facefusion', 'off']
     # V7.11: the image service models both services offer go to, and whether each one can be selected.
     image_provider: Literal['88api', 'pptoken']
     image_providers: list[ImageProvider]
@@ -399,6 +399,8 @@ class Batch(BaseModel):
     status: Literal['running', 'held', 'needs_attention', 'completed']
     total: int
     counts: dict[TaskStatus, int]
+    # V7.12: the user paused it; its queued tasks are held until it continues.
+    paused: bool
 
 
 class Task(BaseModel):

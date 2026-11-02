@@ -193,6 +193,8 @@ export interface Batch {
   status: BatchStatus;
   total: number;
   counts: Record<TaskStatus, number>;
+  /** V7.12: paused by the user; its queued tasks wait until it continues. */
+  paused: boolean;
 }
 
 export interface Task {
@@ -219,10 +221,10 @@ export interface Task {
 export type RegenerateMode = "same" | "identity_boost";
 /** Paid actions: they go through the model / cost confirmation dialog. */
 export type SlotAction = RegenerateMode | "change_pose" | "change_shot";
-/** Everything that can produce a version; face_swap is local and free, face_fix is two paid edits (V7.1). */
+/** Everything that can produce a version; face_swap is local and free, face_fix is one paid edit. */
 export type VersionMode = SlotAction | "face_swap" | "face_fix";
-/** What is done to every generated picture with faces (V7.1). */
-export type AutoFaceFix = "ai" | "facefusion" | "off";
+/** What follows each generated picture with faces; "split" fixes the bride by AI, then swaps the groom locally. */
+export type AutoFaceFix = "split" | "ai" | "facefusion" | "off";
 /** Wide plus the four studio framings (V3.14); the only sizes new shots can use. */
 export type ShotSize = "wide" | "full" | "three_quarter" | "half" | "close";
 /** Works from V3.4–V3.11 may still carry retired sizes and faceless detail shots. */
@@ -527,6 +529,9 @@ export const api = {
   listBatches: (projectId: string) => request<Batch[]>(`/projects/${projectId}/batches`),
   continueBatch: (id: string) => request<Batch>(`/batches/${id}/continue`, json("POST")),
   cancelBatch: (id: string) => request<Batch>(`/batches/${id}/cancel`, json("POST")),
+  pauseBatch: (id: string) => request<Batch>(`/batches/${id}/pause`, json("POST")),
+  /** Cancels the queue and stops the tasks being generated; their results are discarded (V7.12). */
+  stopBatch: (id: string) => request<Batch>(`/batches/${id}/stop`, json("POST")),
 
   listTasks: (params: { project_id?: string; batch_id?: string; status?: TaskStatus }) => {
     const query = new URLSearchParams(
@@ -536,13 +541,15 @@ export const api = {
   },
   retryTask: (id: string) => request<Task>(`/tasks/${id}/retry`, json("POST")),
   cancelTask: (id: string) => request<Task>(`/tasks/${id}/cancel`, json("POST")),
+  pauseTask: (id: string) => request<Task>(`/tasks/${id}/pause`, json("POST")),
+  continueTask: (id: string) => request<Task>(`/tasks/${id}/continue`, json("POST")),
 };
 
 export const ACTIVE_STATUSES: TaskStatus[] = ["waiting", "running"];
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   waiting: "等待中",
-  held: "已搁置",
+  held: "已暂停",
   running: "生成中",
   completed: "已完成",
   failed: "失败",
@@ -552,7 +559,7 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
 
 export const BATCH_STATUS_LABEL: Record<BatchStatus, string> = {
   running: "进行中",
-  held: "已搁置",
+  held: "已暂停",
   needs_attention: "需处理",
   completed: "已完成",
 };
