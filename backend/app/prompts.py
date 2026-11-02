@@ -784,13 +784,30 @@ _RETOUCH_LIMITS = ('精修和妆容只按各自档位调整肤色、皮肤的干
 # completely different" licensed changing the face too; the hair still changes, the face, ears and hairline do not,
 # and the hair never covers the eyes or the cheeks to slim the face.
 _HAIR_RULES = ('头发部分完全重新画：形状、体积、分布和轮廓都按上面的发型来，除了发型里写明沿用的地方，不保留原照片头发的样子；'
-               '改变头发不授权改变脸部、耳朵、颅骨或发际线的真实位置。'
+               '改变头发不授权改变脸部、耳朵或颅骨。'
+               # V7.7 (Codex): the hairline's main border stays; only thin patches inside it are filled (B).
+               '真实发际线的主体位置、整体走向、两侧转折及原有 M 形特征保持原样：仅在主体边界靠头发一侧的局部稀疏处，'
+               '沿原有毛发生长方向补出疏密自然的细短发丝，减轻零散透空和不均匀感；保留自然的细微起伏和绒发过渡，'
+               '不修成连续、等密度的整齐边线；不向额头延伸，不填平 M 形后退区域，不重画鬓角，不改变可见额头的高度与宽度；'
+               '边界被刘海遮住或看不清时，不推测补画。'
+               '不把明确的无发生长区域当作局部稀疏处补满；已经自然浓密的部位不额外堆积发量。'
                '头发不遮挡眼睛，不用新增的发束覆盖两颊或下颌来制造瘦脸效果；是否露耳按发型要求，不改变可见耳朵的位置和形态。'
                '原照片里的毛躁、乱翘、碎发、扁塌、油腻、打结和发丝走向凌乱的地方都不保留；'
                '头部两侧和头顶的外轮廓是光滑整齐的线条，没有任何翘起的细碎毛发。'
                '按造型师洗吹、梳理、定型后的样子画，发丝干净顺滑，有健康的光泽。'
                '不凭空加长头发；盘发和编发把头发收起来，看到的头发变短是正常的。'
                '头发有真实的重量，以整齐的发束为主；发际线边缘用细软的绒发自然过渡。')
+
+# V7.7 (Codex): fuller-looking hair inside its own growing area (A), by role; the part keeps a little scalp, since
+# asking for none gives black patches or a wig.
+_HAIR_DENSITY = {
+    'bride': ('在原有头发生长区域内整理发束的疏密与走向，减轻分缝两侧和头顶因发束分散、贴伏而形成的大片露头皮，使视觉发量自然充盈。'
+              '分缝仍保留细窄、自然的透肤感，不涂成整片实色。发根的支撑和头顶体积服从所选发型：蓬松发型有自然空气感，'
+              '光洁盘发和后梳发型仍保持服帖，不额外撑大头顶和两侧轮廓；不改变颅骨形状，不向额头或鬓角外扩头发生长边界。'),
+    'groom': ('在原有头发生长区域内梳顺发流，整理顶部和分缝两侧的发束分布，减轻因发束分散、贴伏而形成的大片露头皮，使视觉发量自然充盈。'
+              '分缝保持清楚、细窄，保留自然透肤感。顶部的蓬松度按所选发型表现，两侧仍按发型要求贴服，不把头发整体垫高、撑宽；'
+              '不改变真实发际线、鬓角边界和颅骨形状。'),
+}
 
 
 class Hairstyle(NamedTuple):
@@ -949,13 +966,14 @@ def compose_look_prompt(role: str, hairstyle_id: str, level: str, *, style_id: s
     done = '化好妆、由造型师重新做好发型' if role == 'bride' else '由造型师重新做好发型、修整好皮肤'
     if facing is None:
         opening = (f'把这张照片修成{name}婚礼当天{done}后的造型照。原照片用来确定这个人的长相：' + _IDENTITY_INVARIANTS +
-                   '发际线位置与原照片一致；头部的角度和表情保持原照片的样子。头发按下面的发型重新造型。')
+                   '发际线的主体位置、整体走向和两侧转折与原照片一致，局部稀疏只按下文在原边界内补足；'
+                   '头部的角度和表情保持原照片的样子。头发按下面的发型重新造型。')
     else:
         opening = (f'第一张图是要修的照片，{name}脸朝画面{_FACING_NAMES[facing]}侧；第二张图是同一个人已经做好的正面造型照。'
                    '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。第一张图用来确定这个人的长相：'
-                   + _IDENTITY_INVARIANTS + '发际线位置与第一张图一致；头部的角度和表情保持第一张图的样子。'
+                   + _IDENTITY_INVARIANTS + '发际线的主体位置、整体走向和两侧转折按第一张图里本人的样子；头部的角度和表情保持第一张图的样子。'
                    '头发按第二张图的发型重新画，不照搬第一张图里的头发。')
-    hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES
+    hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES + _HAIR_DENSITY[role]
     makeup = _bride_makeup(level, style_id) if role == 'bride' else '皮肤和精修：' + _GROOM_STYLING[level] + '。' + _RETOUCH_LIMITS
     return '\n\n'.join((opening, hair, makeup, _LOOK_BACKGROUND, _STYLING_AVOID))
 
@@ -989,8 +1007,9 @@ def compose_bride_hair_prompt(hairstyle_id: str, level: str) -> str:
     opening = ('这张照片是新娘婚礼当天化好妆的样子。把她的头发改成下面的发型，这一步只改头发：'
                '脸、五官、表情、头部角度、妆容、肤色、皮肤状态、背景、光线和衣服都保持这张照片的样子，不再上妆、不再提白、不再修皮肤；'
                '已完成的眉妆、眼影深浅层次、眼线、睫毛和假睫毛、腮红显色和唇色覆盖程度都保持这张照片的样子，不淡化妆色。'
+               '发际线的主体边界以这张照片为准。'
                + _IDENTITY_INVARIANTS)
-    hair = f'发型：{HAIRSTYLE_BY_KEY[("bride", hairstyle_id)].text}；{_HAIR_FINISH["bride"][level]}。' + _HAIR_RULES
+    hair = f'发型：{HAIRSTYLE_BY_KEY[("bride", hairstyle_id)].text}；{_HAIR_FINISH["bride"][level]}。' + _HAIR_RULES + _HAIR_DENSITY['bride']
     return '\n\n'.join((opening, hair, _STYLING_AVOID))
 
 

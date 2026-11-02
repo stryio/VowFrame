@@ -137,7 +137,7 @@ def test_look_prompts_cover_every_hairstyle_level_and_style_and_match_docs():
     hair = compose_bride_hair_prompt('low_bun', 'natural')
     assert '这一步只改头发' in hair and '不再上妆、不再提白、不再修皮肤' in hair and '新娘妆色' not in hair
     assert hair.split('\n\n')[1].startswith('发型：' + next(item.text for item in HAIRSTYLES if item.id == 'low_bun'))
-    assert '改变头发不授权改变脸部、耳朵、颅骨或发际线的真实位置' in hair and '头发不遮挡眼睛' in hair
+    assert '改变头发不授权改变脸部、耳朵或颅骨' in hair and '头发不遮挡眼睛' in hair
     assert makeup.split('\n\n')[0] in DOC and hair.split('\n\n')[0] in DOC
     assert doc_block('新郎脸朝画面左侧，`keep`') == compose_look_prompt('groom', 'keep', 'natural', facing='left')
     side = compose_look_prompt('bride', 'low_bun', 'natural', style_id='hanfu', facing='right')
@@ -438,3 +438,17 @@ def test_hairstyle_follows_the_stated_hair_length_after_the_costume():
     assert '幞头' in STYLE_BY_ID['hanfu']['hair']['groom']['buzz']
     # Prompts without a stated length (before V3.45) name no hairstyle.
     assert '发型（' not in compose_preview_prompt('republic_qipao', '3:4')
+
+
+def test_hair_looks_fuller_and_the_hairline_is_filled_only_inside_its_border_v7_7():
+    from app.prompts import compose_bride_hair_prompt
+    bride = compose_bride_hair_prompt('low_bun', 'natural')
+    groom = compose_look_prompt('groom', 'keep', 'natural')
+    for prompt in (bride, groom):
+        assert '使视觉发量自然充盈' in prompt and '透肤感' in prompt and '完全不露头皮' not in prompt
+        assert '仅在主体边界靠头发一侧的局部稀疏处' in prompt and '不向额头延伸，不填平 M 形后退区域' in prompt
+        assert '发际线的真实位置' not in prompt and '已经自然浓密的部位不额外堆积发量' in prompt
+    assert '光洁盘发和后梳发型仍保持服帖' in bride and '两侧仍按发型要求贴服' in groom
+    assert '发际线的主体边界以这张照片为准' in bride
+    # The makeup step still leaves the hair alone.
+    assert '发量' not in compose_bride_makeup_prompt('natural', 'korean_minimal')
