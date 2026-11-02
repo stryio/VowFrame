@@ -16,7 +16,6 @@ from .config import Config, load_config
 from .db import Database
 from .director import Api88Director, MockDirector
 from .generator import ImageGenerator, MockGenerator
-from .face_fix import FaceFixer
 from .face_swap import FaceSwapper, create_face_swapper
 from .photo_prep import FacePhotoPreparer, PhotoPreparer
 from .task_manager import TaskManager
@@ -49,7 +48,7 @@ def _configure_file_logging(data_dir: Path):
 
 def create_app(config: Config | None = None, generator: ImageGenerator | None = None,
                face_swapper: FaceSwapper | None = None, photo_preparer: PhotoPreparer | None = None,
-               stylist: ImageGenerator | None = None, face_fixer: FaceFixer | None = None) -> FastAPI:
+               stylist: ImageGenerator | None = None) -> FastAPI:
     config = config if config is not None else load_config()
     if generator is None:
         if config.generator == 'mock':
@@ -61,7 +60,7 @@ def create_app(config: Config | None = None, generator: ImageGenerator | None = 
     director = MockDirector() if config.generator == 'mock' else Api88Director(config)
     face_swapper = face_swapper or create_face_swapper(config)
     db = Database(config.db_path)
-    manager = TaskManager(config, db, generator, face_swapper, stylist, face_fixer)
+    manager = TaskManager(config, db, generator, face_swapper, stylist)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):

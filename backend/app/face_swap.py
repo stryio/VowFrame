@@ -118,8 +118,6 @@ class FaceSwapper(Protocol):
 
     def score(self, items: list[ScoreItem]) -> list[dict | None]: ...
 
-    def faces(self, target: Path) -> dict: ...
-
 
 class MockFaceSwapper:
     @property
@@ -131,9 +129,6 @@ class MockFaceSwapper:
 
     def score(self, items: list[ScoreItem]) -> list[dict | None]:
         return [None] * len(items)
-
-    def faces(self, target: Path) -> dict:
-        return {'bride': None, 'groom': None}
 
 
 class UnavailableFaceSwapper:
@@ -148,9 +143,6 @@ class UnavailableFaceSwapper:
         raise FaceSwapError('face_swap_failed')
 
     def score(self, items: list[ScoreItem]) -> list[dict | None]:
-        raise FaceSwapError('face_swap_failed')
-
-    def faces(self, target: Path) -> dict:
         raise FaceSwapError('face_swap_failed')
 
 
@@ -294,22 +286,6 @@ class FaceFusionSwapper:
                            completed.returncode, diagnostic if isinstance(diagnostic, str) else 'unavailable')
             raise FaceSwapError('face_swap_failed')
         return [face_scores(value) for value in scores]
-
-
-    def faces(self, target: Path) -> dict:
-        """The bride's and the groom's face in a picture (the largest face of each gender, as the swap picks them):
-        {'bride': {'box': [x1, y1, x2, y2], 'points': [[x, y] x 5]} | None, 'groom': ...}."""
-        with tempfile.TemporaryDirectory(prefix='vowframe-faces-') as directory:
-            payload = {'action': 'faces', 'facefusion_dir': str(self.facefusion_dir), 'work_dir': directory,
-                       'target': str(Path(target).resolve())}
-            completed, result = self._call_helper(payload, SCORE_TIMEOUT_SECONDS)
-        faces = result.get('faces') if isinstance(result, dict) and result.get('ok') else None
-        if completed.returncode != 0 or not isinstance(faces, dict):
-            diagnostic = result.get('diagnostic') if isinstance(result, dict) else None
-            logger.warning('FaceFusion face finding failed (exit_status=%s, diagnostic=%s)',
-                           completed.returncode, diagnostic if isinstance(diagnostic, str) else 'unavailable')
-            raise FaceSwapError('face_swap_failed')
-        return {role: faces.get(role) for role in ('bride', 'groom')}
 
 
 def create_face_swapper(config: Config) -> FaceSwapper:

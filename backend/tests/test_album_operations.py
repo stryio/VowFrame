@@ -128,7 +128,7 @@ def test_identity_boost_preview_uses_fixed_moment_and_missing_style_preview_is_4
         assert result.status_code == 201, result.text
         wait_batch(client, result.json()['id'])
         task = task_for_batch(client, result.json()['id'])
-        assert '镜头：两人并肩站立，新娘挽着新郎的手臂' in task['prompt']
+        assert '镜头：两人并肩站立，新娘轻挽新郎的手臂' in task['prompt']
         with app.state.db.connect() as conn:
             references = conn.execute(
                 'SELECT reference_image_ids FROM generation_tasks WHERE id=?', (task['id'],)

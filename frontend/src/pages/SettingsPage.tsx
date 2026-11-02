@@ -165,8 +165,27 @@ export function SettingsPage() {
         >
           <h3>修脸（AI 修脸 / FaceFusion 换脸）</h3>
           <p className="field-hint">
-            用上传的原照修正两人的脸，构图、服装和光线不变。本地运行、不产生费用，原图保留在历史版本中，可随时「对比原图」或恢复原图。
+            用上传的原照修正两人的脸，构图、服装和光线不变；原图保留在历史版本中，可随时「对比原图」或恢复原图。
           </p>
+          <div className="field">
+            <span className="field-label">生成后自动修脸</span>
+            <div className="shot-switch" role="group" aria-label="生成后自动修脸">
+              {AUTO_FACE_FIX_OPTIONS.map(([value, label]) => (
+                <button
+                  key={value}
+                  className={`shot-pill ${autoFaceFix === value ? "active" : ""}`}
+                  disabled={saving || autoFaceFix === value}
+                  onClick={() => changeAutoFaceFix(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="field-hint">
+              每张有人脸的样片和相册照片生成后自动做一次。AI 修脸：用两人上传的原照把整张照片里的脸修得更像本人，保留妆容和精修，每张修一次，按默认模型计费；FaceFusion 换脸：本地处理、不花钱，但会把妆洗淡一些，需要配置 FaceFusion。两种都可以在照片菜单里手动点。
+            </span>
+          </div>
+          <span className="field-label">FaceFusion 换脸</span>
           {health.face_swap.available ? (
             <>
               <span className="muted">
@@ -175,24 +194,6 @@ export function SettingsPage() {
                   ? "模拟换脸（原样复制图片，用于测试）"
                   : "FaceFusion · 新娘 hyperswap_1a_256 · 新郎 hyperswap_1c_256 · 像素提升 512 · 遮罩 box + occlusion · 强度：相册 0.5，样片 1.0"}
               </span>
-<div className="field">
-                <span className="field-label">生成后自动修脸</span>
-                <div className="shot-switch" role="group" aria-label="生成后自动修脸">
-                  {AUTO_FACE_FIX_OPTIONS.map(([value, label]) => (
-                    <button
-                      key={value}
-                      className={`shot-pill ${autoFaceFix === value ? "active" : ""}`}
-                      disabled={saving || autoFaceFix === value}
-                      onClick={() => changeAutoFaceFix(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <span className="field-hint">
-                  每张有人脸的样片和相册照片生成后自动做一次。AI 修脸：用两人上传的原照把脸修得更像本人，保留妆容和精修，每张修两次（新娘、新郎各一次），按默认模型计费；FaceFusion 换脸：本地处理、不花钱，但会把妆洗淡一些。两种都可以在照片菜单里手动点。AI 修脸也要用 FaceFusion 分清谁是新娘、谁是新郎。
-                </span>
-              </div>
             </>
           ) : (
             <>

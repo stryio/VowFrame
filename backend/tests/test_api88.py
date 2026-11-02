@@ -472,6 +472,8 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
     app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     with caplog.at_level(logging.DEBUG):
         with TestClient(app, backend_options={'use_uvloop': True}) as client:
+            # These tests count the shot's own requests; the automatic AI face fix (V7.1) would add one.
+            app.state.db.set_auto_face_fix('off')
             health = client.get('/api/health')
             assert health.json() == {
                 'ok': True, 'generator': '88api', 'model': 'gpt-image-2',
@@ -525,6 +527,7 @@ def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected,
 
     app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     with TestClient(app, backend_options={'use_uvloop': True}) as client:
+        app.state.db.set_auto_face_fix('off')  # count only the shot's requests
         project = create_project(client)
         batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
         wait_batch(client, batch['id'], status='completed' if expected == 'completed' else 'needs_attention')

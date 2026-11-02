@@ -220,3 +220,12 @@ def test_system_prompt_matches_docs_and_no_longer_offers_detail_shots():
     doc = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
     assert re.search(r'### 7\.1 系统提示词\n\n```text\n(.*?)\n```', doc, re.S).group(1) == SYSTEM_PROMPT
     assert 'detail' not in SHOT_SIZES and '局部特写' not in SYSTEM_PROMPT
+
+
+def test_the_director_asks_for_happy_relaxed_couples_v7_3():
+    from app.director import SYSTEM_PROMPT, _shot_requirement
+    assert '以开心、亲密、放松为主要情绪' in SYSTEM_PROMPT and '约一半安排自然露齿笑' in SYSTEM_PROMPT
+    assert '含蓄' not in SYSTEM_PROMPT and '可以描写笑容、视线、头部朝向和表情变化' in SYSTEM_PROMPT
+    assert '抓拍要写出动作进行到哪一刻' in SYSTEM_PROMPT
+    standard = _shot_requirement(12)
+    assert '标准照 4 张：两人一起看向镜头' in standard and '表情开心' in standard and '正面站立' not in standard

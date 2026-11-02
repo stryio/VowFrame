@@ -78,14 +78,16 @@ def test_full_example_matches_docs_verbatim():
 
 def test_styled_shot_prompts_copy_the_looks_hair_and_makeup_and_match_docs():
     identity = compose_preview_prompt('korean_minimal', '3:4', styled=True).split('\n\n')[1]
-    assert identity == doc_block('**V7.0 起：参考图是两人带妆的造型照')
+    assert identity == doc_block('**V7.3 起：参考图是两人带妆的造型照')
     assert is_styled(compose_preview_prompt('korean_minimal', '3:4', styled=True))
     assert not is_styled(compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('natural', 'natural'), hair=Hair('long', 'short')))
     # V7.0: the looks wear the makeup, so a shot from looks takes no levels.
     with pytest.raises(ValueError):
         compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('natural', 'natural'), styled=True)
     assert '造型照就是两人婚礼当天化好妆、做好发型后的样子' in identity
-    assert '发型、发色、妆容和皮肤状态，都与造型照一致' in identity and '不要美颜、瘦脸、磨皮或改变五官' in identity
+    assert '造型照用于确定两人的长相、发型和妆容' in identity and '不要额外美颜、瘦脸、磨皮或重塑五官' in identity
+    # V7.3: the expression follows the shot, not the neutral look; no stiff "stand tall".
+    assert '不照搬造型照中的表情和视线' in identity and '两人体态自然舒展' in identity and '挺拔' not in identity
     # The colours and finish of the style paragraph are the look's; V6.4's two sentences on visibility and light stay.
     assert '妆色和妆面就是「服装与风格」里写的新娘妆色和新娘妆面' in identity
     assert '但不为显示妆容而改变眼型、唇形或人物在画面里的大小' in identity and '同一套妆的质感不随场景改变' in identity
@@ -113,6 +115,7 @@ def test_styled_shot_prompts_copy_the_looks_hair_and_makeup_and_match_docs():
     assert is_styled(boosted) and boosted.split('\n\n')[1].endswith('宁可画面朴素，也要像本人。')
     # Prompts of V4.0–V5.2 and V6.0–V6.4 still count as styled.
     assert is_styled('竖构图。\n\n' + doc_block('**V4.0～V5.2：参考图是两人带妆的造型照'))
+    assert is_styled('竖构图。\n\n' + doc_block('**V7.0～V7.2：'))
     bare = doc_block('**V6.0～V6.4：参考图是只做了发型的素颜造型照')
     assert is_styled('竖构图。\n\n' + bare) and '卧蚕：微弱提亮，不改变眼睛大小' in bare
 

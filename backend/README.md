@@ -72,9 +72,9 @@ cp backend/config.local.example.json backend/config.local.json
 ```
 
 `backend/app/assets/` 里的 SegFace 人脸解析模型（28 MB，运行它需要 `requirements.txt` 里的
-`onnxruntime`）用于 AI 修脸（V7.1）：把修好的脸贴回照片时，只贴脸，不贴头发、手和头饰。
-AI 修脸还要用 FaceFusion 分清新娘和新郎的脸，没有配置 `facefusion_dir` 时不会自动修脸。
-SegFace 的权重只允许非商业用途（见 `backend/app/assets/face_parsing_segface_LICENSE`）。
+`onnxruntime`）现在没有被调用：V6.x 用它把原照片的脸贴回造型照，V7.0 起造型照由修图直接画好发型和妆容，
+不再贴回。它暂时保留给程序美白去斑的试验，不采用就删除。SegFace 的权重只允许非商业用途
+（见 `backend/app/assets/face_parsing_segface_LICENSE`）。
 
 没有本地文件时使用模拟生成器；设置 `VOWFRAME_GENERATOR=mock` 可以临时覆盖
 文件中的真实生成器选择。配置在启动时读取，修改后需要重启。选择 `88api` 时，

@@ -152,10 +152,8 @@ export function AlbumPage() {
       {
         label: "AI 修脸",
         onSelect: () => actions.faceFix([slot]),
-        disabled: !idle || !faceSwap?.available || !hasFaces(slot),
-        title: !hasFaces(slot)
-          ? "局部特写没有人脸，无需修脸"
-          : (swapUnavailable ?? "用上传的原照把脸修得更像本人，保留妆容和精修；每张修两次，按模型计费"),
+        disabled: !idle || !hasFaces(slot),
+        title: !hasFaces(slot) ? "局部特写没有人脸，无需修脸" : "用上传的原照把脸修得更像本人，保留妆容和精修；每张修一次，按模型计费",
       },
       {
         label: "换脸修正",
@@ -293,8 +291,8 @@ export function AlbumPage() {
           <button
             className="btn btn-sm"
             onClick={faceFixSelection}
-            disabled={chosenIdle.length === 0 || actions.busy || !faceSwap?.available}
-            title={swapUnavailable ?? "每张修两次，按模型计费"}
+            disabled={chosenIdle.length === 0 || actions.busy}
+            title="每张修一次，按模型计费"
           >
             批量 AI 修脸
           </button>

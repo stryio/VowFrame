@@ -729,11 +729,8 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
     {
       label: "AI 修脸",
       onSelect: () => actions.faceFix([slot]),
-      disabled: !idle(slot) || !faceSwap?.available,
-      title:
-        faceSwap && !faceSwap.available
-          ? (faceSwap.reason ?? "AI 修脸需要 FaceFusion 找脸")
-          : "用上传的原照把脸修得更像本人，保留妆容和精修；每张修两次，按模型计费",
+      disabled: !idle(slot),
+      title: "用上传的原照把脸修得更像本人，保留妆容和精修；每张修一次，按模型计费",
     },
     {
       label: "换脸修正",

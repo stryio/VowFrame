@@ -668,12 +668,9 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
     }
 
 
-def _face_fix_input(conn, slot, project, request: Request, *, slot_label: str, what: str):
+def _face_fix_input(conn, slot, project, *, slot_label: str, what: str):
     """The version a face swap or AI face fix starts from and its task: the current version, or, when that is
-    itself a fix, the picture it fixed. Both need FaceFusion (the swap, or finding whose face is whose)."""
-    swap_status = request.app.state.face_swapper.status
-    if not swap_status['available']:
-        error(409, 'face_swap_unavailable', swap_status['reason'])
+    itself a fix, the picture it fixed."""
     if slot['current_version_id'] is None:
         error(409, 'slot_not_ready', f'{slot_label}尚无成功版本，暂时无法{what}')
     if _slot_is_busy(conn, slot['id']):
@@ -702,7 +699,10 @@ def _face_fix_input(conn, slot, project, request: Request, *, slot_label: str, w
 
 
 def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label: str) -> dict:
-    input_task = _face_fix_input(conn, slot, project, request, slot_label=slot_label, what='换脸修正')
+    swap_status = request.app.state.face_swapper.status
+    if not swap_status['available']:
+        error(409, 'face_swap_unavailable', swap_status['reason'])
+    input_task = _face_fix_input(conn, slot, project, slot_label=slot_label, what='换脸修正')
     # The swap uses the faces of the shot it fixes: its looks or styled photos (V4.0, V5.0).
     references = task_face_swap_reference_ids(conn, project, _parse_snapshot(input_task['model_config_snapshot'], slot_label),
                                               _parse_json_list(input_task['reference_image_ids'], slot_label))
@@ -722,8 +722,9 @@ def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label
 
 
 def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label: str, explicit_model: str | None) -> dict:
-    """An AI face fix (V7.1) of the slot's picture: likeness from the uploaded photos behind it."""
-    input_task = _face_fix_input(conn, slot, project, request, slot_label=slot_label, what='AI 修脸')
+    """An AI face fix (V7.1) of the slot's picture: likeness from the uploaded photos behind it, in the picture's
+    own frame."""
+    input_task = _face_fix_input(conn, slot, project, slot_label=slot_label, what='AI 修脸')
     model_id = explicit_model or request.app.state.db.get_default_model()
     if get_model(model_id) is None:
         invalid_model()
@@ -736,7 +737,7 @@ def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label:
         'moment_shot_size': input_task['moment_shot_size'],
         'references': json.dumps(references, ensure_ascii=False),
         'prompt': '',
-        'snapshot': face_fix_snapshot(model_id),
+        'snapshot': face_fix_snapshot(model_id, _source_aspect_ratio(input_task, request)),
         'regenerate_mode': 'face_fix',
         'source_version_id': input_task['version_id'],
     }
@@ -1319,7 +1320,7 @@ def face_swap_slot(slot_id: str, body: FaceSwapCreate, request: Request, respons
 
 @router.post('/slots/{slot_id}/face-fix', response_model=Batch, status_code=201)
 def face_fix_slot(slot_id: str, body: FaceFixCreate, request: Request, response: Response):
-    """AI face fix of one picture (V7.1): two paid edits, one per face."""
+    """AI face fix of one picture (V7.1): one paid edit of the whole picture (V7.2)."""
     with request.app.state.db.connect(write=True) as conn:
         existing = conn.execute(
             'SELECT * FROM generation_batches WHERE client_request_id=?', (body.client_request_id,)

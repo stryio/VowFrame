@@ -569,11 +569,11 @@ POSES = tuple(
 )
 POSE_BY_ID = {pose['id']: pose for pose in POSES}
 
-PREVIEW_MOMENT = '镜头：两人并肩站立，新娘挽着新郎的手臂，两人看向镜头，表情自然放松，七分身构图，两人面部清晰。'
+PREVIEW_MOMENT = '镜头：两人并肩站立，新娘轻挽新郎的手臂，身体自然靠近，肩颈放松，两人开心地露齿笑着看向镜头，七分身构图，两人面部清晰。'
 GENERAL_AVOID = '网红脸、整容脸、幼态脸、五官欧美化、过度磨皮的塑料皮肤、皮肤暗沉、痘印和斑点、厚重结块的底妆、面部大面积油光或汗珠、生硬的贴片状发际线、面部被遮挡、多余的人物、手部或手指畸形、人物像抠图贴在背景上、杂乱的地面和背景、影楼廉价感、过度锐化、粗糙的数码噪点、HDR 感、文字和水印'
 QUALITY_PARAGRAPH = (
     '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境处在同一光源下，受光方向、色温和明暗一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感：地面没有杂物，背景里没有杂乱无章的元素；'
-    '两人面部清晰可辨，亮度跟随场景的光线；表情自然含蓄：默认是浅笑或微笑，可以微微露出牙齿，但不要咧开嘴的大笑；只有镜头里写明「开怀大笑」时，才按大笑来表现；焦外自然虚化，影调柔和、细节细腻，带有轻微的胶片颗粒感；白平衡准确，白色呈现干净的白；色彩处理统一，皮肤干净细腻、有自然的光泽。'
+    '两人面部清晰可辨，亮度跟随场景的光线；表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；焦外自然虚化，影调柔和、细节细腻，带有轻微的胶片颗粒感；白平衡准确，白色呈现干净的白；色彩处理统一，皮肤干净细腻、有自然的光泽。'
 )
 _FACE_CLEAR_SENTENCE = '两人面部清晰可辨，亮度跟随场景的光线；'
 # Atmosphere shots (back view, silhouette, tiny figures, foreground cover) do not show the faces clearly (V3.35).
@@ -943,12 +943,17 @@ def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[s
         roles += _PREVIEW_REFERENCE_INSERTION.replace('第三张', _IMAGE_ORDINALS[len(labels)], 1)
     # V7.0: the makeup is copied from the look, which was made for this style; the style paragraph repeats its
     # colours and finish as a reminder. "Stronger than daily makeup" made people larger in wide shots (V6.4).
+    # V7.3 (with Codex): the looks fix identity, hair and makeup, but not the expression; "only clothes, pose, scene
+    # and light may change" kept the looks' neutral faces, and "stand tall" stiffened every pose.
     return ('图片角色：' + roles + _STYLED_MARKER + '。'
-            '严格保持两人的长相和造型：脸型、五官比例、眼型、鼻型、唇形、肤色、发际线和年龄感，以及发型、发色、妆容和皮肤状态，都与造型照一致；'
-            '不要美颜、瘦脸、磨皮或改变五官。允许改变的只有服装、姿态、场景和光线：头发随姿态自然垂落；'
+            '造型照用于确定两人的长相、发型和妆容：保留本人的脸部基本轮廓、五官固有特征与比例、肤色、发际线和年龄感，'
+            '以及发型、发色、妆容和皮肤状态；不要额外美颜、瘦脸、磨皮或重塑五官。'
+            '表情、视线、头部角度、姿态和动作按「镜头」描写，不照搬造型照中的表情和视线；'
+            '微笑或大笑时，允许面部出现与表情相符的自然变化，同时保持可辨认的本人特征。'
+            '服装、场景和光线按本提示词表现，头发随姿态自然垂落。'
             '新娘的妆照着造型照画，妆色和妆面就是「服装与风格」里写的新娘妆色和新娘妆面，在当前景别下清楚可辨，'
-            '但不为显示妆容而改变眼型、唇形或人物在画面里的大小；同一套妆的质感不随场景改变，光线只改变它在照片里的明暗和反光；'
-            '造型照里的纯色背景和衣服不参考。' + _BODY_SENTENCE +
+            '但不为显示妆容而改变眼型、唇形或人物在画面里的大小；同一套妆的质感不随场景改变，光线只改变它在照片里的明暗和反光。'
+            '造型照里的纯色背景和衣服不参考。两人体态自然舒展，不改变真实的身体比例。'
             '风格要求与长相冲突时，以长相为准。')
 
 
@@ -1160,30 +1165,22 @@ def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect
                                                        makeup=makeup, hair=hair, side_references=side_references, styled=styled))
 
 
-# AI face fix (V7.1, app/face_fix.py): one edit per face, on a crop around it, with that person's uploaded photo.
-# Written with Codex: each attribute is assigned to the image that decides it, the makeup follows the corrected
-# features, and nothing new (whitening, slimming) is added.
-FACE_FIX_ASPECT_RATIO = '1:1'
-FACE_FIX_POSITIONS = ('中央', '左侧', '右侧')
-
-
-def compose_face_fix_prompt(role: str, position: str) -> str:
-    """position: where the face sits in the crop (FACE_FIX_POSITIONS)."""
-    if position not in FACE_FIX_POSITIONS:
-        raise ValueError(f'unknown position {position}')
-    name = _ROLE_NAMES[role]
-    return '\n\n'.join((
-        f'第一张图是需要修正的婚纱照局部裁剪，目标是画面{position}的{name}。第二张图是这位新人本人的原始照片，只用于确定本人的长相。',
-        '请校正目标人物的长相，使其可辨认为第二张图中的本人，同时保留第一张图已经完成的妆容、皮肤精修和拍摄状态。',
-        '长相依据第二张图：本人的五官固有形态、相对比例、眉眼特征、鼻型、唇形、脸部基本轮廓和年龄感。'
-        '把这些特征自然呈现在第一张图现有的头部角度、表情和视线下，保留笑容、嘴部开合和眼睛开合状态，不转成第二张图的正面姿态。',
-        '妆容和精修依据第一张图：保留底妆的遮盖力和质感、眉妆的颜色与浓淡、眼影的颜色与层次、睫毛效果、腮红的颜色与晕染，'
-        '以及唇妆的颜色、饱和度和光泽。妆容自然贴合校正后的本人五官，唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现，'
-        '妆效不减淡也不加浓。新郎同样只保留第一张图已有的修饰，不额外加妆。',
-        '保留第一张图已有的肤色明度、遮瑕效果和细腻皮肤质感，不新增美白或磨皮。'
-        '第二张图中素颜的肤色、痘痘、痘印、黑眼圈、皮肤粗糙和拍摄色偏都不带入。'
-        '脸部基本轮廓按本人校正，只保留第一张图已有的轻微修饰程度，不进一步瘦脸、削尖下巴或放大眼睛。',
-        '保持第一张图的头部位置、整体大小、角度、视线、表情，以及光照方向、曝光、色温、明暗关系和原有彩色或黑白效果。'
-        '发型、发际线位置、头饰、衣服、背景及遮挡关系保持原样；边缘露出的其他人物也保持原样。',
-        '输出与第一张图相同的裁剪范围、画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
-    ))
+# AI face fix (V7.1, app/face_fix.py; the whole picture since V7.2): one edit with both uploaded photos. Written
+# with Codex: each attribute is assigned to the image that decides it, the makeup follows the corrected features,
+# and nothing new (whitening, slimming) is added. The bride is told apart by her wedding dress, so nothing local
+# has to find the faces.
+FACE_FIX_PROMPT = '\n\n'.join((
+    '第一张图是需要修正的婚纱照。第二张图是新娘本人的原始照片，第三张图是新郎本人的原始照片，只用于确定两人的长相。',
+    '请校正照片里新娘和新郎的长相，使新娘可辨认为第二张图中的本人，新郎可辨认为第三张图中的本人，同时保留第一张图已经完成的妆容、皮肤精修和拍摄状态。',
+    '长相依据第二、三张图：每个人本人的五官固有形态、相对比例、眉眼特征、鼻型、唇形、脸部基本轮廓和年龄感。'
+    '把这些特征自然呈现在第一张图现有的头部角度、表情和视线下，保留笑容、嘴部开合和眼睛开合状态，不转成原始照片的正面姿态。',
+    '妆容和精修依据第一张图：保留新娘底妆的遮盖力和质感、眉妆的颜色与浓淡、眼影的颜色与层次、睫毛效果、腮红的颜色与晕染，'
+    '以及唇妆的颜色、饱和度和光泽。妆容自然贴合校正后的本人五官，唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现，'
+    '妆效不减淡也不加浓。新郎同样只保留第一张图已有的修饰，不额外加妆。',
+    '保留第一张图已有的肤色明度、遮瑕效果和细腻皮肤质感，不新增美白或磨皮。'
+    '原始照片中素颜的肤色、痘痘、痘印、黑眼圈、皮肤粗糙和拍摄色偏都不带入。'
+    '脸部基本轮廓按本人校正，只保留第一张图已有的轻微修饰程度，不进一步瘦脸、削尖下巴或放大眼睛。',
+    '除了两人的长相，第一张图的其余部分都保持原样：构图、两人的位置和大小、姿态、动作、手势、头部角度、表情和视线，'
+    '光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，发型、发际线位置、头饰、服装、场景、背景及遮挡关系。',
+    '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
+))

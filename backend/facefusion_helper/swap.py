@@ -292,62 +292,10 @@ def _score(payload):
         return {'ok': True, 'scores': scores}
 
 
-def _faces(payload):
-    """The bride's and the groom's face in a picture, for the AI face fix: the largest face of each gender, with
-    its box (x1, y1, x2, y2) and five points (eyes, nose tip, mouth corners), or None where none was found."""
-    facefusion_dir = Path(payload['facefusion_dir']).resolve()
-    sys.path.insert(0, str(facefusion_dir))
-
-    import onnxruntime
-    from facefusion import core, logger, state_manager
-    from facefusion.args import apply_args
-    from facefusion.face_creator import get_static_faces
-    from facefusion.face_selector import sort_faces_by_order
-    from facefusion.program import create_program
-    from facefusion.vision import read_static_image
-
-    work_dir = Path(payload['work_dir']).resolve()
-    provider = 'cuda' if 'CUDAExecutionProvider' in onnxruntime.get_available_providers() else 'cpu'
-    # Same detector as the swap and the scores.
-    args = [
-        'headless-run',
-        '--config-path', str(facefusion_dir / 'facefusion.ini'),
-        '--jobs-path', str(work_dir / 'jobs'),
-        '--temp-path', str(work_dir / 'facefusion-temp'),
-        '--execution-providers', provider,
-        '--processors', 'face_swapper',
-        '--face-detector-model', 'yolo_face',
-        '-s', payload['target'],
-        '-t', payload['target'],
-        '-o', str(work_dir / 'unused.png'),
-    ]
-    sys.argv = [str(facefusion_dir / 'facefusion.py'), *args]
-    state_args = vars(create_program().parse_args(args))
-    with contextlib.redirect_stdout(sys.stderr):
-        logger.init('error')
-        apply_args(state_args, state_manager.init_item)
-        state_manager.set_item('face_detector_model', 'yolo_face')
-        if not core.common_pre_check():
-            raise RuntimeError('FaceFusion content-analyser source validation failed')
-        frame = read_static_image(payload['target'])
-        if frame is None:
-            raise RuntimeError('The picture could not be decoded')
-        found = get_static_faces([frame])
-        result = {}
-        for role, gender in (('bride', 'female'), ('groom', 'male')):
-            face = _largest_face([face for face in found if face.gender == gender], sort_faces_by_order)
-            result[role] = None if face is None else {
-                'box': [round(float(value), 1) for value in face.bounding_box],
-                'points': [[round(float(x), 1), round(float(y), 1)] for x, y in face.landmark_set['5/68'][:5]],
-            }
-        return {'ok': True, 'faces': result}
-
-
 def main():
     try:
         payload = json.load(sys.stdin)
-        action = payload.get('action')
-        result = _score(payload) if action == 'score' else _faces(payload) if action == 'faces' else _run(payload)
+        result = _score(payload) if payload.get('action') == 'score' else _run(payload)
     except Exception as exc:
         result = {'ok': False, 'error_code': 'face_swap_failed', 'diagnostic': type(exc).__name__}
     _emit(result)

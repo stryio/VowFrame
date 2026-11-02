@@ -77,14 +77,12 @@ export function useSlotActions(onChanged: () => Promise<void> | void) {
     }
   };
 
-  // Two paid edits per picture (one per face); the original stays in history (V7.1).
+  // One paid edit of the whole picture (V7.2); the original stays in history.
   const faceFix = async (slots: Slot[]) => {
     if (slots.length === 0) return false;
     const ok = await confirm({
       title: slots.length === 1 ? "AI 修脸" : `AI 修脸 ${slots.length} 张`,
-      message: `用两人上传的原照把脸修得更像本人，妆容、精修、构图和光线保持不变。每张照片修两次（新娘、新郎各一次），共 ${
-        slots.length * 2
-      } 次修图，按默认模型计费；原图保留在历史版本中。`,
+      message: `用两人上传的原照把脸修得更像本人，妆容、精修、构图和光线保持不变。每张照片修一次，共 ${slots.length} 次修图，按默认模型计费；原图保留在历史版本中。`,
       confirmText: "开始修脸",
     });
     if (!ok) return false;

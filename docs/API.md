@@ -360,7 +360,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 
 默认 `prompt_only`：样片里的人脸本身是模型的近似结果，作为参考可能让成片偏离本人长相。是否改为 `with_preview` 以实际对比为准。
 
-`auto_face_fix`（V7.1，取代 `auto_face_swap`）：生成后自动做什么，`ai`（AI 修脸，默认）、`facefusion`（FaceFusion 换脸）或 `off`（不修）。两种都要 FaceFusion，FaceFusion 不可用时这个设置不生效。见下文「AI 修脸」「换脸修正」。
+`auto_face_fix`（V7.1，取代 `auto_face_swap`）：生成后自动做什么，`ai`（AI 修脸，默认）、`facefusion`（FaceFusion 换脸，FaceFusion 不可用时不生效）或 `off`（不修）。见下文「AI 修脸」「换脸修正」。
 
 `portrait_ratio`：竖版比例，`3:4`（默认）、`2:3` 或 `9:16`；横版使用同一比例横过来（`4:3`、`3:2`、`16:9`）。样片固定为竖版；拍组按每个镜头的 `orientation` 选择。首次启动时取 `config.local.json` 的 `aspect_ratio`（是这三个值之一时），之后以设置为准。只影响之后新建的任务；重新生成、加强长相、换景别沿用原任务快照中的比例。
 
@@ -406,7 +406,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | POST | `/api/slots/{id}/change-shot` | `{"client_request_id": string, "shot_size": "wide" \| "full" \| "three_quarter" \| "half" \| "close", "model"?: string}` | `Batch`（201）；仅 `kind = "photo"`；停用景别 `medium`、`extreme_close`、`detail` 不能作为目标（422） |
 | POST | `/api/slots/batch-action` | `{"client_request_id": string, "slot_ids": string[], "action": "same" \| "identity_boost" \| "change_pose" \| "change_shot" \| "face_swap" \| "face_fix", "shot_size"?: string, "model"?: string}` | `Batch`（201），一个批次内每个位置一个任务；`action = "change_shot"` 时必须提供 `shot_size`；`action = "face_swap"` 时忽略 `model`；`action = "face_fix"` 时 `model` 是修图用的模型 |
 | POST | `/api/slots/{id}/face-swap` | `{"client_request_id": string}` | `Batch`（201，`batch_type = "regenerate"`）；样片与相册作品均可 |
-| POST | `/api/slots/{id}/face-fix` | `{"client_request_id": string, "model"?: string}` | `Batch`（201，`batch_type = "regenerate"`）；AI 修脸（V7.1），样片与相册作品均可；校验同换脸修正，`model` 不在列表中时 422 `invalid_model` |
+| POST | `/api/slots/{id}/face-fix` | `{"client_request_id": string, "model"?: string}` | `Batch`（201，`batch_type = "regenerate"`）；AI 修脸（V7.1，V7.2 起修整张照片），样片与相册作品均可；校验见下文，不需要 FaceFusion |
 | GET | `/api/slots/{id}/versions` | — | `VersionDetail[]`，按 `version_number` 倒序 |
 | POST | `/api/slots/{id}/restore` | `{"version_id": string}` | `Slot` |
 | DELETE | `/api/slots/{id}` | — | 204；仅 `kind = "photo"`；存在 `running` 任务时 409 `slot_busy` |
@@ -482,11 +482,10 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - 成功后新增版本并设为当前版本；失败不影响当前版本。`is_stale` 照常计算。
   - **自动换脸**：设置 `auto_face_fix = "facefusion"`（V7.1 起不再是默认）且 FaceFusion 可用时，任何非换脸任务成功保存版本的**同一个事务**里，再插入一个换脸任务：同一批次、同一位置，`source_version_id` 为刚保存的版本，`reference_image_ids` 为该生图任务的前两张参考图（生成时用的新娘、新郎照片），其余字段同上。换脸任务本身完成后不会再触发换脸。
   - **对换脸版本的其他操作**：重新生成、加强长相、换动作、换景别以及导出时读取的「来源任务」，会沿 `source_version_id` 追溯到生成该图的生图任务，而不是换脸任务（换脸任务的 `prompt` 为空）。
-- **AI 修脸（face-fix，V7.1，docs/prompts.md 第 9 节）**：
-  - 用 FaceFusion 找出新娘、新郎的脸（每种性别最大的一张），每张脸裁一块正方形（边长为脸框最长边的 2.5 倍），放大到 1024×1024，连同这个人上传的正面原照发给修图接口（88API，`1:1`，不带蒙版），修好后只把脸贴回原图（五个点对齐，只贴两边都是脸的像素）。每张照片两次付费修图。
-  - 请求校验与换脸修正相同（FaceFusion 不可用时 409 `face_swap_unavailable`，因为要靠它找脸）；输入版本是当前版本，当前版本本身是换脸或 AI 修脸的结果时，改用它的来源版本。
-  - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘上传正面照, 新郎上传正面照]`（输入版本的造型照背后的上传照片）；`prompt` 为空字符串（每张脸的提示词按第 9 节现场组装）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "crop_side": 2.5, "edit_side": 1024}`，完成后追加 `faces`：每人 `fixed`（修好）、`not_found`（没找到这张脸）或 `face_lost`（修图结果的表情或角度变了，没有贴回）。
-  - 结果：至少一张脸修好就保存为新版本并设为当前版本；两张都没修好时任务失败 `face_fix_failed`，照片里一张脸都没找到时 `face_not_found`，人脸分析本身失败时 `face_fix_failed`；失败不影响当前版本。修图请求失败按生成任务的规则处理（含 `interrupted` 和余额搁置），已经修好的另一张脸不保存。
-  - 调度：和生成任务同一条队列，计入 `max_concurrency`；启动恢复时按生成任务处理（`running` 改为 `interrupted`，`waiting` 改为 `held`），因为修图会扣费。
-  - **自动修脸**：设置 `auto_face_fix = "ai"`（默认）且 FaceFusion 可用时，任何生成任务成功保存版本的同一个事务里，插入一个 AI 修脸任务（同一批次、同一位置，`source_version_id` 为刚保存的版本）；`"facefusion"` 时改为插入换脸任务（见上文）；细节特写、背影和剪影镜头不插入。修脸和换脸任务完成后不会再触发修脸。重新生成、加强长相等操作读取「来源任务」时，同样沿 `source_version_id` 越过 AI 修脸任务。
+- **AI 修脸（face-fix，V7.1；V7.2 起修整张照片，docs/prompts.md 第 9 节）**：
+  - 一次编辑请求，发送 `[要修的照片, 新娘上传正面照, 新郎上传正面照]`，用 `face_fix` 提示词（88API，作品自己的比例，不带蒙版），结果整张保存为新版本并设为当前版本。每张照片一次付费修图。不需要 FaceFusion。
+  - 请求校验：该位置没有当前版本时 409 `slot_not_ready`；有 `waiting`/`running`/`held` 任务时 409 `slot_busy`；照片缺失时 409 `photos_missing`；局部特写 409 `no_faces`；`model` 不在列表中时 422 `invalid_model`。输入版本是当前版本，当前版本本身是换脸或 AI 修脸的结果时，改用它的来源版本。
+  - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘上传正面照, 新郎上传正面照]`（输入版本的造型照背后的上传照片）；`prompt` 为空字符串（提示词是固定的 `FACE_FIX_PROMPT`）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "aspect_ratio": 输入版本的比例}`。
+  - 失败处理与生成任务相同（含自动重试、`interrupted` 和余额搁置），失败不影响当前版本。调度：和生成任务同一条队列，计入 `max_concurrency`；启动恢复时按生成任务处理（`running` 改为 `interrupted`，`waiting` 改为 `held`），因为修图会扣费。
+  - **自动修脸**：设置 `auto_face_fix = "ai"`（默认）时，任何生成任务成功保存版本的同一个事务里，插入一个 AI 修脸任务（同一批次、同一位置，`source_version_id` 为刚保存的版本）；`"facefusion"` 时改为插入换脸任务（需要 FaceFusion 可用，见上文）；细节特写、背影和剪影镜头不插入。修脸和换脸任务完成后不会再触发修脸。重新生成、加强长相等操作读取「来源任务」时，同样沿 `source_version_id` 越过 AI 修脸任务。
 - **数据库升级**：启动时通过 `PRAGMA table_info` 检查 `generation_tasks.regenerate_mode`。升级保留现有任务和版本数据；为使删除作品后仍能保留任务行，任务表升级时会以事务复制原有列、增加可空的 `regenerate_mode`，并解除任务目标位置的级联外键；删除后 `target_slot_id` 继续保存原位置 ID 供追溯。
