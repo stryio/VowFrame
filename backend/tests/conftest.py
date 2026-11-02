@@ -122,6 +122,25 @@ def create_project(client, *, upload=True, role='bride'):
 DEFAULT_TEST_STYLE_IDS = ['korean_minimal', 'french_vintage', 'forest_natural', 'seaside_sunset', 'chinese_traditional', 'cinematic_light']
 
 
+def ensure_makeup(client, project_id, style_id):
+    """Give the bride a selected, ready makeup for this style (V7.8) unless she has one; returns its id."""
+    detail = client.get(f'/api/projects/{project_id}').json()
+    bride = next(which for which in ('a', 'b') if detail[f'person_{which}']['role'] == 'bride')
+    current = next((item for item in detail['makeups'] if item['person'] == bride and item['style_id'] == style_id
+                    and item['selected'] and item['usable']), None)
+    if current is not None:
+        return current['id']
+    response = client.post(f'/api/projects/{project_id}/makeups', json={
+        'client_request_id': f'makeup-{uuid.uuid4()}', 'person': bride, 'style_id': style_id, 'count': 1})
+    assert response.status_code == 201, response.text
+    makeup_id = response.json()[0]['id']
+    makeup = wait_until(lambda: next(item for item in client.get(f'/api/projects/{project_id}').json()['makeups'] if item['id'] == makeup_id),
+                        lambda item: item['status'] in ('ready', 'failed', 'interrupted'))
+    assert makeup['status'] == 'ready', makeup
+    assert client.post(f'/api/makeups/{makeup_id}/select').status_code == 200
+    return makeup_id
+
+
 def ensure_looks(client, project_id, style_ids=None):
     """Give the groom a selected look and the bride a selected look for each style (V7.0) unless they have usable
     ones; returns the project detail.
@@ -139,6 +158,8 @@ def ensure_looks(client, project_id, style_ids=None):
                   for style_id in style_ids if detail['style_looks'][style_id]['bride'] is None)
     look_ids = []
     for body in bodies:
+        if 'style_id' in body:
+            ensure_makeup(client, project_id, body['style_id'])
         response = client.post(f'/api/projects/{project_id}/looks', json={'client_request_id': f'look-{uuid.uuid4()}', **body})
         assert response.status_code == 201, response.text
         look_ids.append(response.json()[0]['id'])

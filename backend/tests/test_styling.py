@@ -8,7 +8,7 @@ from app.db import Database
 from app.generator import GeneratorError
 from app.prompts import STYLING_VERSION
 from app.storage import asset_path
-from conftest import (PNG, BlockingGenerator, ScriptedGenerator, create_director_photo_batch, create_project, ensure_looks,
+from conftest import (PNG, BlockingGenerator, ScriptedGenerator, create_director_photo_batch, create_project, ensure_looks, ensure_makeup,
                       preview_batch, uploaded_ids, wait_batch, wait_until)
 from test_face_swap import ScriptedFaceSwapper
 
@@ -27,6 +27,7 @@ def make_looks(client, project_id, person, items, *, style_id=None, request_id=N
     body = {'client_request_id': request_id or f'{person}-{style_id}-{items}', 'person': person, 'items': items}
     if style_id is not None:
         body['style_id'] = style_id
+        ensure_makeup(client, project_id, style_id)
     response = client.post(f'/api/projects/{project_id}/looks', json=body)
     assert response.status_code == 201, response.text
     ids = [look['id'] for look in response.json()]
@@ -103,11 +104,12 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         ids = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'high_bun'}],
                          style_id='korean_minimal', select=False)
         calls = app.state.stylist.calls
-        # V7.5: each bride look is two edits, makeup on the uploaded photo, then only the hair on that made-up photo.
-        assert len(calls) == 4 and all(len(call[0]) == 1 for call in calls)
+        # V7.5: a bride look is makeup on the uploaded photo, then only the hair on that made-up photo; since V7.8
+        # the style's looks share one selected makeup candidate, so two looks are one makeup and two hair edits.
+        assert len(calls) == 3 and all(len(call[0]) == 1 for call in calls)
         makeup_calls = [call for call in calls if '这一步只化妆、修整皮肤和换背景' in call[1]]
         hair_calls = [call for call in calls if '这一步只改头发' in call[1]]
-        assert len(makeup_calls) == 2 and len(hair_calls) == 2
+        assert len(makeup_calls) == 1 and len(hair_calls) == 2
         assert all(call[0][0].stem == project['person_a']['asset_id'] for call in makeup_calls)
         makeup = makeup_calls[0][1]
         assert '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' in makeup and '新娘妆色：眼影用奶咖棕和米杏色' in makeup and '新娘妆面：底妆是清透柔光的质感' in makeup
@@ -117,8 +119,8 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         looks = {look['id']: look for look in detail(client, project['id'])['looks']}
         assert [looks[look_id]['status'] for look_id in ids] == ['ready', 'ready']
         made_up = {looks[look_id]['makeup_asset_id'] for look_id in ids}
-        assert None not in made_up and {call[0][0].stem for call in hair_calls} == made_up
-        assert uploaded_ids(app, list(made_up)) == [project['person_a']['asset_id']] * 2
+        assert len(made_up) == 1 and None not in made_up and {call[0][0].stem for call in hair_calls} == made_up
+        assert uploaded_ids(app, list(made_up)) == [project['person_a']['asset_id']]
         assert {looks[look_id]['style_id'] for look_id in ids} == {'korean_minimal'}
         assert looks[ids[1]]['makeup_level'] == 'refined' and looks[ids[1]]['makeup_color'] == 'milk_tea'
         # Without scores the first one ready is picked for the style; the other waits.

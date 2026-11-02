@@ -124,11 +124,28 @@ CREATE TABLE IF NOT EXISTS looks (
     error_code TEXT, error_message TEXT, model TEXT, prompt TEXT NOT NULL,
     image_asset_id TEXT REFERENCES image_assets(id), face_score REAL, selected_order INTEGER,
     client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT,
-    hair_prompt TEXT, makeup_asset_id TEXT REFERENCES image_assets(id), makeup_face_score REAL, selected_by TEXT
+    hair_prompt TEXT, makeup_asset_id TEXT REFERENCES image_assets(id), makeup_face_score REAL, selected_by TEXT,
+    makeup_id TEXT REFERENCES makeups(id)
 );
 CREATE INDEX IF NOT EXISTS look_project ON looks(project_id,person,angle);
 CREATE INDEX IF NOT EXISTS look_queue ON looks(status,created_at);
 CREATE INDEX IF NOT EXISTS look_request ON looks(client_request_id);
+-- V7.8: the bride's makeup for one style is its own candidates: the makeup edit of the uploaded photo, hair
+-- unchanged. One is selected per style (selected_by 'user' or 'auto', NULL when not selected), and every new bride
+-- look of the style is a hair edit of that made-up photo (looks.makeup_id).
+CREATE TABLE IF NOT EXISTS makeups (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    person TEXT NOT NULL CHECK(person IN ('a','b')), style_id TEXT NOT NULL,
+    makeup_color TEXT NOT NULL, makeup_level TEXT NOT NULL,
+    source_asset_id TEXT NOT NULL REFERENCES image_assets(id), styling_version INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('waiting','running','ready','failed','interrupted')),
+    error_code TEXT, error_message TEXT, model TEXT, prompt TEXT NOT NULL,
+    image_asset_id TEXT REFERENCES image_assets(id), face_score REAL, selected_by TEXT,
+    client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS makeup_project ON makeups(project_id,person,style_id);
+CREATE INDEX IF NOT EXISTS makeup_queue ON makeups(status,created_at);
+CREATE INDEX IF NOT EXISTS makeup_request ON makeups(client_request_id);
 CREATE TABLE IF NOT EXISTS moment_drafts (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     preview_slot_id TEXT NOT NULL REFERENCES photo_slots(id), style_id TEXT NOT NULL REFERENCES style_presets(id),
@@ -188,6 +205,7 @@ class Database:
             add_column('looks', 'makeup_asset_id TEXT REFERENCES image_assets(id)')
             add_column('looks', 'makeup_face_score REAL')
             add_column('looks', 'selected_by TEXT')
+            add_column('looks', 'makeup_id TEXT REFERENCES makeups(id)')
             add_column('image_assets', 'source_asset_id TEXT REFERENCES image_assets(id)')
             add_column('photo_versions', 'face_scores TEXT')
             add_column('projects', 'person_a_left_image_id TEXT REFERENCES image_assets(id)')

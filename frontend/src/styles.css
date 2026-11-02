@@ -1960,6 +1960,8 @@ button.status-chip {
 .looks-header { display: flex; align-items: baseline; gap: 12px; }
 .looks-header h3 { font-size: 15px; }
 .look-form { display: flex; flex-direction: column; gap: 8px; }
+.makeup-picker { display: flex; flex-direction: column; gap: 10px; }
+.look-step-title { font-size: 14px; font-weight: 600; }
 .look-form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .look-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
 .look-tile {

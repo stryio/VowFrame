@@ -24,11 +24,12 @@ from .face_swap import face_scores, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
 from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_bride_hair_prompt, compose_bride_makeup_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
-from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceFixCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
+from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceFixCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Makeup, MakeupCreate, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .photo_prep import PhotoRejected
 from .storage import asset_path, image_format, save_image
-from .styling import (LOOK_PROBLEM_MESSAGES, bride_look_color, default_look_items, fits_style, hair_length_of, look_problem,
-                      look_response, look_snapshot, makeup_level_of, reference_slots, role_of, select_only, style_looks,
+from .styling import (LOOK_PROBLEM_MESSAGES, MAKEUP_PROBLEM_MESSAGES, auto_select_makeup, bride_look_color, default_look_items,
+                      fits_style, hair_length_of, look_problem, look_response, look_snapshot, makeup_level_of, makeup_problem,
+                      makeup_response, reference_slots, role_of, select_makeup, select_only, selected_makeup, style_looks,
                       task_face_swap_reference_ids, uploaded_asset_id, face_fix_reference_ids)
 
 router = APIRouter(prefix='/api')
@@ -265,6 +266,8 @@ def project_response(conn, project, *, detail: bool = True):
                       "SELECT * FROM looks WHERE project_id=? AND angle='front' AND discarded_at IS NULL ORDER BY created_at,rowid",
                       (project['id'],))],
                   style_looks=style_looks(conn, project),
+                  makeups=[makeup_response(project, row) for row in conn.execute(
+                      'SELECT * FROM makeups WHERE project_id=? AND discarded_at IS NULL ORDER BY created_at,rowid', (project['id'],))],
                   default_look_items={role: [{'hairstyle_id': hairstyle} for hairstyle in default_look_items(project, role)]
                                       for role in ('bride', 'groom')})
     return result
@@ -727,7 +730,7 @@ def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label:
     model_id = explicit_model or request.app.state.db.get_default_model()
     if get_model(model_id) is None:
         invalid_model()
-    references = face_fix_reference_ids(conn, _parse_json_list(input_task['reference_image_ids'], slot_label))
+    references, bride_reference = face_fix_reference_ids(conn, _parse_json_list(input_task['reference_image_ids'], slot_label))
     return {
         'slot_id': slot['id'],
         'style_id': input_task['style_id'],
@@ -736,7 +739,7 @@ def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label:
         'moment_shot_size': input_task['moment_shot_size'],
         'references': json.dumps(references, ensure_ascii=False),
         'prompt': '',
-        'snapshot': face_fix_snapshot(model_id, _source_aspect_ratio(input_task, request)),
+        'snapshot': face_fix_snapshot(model_id, _source_aspect_ratio(input_task, request), bride_reference),
         'regenerate_mode': 'face_fix',
         'source_version_id': input_task['version_id'],
     }
@@ -845,7 +848,8 @@ def _get_look(conn, look_id: str):
 @router.post('/projects/{project_id}/looks', response_model=list[Look], status_code=201)
 def create_looks(project_id: str, body: LookCreate, request: Request, response: Response):
     """Look candidates for one person (V5.0): each item is one paid edit of their uploaded photo. A bride look is
-    made for one style, with its makeup; the groom's looks serve every style (V7.0)."""
+    made for one style, as a hair edit of the style's selected makeup (V7.8); the groom's looks serve every style
+    (V7.0)."""
     with request.app.state.db.connect(write=True) as conn:
         project = get_project(conn, project_id)
         existing = conn.execute('SELECT * FROM looks WHERE client_request_id=? ORDER BY rowid', (body.client_request_id,)).fetchall()
@@ -863,34 +867,38 @@ def create_looks(project_id: str, body: LookCreate, request: Request, response: 
         if role == 'groom' and style_id is not None:
             error(422, 'invalid_style', '新郎的造型所有风格共用，不需要指定风格')
         if role == 'bride':
-            if style_id not in STYLE_BY_ID:
-                error(422, 'invalid_style', '请为新娘的造型选择一个有效的风格')
-            # A retired style may only refresh a sample this project already has (as create_previews).
-            if style_id in RETIRED_STYLE_IDS and conn.execute(
-                    "SELECT 1 FROM photo_slots WHERE project_id=? AND kind='preview' AND style_id=?", (project_id, style_id)).fetchone() is None:
-                error(422, 'invalid_style', f'「{STYLE_BY_ID[style_id]["name"]}」已停用，不能再做这个风格的造型')
+            _check_bride_style(conn, project_id, style_id)
         length, level = hair_length_of(project, role), makeup_level_of(project, role)
-        color = bride_look_color(style_id) if role == 'bride' else None
-        model_id = request.app.state.db.get_default_model()
-        now, ids = utc_now(), []
         for item in body.items:
             hairstyle = HAIRSTYLE_BY_KEY.get((role, item.hairstyle_id))
             if hairstyle is None or length not in hairstyle.lengths:
                 error(422, 'invalid_hairstyle', '这个发型不适合当前的头发长度，请换一个')
             if style_id is not None and not fits_style(role, item.hairstyle_id, length, style_id):
                 error(422, 'invalid_hairstyle', f'「{STYLE_BY_ID[style_id]["name"]}」需要盘发，请换一个盘发发型')
+        makeup = None
+        if role == 'bride':
+            # V7.8: every bride look of a style is a hair edit of the style's selected makeup.
+            makeup = selected_makeup(conn, project, style_id)
+            if makeup is None:
+                error(409, 'makeup_required', f'请先为「{STYLE_BY_ID[style_id]["name"]}」生成并选用一张妆容，再做发型')
+        color = makeup['makeup_color'] if makeup is not None else None
+        model_id = request.app.state.db.get_default_model()
+        now, ids = utc_now(), []
+        for item in body.items:
             look_id = new_id()
-            # V7.5: a bride look is two edits, makeup then hair; the groom's stays one.
-            if role == 'bride':
-                prompt, hair_prompt = compose_bride_makeup_prompt(level, style_id), compose_bride_hair_prompt(item.hairstyle_id, level)
+            # V7.5: a bride look is two edits, makeup then hair; since V7.8 the makeup is the selected candidate's,
+            # so the look only pays for the hair edit. Its prompt records the makeup prompt. The groom's stays one edit.
+            if makeup is not None:
+                prompt, hair_prompt = makeup['prompt'], compose_bride_hair_prompt(item.hairstyle_id, level)
             else:
                 prompt, hair_prompt = compose_look_prompt(role, item.hairstyle_id, level), None
             conn.execute(
                 'INSERT INTO looks (id,project_id,person,role,style_id,angle,hairstyle_id,hair_length,makeup_color,makeup_level,'
-                "source_asset_id,styling_version,status,model,prompt,hair_prompt,client_request_id,created_at) "
-                "VALUES (?,?,?,?,?,'front',?,?,?,?,?,?,'waiting',?,?,?,?,?)",
+                'source_asset_id,styling_version,status,model,prompt,hair_prompt,client_request_id,created_at,'
+                "makeup_id,makeup_asset_id,makeup_face_score) VALUES (?,?,?,?,?,'front',?,?,?,?,?,?,'waiting',?,?,?,?,?,?,?,?)",
                 (look_id, project_id, body.person, role, style_id, item.hairstyle_id, length, color, level, source,
-                 STYLING_VERSION, model_id, prompt, hair_prompt, body.client_request_id, now))
+                 STYLING_VERSION, model_id, prompt, hair_prompt, body.client_request_id, now,
+                 *((makeup['id'], makeup['image_asset_id'], makeup['face_score']) if makeup is not None else (None, None, None))))
             ids.append(look_id)
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
         result = [look_response(project, _get_look(conn, look_id)) for look_id in ids]
@@ -947,6 +955,101 @@ def delete_look(look_id: str, request: Request):
     return Response(status_code=204)
 
 
+def _check_bride_style(conn, project_id: str, style_id: str | None):
+    if style_id not in STYLE_BY_ID:
+        error(422, 'invalid_style', '请为新娘的造型选择一个有效的风格')
+    # A retired style may only refresh a sample this project already has (as create_previews).
+    if style_id in RETIRED_STYLE_IDS and conn.execute(
+            "SELECT 1 FROM photo_slots WHERE project_id=? AND kind='preview' AND style_id=?", (project_id, style_id)).fetchone() is None:
+        error(422, 'invalid_style', f'「{STYLE_BY_ID[style_id]["name"]}」已停用，不能再做这个风格的造型')
+
+
+def _get_makeup(conn, makeup_id: str):
+    makeup = conn.execute('SELECT * FROM makeups WHERE id=? AND discarded_at IS NULL', (makeup_id,)).fetchone()
+    if makeup is None:
+        error(404, 'makeup_not_found', '妆容不存在')
+    return makeup
+
+
+@router.post('/projects/{project_id}/makeups', response_model=list[Makeup], status_code=201)
+def create_makeups(project_id: str, body: MakeupCreate, request: Request, response: Response):
+    """Makeup candidates of the bride for one style (V7.8): each is one paid edit of her uploaded photo, hair
+    unchanged. The most similar one is selected unless the user picks one, and new bride looks of the style are
+    hair edits of the selected one."""
+    with request.app.state.db.connect(write=True) as conn:
+        project = get_project(conn, project_id)
+        existing = conn.execute('SELECT * FROM makeups WHERE client_request_id=? ORDER BY rowid', (body.client_request_id,)).fetchall()
+        if existing:
+            if any(row['project_id'] != project_id or row['person'] != body.person or row['style_id'] != body.style_id
+                   for row in existing):
+                error(409, 'request_id_reused', '这个请求编号已经用于另一组妆容，请刷新后重试')
+            response.status_code = 200
+            return [makeup_response(project, row) for row in existing]
+        if role_of(project, body.person) != 'bride':
+            error(422, 'invalid_person', '只有新娘按风格化妆；新郎的造型一次做好')
+        source = project[f'person_{body.person}_image_id']
+        if not source:
+            error(409, 'photos_missing', '请先上传这个人的照片')
+        _check_bride_style(conn, project_id, body.style_id)
+        level = makeup_level_of(project, 'bride')
+        prompt, color = compose_bride_makeup_prompt(level, body.style_id), bride_look_color(body.style_id)
+        model_id = request.app.state.db.get_default_model()
+        now, ids = utc_now(), [new_id() for _ in range(body.count)]
+        for makeup_id in ids:
+            conn.execute(
+                'INSERT INTO makeups (id,project_id,person,style_id,makeup_color,makeup_level,source_asset_id,styling_version,'
+                "status,model,prompt,client_request_id,created_at) VALUES (?,?,?,?,?,?,?,?,'waiting',?,?,?,?)",
+                (makeup_id, project_id, body.person, body.style_id, color, level, source, STYLING_VERSION, model_id, prompt,
+                 body.client_request_id, now))
+        conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
+        result = [makeup_response(project, _get_makeup(conn, makeup_id)) for makeup_id in ids]
+    request.app.state.task_manager.notify()
+    return result
+
+
+@router.post('/makeups/{makeup_id}/retry', response_model=Makeup)
+def retry_makeup(makeup_id: str, request: Request):
+    with request.app.state.db.connect(write=True) as conn:
+        makeup = _get_makeup(conn, makeup_id)
+        if makeup['status'] not in ('failed', 'interrupted'):
+            error(409, 'makeup_not_retryable', '只有失败或中断的妆容可以重试')
+        project = get_project(conn, makeup['project_id'])
+        if project[f"person_{makeup['person']}_image_id"] != makeup['source_asset_id']:
+            error(409, 'makeup_unusable', MAKEUP_PROBLEM_MESSAGES['photo_replaced'])
+        if makeup['styling_version'] != STYLING_VERSION:
+            error(409, 'makeup_unusable', MAKEUP_PROBLEM_MESSAGES['outdated'])
+        conn.execute("UPDATE makeups SET status='waiting',error_code=NULL,error_message=NULL,finished_at=NULL WHERE id=?", (makeup_id,))
+        result = makeup_response(project, _get_makeup(conn, makeup_id))
+    request.app.state.task_manager.notify()
+    return result
+
+
+@router.post('/makeups/{makeup_id}/select', response_model=Makeup)
+def select_makeup_route(makeup_id: str, request: Request):
+    """Make new bride looks of this style on this makeup; looks already made keep the makeup they were made on."""
+    with request.app.state.db.connect(write=True) as conn:
+        makeup = _get_makeup(conn, makeup_id)
+        project = get_project(conn, makeup['project_id'])
+        problem = makeup_problem(project, makeup)
+        if problem is not None:
+            error(409, 'makeup_unusable', MAKEUP_PROBLEM_MESSAGES[problem])
+        select_makeup(conn, makeup)
+        return makeup_response(project, _get_makeup(conn, makeup_id))
+
+
+@router.delete('/makeups/{makeup_id}', status_code=204)
+def delete_makeup(makeup_id: str, request: Request):
+    """Hide a candidate; looks already made on it keep its image. Deleting the selected one selects the most
+    similar of the rest."""
+    with request.app.state.db.connect(write=True) as conn:
+        makeup = _get_makeup(conn, makeup_id)
+        if makeup['status'] in ('waiting', 'running'):
+            error(409, 'makeup_busy', '这张妆容还在生成，请等它完成后再删除')
+        conn.execute('UPDATE makeups SET discarded_at=?,selected_by=NULL WHERE id=?', (utc_now(), makeup_id))
+        auto_select_makeup(conn, get_project(conn, makeup['project_id']), makeup)
+    return Response(status_code=204)
+
+
 @router.post('/projects', response_model=ProjectDetail, status_code=201)
 def create_project(request: Request, body: ProjectCreate = Body(default=ProjectCreate())):
     project_id, now = new_id(), utc_now()
@@ -986,10 +1089,12 @@ def delete_project(project_id: str, request: Request):
         get_project(conn, project_id)
         conn.execute("UPDATE generation_tasks SET status='cancelled',finished_at=? WHERE project_id=? AND status IN ('waiting','held')", (utc_now(), project_id))
         # Queued look candidates have not been sent yet; one being edited is waited for like a running shot.
-        conn.execute("UPDATE looks SET status='failed',error_code='cancelled',error_message='项目已删除',finished_at=? "
-                     "WHERE project_id=? AND status='waiting'", (utc_now(), project_id))
+        for table in ('looks', 'makeups'):
+            conn.execute(f"UPDATE {table} SET status='failed',error_code='cancelled',error_message='项目已删除',finished_at=? "
+                         "WHERE project_id=? AND status='waiting'", (utc_now(), project_id))
         busy = (conn.execute("SELECT 1 FROM generation_tasks WHERE project_id=? AND status='running' LIMIT 1", (project_id,)).fetchone() is not None
-                or conn.execute("SELECT 1 FROM looks WHERE project_id=? AND status='running' LIMIT 1", (project_id,)).fetchone() is not None)
+                or any(conn.execute(f"SELECT 1 FROM {table} WHERE project_id=? AND status='running' LIMIT 1", (project_id,)).fetchone() is not None
+                       for table in ('looks', 'makeups')))
         if not busy:
             # Break cyclic references before cascading removal of project-owned rows.
             conn.execute('UPDATE projects SET person_a_image_id=NULL,person_a_left_image_id=NULL,person_a_right_image_id=NULL,person_b_image_id=NULL,person_b_left_image_id=NULL,person_b_right_image_id=NULL,selected_preview_version_id=NULL WHERE id=?', (project_id,))

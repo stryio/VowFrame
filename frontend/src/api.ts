@@ -107,6 +107,30 @@ export interface Look {
   makeup_face_score: number | null;
   /** "user" when the user picked the selected look, "auto" when it was picked as the most similar. */
   selected_by: "user" | "auto" | null;
+  /** V7.8: the makeup candidate the hair was done on; null for the groom's and older looks. */
+  makeup_id: string | null;
+}
+
+/** The bride's makeup for one style, hair unchanged (V7.8); new bride looks of the style use the selected one. */
+export interface Makeup {
+  id: string;
+  person: "a" | "b";
+  style_id: string;
+  makeup_color: string;
+  makeup_color_name: string | null;
+  makeup_level: MakeupLevel;
+  status: LookStatus;
+  error_code: string | null;
+  error_message: string | null;
+  asset_id: string | null;
+  source_asset_id: string;
+  selected: boolean;
+  /** "user" when the user picked it, "auto" when it was picked as the most similar; null when not selected. */
+  selected_by: "user" | "auto" | null;
+  usable: boolean;
+  unusable_reason: string | null;
+  face_score: number | null;
+  created_at: string;
 }
 
 export interface LookItem {
@@ -153,6 +177,8 @@ export interface ProjectDetail extends ProjectSummary {
   looks: Look[];
   /** Per style, the looks a new sample uses (V7.0): the bride's selected look for it and the groom's selected look. */
   style_looks: Record<string, { bride: string | null; groom: string | null }>;
+  /** The bride's makeup candidates of every style (V7.8), oldest first. */
+  makeups: Makeup[];
   /** Per role, the default candidates for the stated hair length. */
   default_look_items: Record<Role, LookItem[]>;
 }
@@ -392,6 +418,15 @@ export const api = {
   selectLook: (lookId: string) => request<Look>(`/looks/${lookId}/select`, { method: "POST" }),
   unselectLook: (lookId: string) => request<Look>(`/looks/${lookId}/unselect`, { method: "POST" }),
   deleteLook: (lookId: string) => request<void>(`/looks/${lookId}`, { method: "DELETE" }),
+  /** count makeup candidates of the bride for one style, one paid edit each (V7.8). */
+  createMakeups: (projectId: string, person: "a" | "b", styleId: string, count: number) =>
+    request<Makeup[]>(
+      `/projects/${projectId}/makeups`,
+      json("POST", { client_request_id: crypto.randomUUID(), person, style_id: styleId, count }),
+    ),
+  retryMakeup: (makeupId: string) => request<Makeup>(`/makeups/${makeupId}/retry`, { method: "POST" }),
+  selectMakeup: (makeupId: string) => request<Makeup>(`/makeups/${makeupId}/select`, { method: "POST" }),
+  deleteMakeup: (makeupId: string) => request<void>(`/makeups/${makeupId}`, { method: "DELETE" }),
   createDraft: (projectId: string, previewSlotId: string, count: number) =>
     request<MomentDraft>(
       `/projects/${projectId}/moment-drafts`,

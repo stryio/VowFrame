@@ -1,12 +1,12 @@
-"""The AI face fix (V7.1; the whole picture since V7.2): one edit of a finished picture with both uploaded photos,
-kept as the slot's new version; it runs after every generated picture with faces unless the setting says otherwise."""
+"""The AI face fix (V7.1; the whole picture since V7.2): one edit of a finished picture with the bride's made-up photo
+and the groom's look (V7.9), kept as the slot's new version; it runs after every generated picture with faces unless the setting says otherwise."""
 
 import json
 import re
 from pathlib import Path
 
 from app.generator import GeneratorError
-from app.prompts import FACE_FIX_PROMPT
+from app.prompts import FACE_FIX_MAKEUP_PROMPT, FACE_FIX_PROMPT
 from conftest import ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
 from test_face_swap import ScriptedFaceSwapper
 
@@ -21,8 +21,13 @@ def test_the_prompt_assigns_each_attribute_to_its_image_and_matches_the_docs():
     assert '长相依据造型照' in FACE_FIX_PROMPT and '第一张图中已经符合造型照的妆容、发型和肤色保持不动' in FACE_FIX_PROMPT
     assert '不替换整颗头' in FACE_FIX_PROMPT and '保留本人固有的骨相与脸部比例' in FACE_FIX_PROMPT
     assert '是同一种肤色' in FACE_FIX_PROMPT and '原始照片' not in FACE_FIX_PROMPT and '换脸' not in FACE_FIX_PROMPT
+    # V7.9: the bride's made-up photo gives her face and makeup, never her hair.
+    assert FACE_FIX_MAKEUP_PROMPT.startswith('第一张图是需要修正的婚纱照。第二张图是新娘婚礼当天化好妆、还没有做发型时的照片')
+    assert '新娘的头发不参考第二张图' in FACE_FIX_MAKEUP_PROMPT and '两人的发型' not in FACE_FIX_MAKEUP_PROMPT
+    assert '新郎的发型、发色和皮肤的白皙程度与第三张图相同' in FACE_FIX_MAKEUP_PROMPT and '不替换整颗头' in FACE_FIX_MAKEUP_PROMPT
     doc = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
-    assert re.search(r'### 9\.2 编辑提示词.*?```text\n(.*?)\n```', doc, re.S).group(1) == FACE_FIX_PROMPT
+    section = re.search(r'### 9\.2 编辑提示词(.*?)### 9\.3', doc, re.S).group(1)
+    assert re.findall(r'```text\n(.*?)\n```', section, re.S) == [FACE_FIX_MAKEUP_PROMPT, FACE_FIX_PROMPT]
 
 
 def test_every_picture_gets_one_ai_face_fix_of_the_whole_picture_with_its_looks(app_factory):
@@ -33,13 +38,14 @@ def test_every_picture_gets_one_ai_face_fix_of_the_whole_picture_with_its_looks(
         wait_batch(client, batch['id'])
         assert client.get(f"/api/batches/{batch['id']}").json()['total'] == 2
         _shot, (images, prompt, _at) = generator.calls
-        assert prompt == FACE_FIX_PROMPT and generator.aspect_ratios == ['3:4', '3:4']
+        assert prompt == FACE_FIX_MAKEUP_PROMPT and generator.aspect_ratios == ['3:4', '3:4']
         slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         with app.state.db.connect() as conn:
-            looks = [conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (slot['look_ids'][role],)).fetchone()[0]
-                     for role in ('bride', 'groom')]
-        # The picture, then the bride's and the groom's looks (V7.4), never the bare uploaded photos.
-        assert [path.stem for path in images[1:]] == looks
+            bride = conn.execute('SELECT makeup_asset_id FROM looks WHERE id=?', (slot['look_ids']['bride'],)).fetchone()[0]
+            groom = conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (slot['look_ids']['groom'],)).fetchone()[0]
+        # The picture, the bride's made-up photo (V7.9) and the groom's look (V7.4), never the bare uploaded photos.
+        looks = [bride, groom]
+        assert bride and [path.stem for path in images[1:]] == looks
         task = fix_task(client, batch['id'])
         with app.state.db.connect() as conn:
             row = conn.execute('SELECT * FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
@@ -47,10 +53,28 @@ def test_every_picture_gets_one_ai_face_fix_of_the_whole_picture_with_its_looks(
                                   'ON asset.id=version.image_asset_id WHERE version.id=?', (row['source_version_id'],)).fetchone()
         assert images[0].as_posix().endswith(source['file_path'])
         assert json.loads(row['reference_image_ids']) == looks
-        assert json.loads(row['model_config_snapshot']) == {'generator': 'face_fix', 'model': 'gpt-image-2', 'aspect_ratio': '3:4'}
+        assert json.loads(row['model_config_snapshot']) == {'generator': 'face_fix', 'model': 'gpt-image-2', 'aspect_ratio': '3:4',
+                                                            'bride_reference': 'makeup'}
         slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         assert slot['current_version']['version_number'] == 2 and slot['current_version']['source_version_id']
         assert slot['look_ids'] is not None                     # the fixed picture keeps its sample's looks
+
+
+def test_a_bride_look_without_a_made_up_photo_is_the_reference_with_the_v74_prompt(app_factory):
+    generator = ScriptedGenerator()
+    with app_factory(generator=generator, concurrency=1) as (client, app):
+        project = create_project(client)
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['korean_minimal'])['id'])
+        slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
+        # A look from before V7.5 had no made-up step.
+        with app.state.db.connect(write=True) as conn:
+            conn.execute('UPDATE looks SET makeup_asset_id=NULL WHERE id=?', (slot['look_ids']['bride'],))
+            look = conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (slot['look_ids']['bride'],)).fetchone()[0]
+        response = client.post(f"/api/slots/{slot['id']}/face-fix", json={'client_request_id': 'old-look'})
+        assert response.status_code == 201, response.text
+        wait_batch(client, response.json()['id'])
+        images, prompt, _at = generator.calls[-1]
+        assert prompt == FACE_FIX_PROMPT and images[1].stem == look
 
 
 def test_a_failed_fix_keeps_the_original(app_factory):

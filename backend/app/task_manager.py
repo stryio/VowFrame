@@ -9,14 +9,14 @@ import time
 
 from .config import Config
 from .db import Database, new_id, utc_now
-from .face_fix import face_fix_snapshot
+from .face_fix import face_fix_prompt, face_fix_snapshot
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
 from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, create_face_swapper,
                         face_swap_applied_snapshot, face_swap_snapshot, face_swap_weight)
 from .models import DEFAULT_MODEL
-from .prompts import DETAIL_SHOT, FACE_FIX_PROMPT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
+from .prompts import DETAIL_SHOT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
 from .storage import asset_path, save_image
-from .styling import (auto_select, face_fix_reference_ids, find_side_look, task_face_swap_reference_ids,
+from .styling import (auto_select, auto_select_makeup, face_fix_reference_ids, find_side_look, task_face_swap_reference_ids,
                       uploaded_asset_id)
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,8 @@ class TaskManager:
         self._styling_locks: dict[tuple, asyncio.Lock] = {}
         # Looks waiting for their likeness score against the uploaded photo.
         self._look_score_queue: list[str] = []
+        # Makeup candidates (V7.8) waiting for theirs.
+        self._makeup_score_queue: list[str] = []
         self._wake = asyncio.Event()
         self._stopping = False
         self._jobs: set[asyncio.Task] = set()
@@ -64,10 +66,11 @@ class TaskManager:
             )
             conn.execute("UPDATE generation_tasks SET status='held' WHERE status='waiting' AND (regenerate_mode IS NULL OR regenerate_mode<>'face_swap')")
             # Look candidates: one still being edited may have been charged; queued ones never started.
-            conn.execute("UPDATE looks SET status='interrupted',error_code='interrupted_by_restart',error_message=?,finished_at=? "
-                         "WHERE status='running'", ('后端重启时这张造型还在生成，结果无法确认，可能已经扣费。重试可能产生额外费用', utc_now()))
-            conn.execute("UPDATE looks SET status='failed',error_code='not_started',error_message=?,finished_at=? "
-                         "WHERE status='waiting'", ('后端重启时这张造型还在排队，没有开始生成，可以直接重试', utc_now()))
+            for table, noun in (('looks', '造型'), ('makeups', '妆容')):
+                conn.execute(f"UPDATE {table} SET status='interrupted',error_code='interrupted_by_restart',error_message=?,finished_at=? "
+                             "WHERE status='running'", (f'后端重启时这张{noun}还在生成，结果无法确认，可能已经扣费。重试可能产生额外费用', utc_now()))
+                conn.execute(f"UPDATE {table} SET status='failed',error_code='not_started',error_message=?,finished_at=? "
+                             "WHERE status='waiting'", (f'后端重启时这张{noun}还在排队，没有开始生成，可以直接重试', utc_now()))
         self.config.temp_dir.mkdir(parents=True, exist_ok=True)
         for path in self.config.temp_dir.iterdir():
             if path.is_dir() and not path.is_symlink():
@@ -88,6 +91,9 @@ class TaskManager:
                 self._look_score_queue = [row['id'] for row in conn.execute(
                     "SELECT id FROM looks WHERE angle='front' AND status='ready' AND face_score IS NULL "
                     'AND discarded_at IS NULL ORDER BY created_at DESC')]
+                self._makeup_score_queue = [row['id'] for row in conn.execute(
+                    "SELECT id FROM makeups WHERE status='ready' AND face_score IS NULL AND discarded_at IS NULL "
+                    'ORDER BY created_at DESC')]
         self._dispatcher = asyncio.create_task(self._dispatch(), name='vowframe-scheduler')
 
     def notify(self):
@@ -103,13 +109,14 @@ class TaskManager:
         if self._jobs or self._face_jobs:
             await asyncio.gather(*self._jobs, *self._face_jobs)
 
-    def _claim_look(self):
+    def _claim_candidate(self, table: str):
+        """The oldest waiting look or makeup candidate (table 'looks' or 'makeups'), now marked running."""
         with self.db.connect(write=True) as conn:
-            look = conn.execute("SELECT * FROM looks WHERE status='waiting' ORDER BY created_at,rowid LIMIT 1").fetchone()
-            if look is None:
+            row = conn.execute(f"SELECT * FROM {table} WHERE status='waiting' ORDER BY created_at,rowid LIMIT 1").fetchone()
+            if row is None:
                 return None
-            changed = conn.execute("UPDATE looks SET status='running' WHERE id=? AND status='waiting'", (look['id'],)).rowcount
-            return dict(look) if changed else None
+            changed = conn.execute(f"UPDATE {table} SET status='running' WHERE id=? AND status='waiting'", (row['id'],)).rowcount
+            return dict(row) if changed else None
 
     def _claim(self, lane: str = 'generation'):
         with self.db.connect(write=True) as conn:
@@ -137,8 +144,15 @@ class TaskManager:
             delay = self._backoff_until - time.monotonic()
             try:
                 while delay <= 0 and len(self._jobs) < self.config.max_concurrency and not self._stopping:
-                    # Look candidates go first: the user is waiting on them before anything else can be shot.
-                    look = self._claim_look()
+                    # Candidates go first: the user is waiting on them before anything else can be shot; makeups
+                    # before looks, since a bride's hair candidates are made on her selected makeup (V7.8).
+                    makeup = self._claim_candidate('makeups')
+                    if makeup is not None:
+                        job = asyncio.create_task(self._execute_makeup(makeup), name=f"makeup-{makeup['id']}")
+                        self._jobs.add(job)
+                        job.add_done_callback(lambda completed: self._job_done(completed, self._jobs))
+                        continue
+                    look = self._claim_candidate('looks')
                     if look is not None:
                         job = asyncio.create_task(self._execute_look(look), name=f"look-{look['id']}")
                         self._jobs.add(job)
@@ -155,6 +169,11 @@ class TaskManager:
                     if task is None:
                         break
                     job = asyncio.create_task(self._execute_face_swap(task), name=f"face-swap-{task['id']}")
+                    self._face_jobs.add(job)
+                    job.add_done_callback(lambda completed: self._job_done(completed, self._face_jobs))
+                if not self._face_jobs and self._makeup_score_queue and not self._stopping:
+                    chunk, self._makeup_score_queue = self._makeup_score_queue[:SCORE_CHUNK], self._makeup_score_queue[SCORE_CHUNK:]
+                    job = asyncio.create_task(self._execute_makeup_scoring(chunk), name='makeup-score')
                     self._face_jobs.add(job)
                     job.add_done_callback(lambda completed: self._job_done(completed, self._face_jobs))
                 if not self._face_jobs and self._look_score_queue and not self._stopping:
@@ -361,7 +380,9 @@ class TaskManager:
 
         The groom's look is one edit (hair and grooming). The bride's front look is two (V7.5): makeup, skin and
         background on the uploaded photo, then only the hair on that made-up photo; a retry after a failed hair edit
-        starts from the saved made-up photo. Likeness scores then pick the most similar look of its style.
+        starts from the saved made-up photo. Since V7.8 the made-up photo is the style's selected makeup candidate,
+        given to the look when it is created, so the look itself is only the hair edit. Likeness scores then pick the
+        most similar look of its style.
         """
         model = look['model'] or self.db.get_default_model() or DEFAULT_MODEL
         with self.db.connect() as conn:
@@ -369,6 +390,10 @@ class TaskManager:
             makeup = self._asset_file(conn, look['makeup_asset_id']) if look['makeup_asset_id'] else None
         if source is None:
             self._fail_look(look, 'reference_missing', '这个人的照片文件缺失或无法读取，请重新上传后重试')
+            return
+        if look['makeup_id'] and makeup is None:
+            # Never make the makeup again here: the look's hair candidates are meant to share this one.
+            self._fail_look(look, 'reference_missing', '这套造型用的妆容图片缺失，请重新生成妆容后再做发型')
             return
         try:
             if look['hair_prompt']:
@@ -382,18 +407,7 @@ class TaskManager:
             else:
                 content = await self._look_edit(look, [source], look['prompt'], model, 'look')
         except GeneratorError as error:
-            logger.warning('Generator outcome %s for look %s', error.kind, look['id'])
-            if error.kind == OutcomeKind.RATE_LIMITED:
-                self._rate_limit_count += 1
-                delay = error.retry_after
-                if delay is None or not math.isfinite(delay) or delay < 0:
-                    delay = min(60.0, 2.0 ** min(self._rate_limit_count, 6))
-                self._backoff_until = max(self._backoff_until, time.monotonic() + max(0.05, delay))
-                with self.db.connect(write=True) as conn:
-                    conn.execute("UPDATE looks SET status='waiting' WHERE id=? AND status='running'", (look['id'],))
-                return
-            self._fail_look(look, error.error_code, error.message,
-                            status='interrupted' if error.kind == OutcomeKind.UNKNOWN_OUTCOME else 'failed')
+            self._candidate_edit_failed('looks', look, error)
             return
         except OSError:
             logger.exception('Look storage failed for look %s', look['id'])
@@ -425,11 +439,91 @@ class TaskManager:
             logger.exception('Look persistence failed for look %s', look['id'])
             self._fail_look(look, 'save_failed', '造型保存失败，请检查本地数据后重试')
 
-    def _fail_look(self, look: dict, code: str, message: str, *, status: str = 'failed'):
+    def _candidate_edit_failed(self, table: str, row: dict, error: GeneratorError):
+        """A refused or lost edit of a look or makeup candidate: queued again after a rate limit, else failed."""
+        logger.warning('Generator outcome %s for %s %s', error.kind, table, row['id'])
+        if error.kind == OutcomeKind.RATE_LIMITED:
+            self._rate_limit_count += 1
+            delay = error.retry_after
+            if delay is None or not math.isfinite(delay) or delay < 0:
+                delay = min(60.0, 2.0 ** min(self._rate_limit_count, 6))
+            self._backoff_until = max(self._backoff_until, time.monotonic() + max(0.05, delay))
+            with self.db.connect(write=True) as conn:
+                conn.execute(f"UPDATE {table} SET status='waiting' WHERE id=? AND status='running'", (row['id'],))
+            return
+        self._fail_look(row, error.error_code, error.message,
+                        status='interrupted' if error.kind == OutcomeKind.UNKNOWN_OUTCOME else 'failed', table=table)
+
+    def _fail_look(self, look: dict, code: str, message: str, *, status: str = 'failed', table: str = 'looks'):
         with self.db.connect(write=True) as conn:
-            conn.execute("UPDATE looks SET status=?,error_code=?,error_message=?,finished_at=? WHERE id=? AND status='running'",
+            conn.execute(f"UPDATE {table} SET status=?,error_code=?,error_message=?,finished_at=? WHERE id=? AND status='running'",
                          (status, code, message, utc_now(), look['id']))
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), look['project_id']))
+
+    async def _execute_makeup(self, makeup: dict):
+        """Edit the bride's uploaded photo into a makeup candidate for one style, hair unchanged (V7.8); the most
+        similar one of the style is then picked unless the user picked one."""
+        model = makeup['model'] or self.db.get_default_model() or DEFAULT_MODEL
+        with self.db.connect() as conn:
+            source = self._asset_file(conn, makeup['source_asset_id'])
+        if source is None:
+            self._fail_look(makeup, 'reference_missing', '新娘的照片文件缺失或无法读取，请重新上传后重试', table='makeups')
+            return
+        try:
+            content = await self._look_edit(makeup, [source], makeup['prompt'], model, 'makeup')
+            asset_id = await self._save_look_image(makeup, content)
+            now = utc_now()
+            with self.db.connect(write=True) as conn:
+                conn.execute("UPDATE makeups SET status='ready',image_asset_id=?,model=?,error_code=NULL,error_message=NULL,"
+                             "face_score=NULL,finished_at=? WHERE id=? AND status='running'", (asset_id, model, now, makeup['id']))
+                conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, makeup['project_id']))
+                ready = conn.execute("SELECT * FROM makeups WHERE id=? AND status='ready'", (makeup['id'],)).fetchone()
+                project = conn.execute('SELECT * FROM projects WHERE id=?', (makeup['project_id'],)).fetchone()
+                if ready is not None:
+                    auto_select_makeup(conn, project, ready)
+            self._rate_limit_count = 0
+            if self.swapper.status['available']:
+                self._makeup_score_queue.append(makeup['id'])
+                self._wake.set()
+        except GeneratorError as error:
+            self._candidate_edit_failed('makeups', makeup, error)
+        except OSError:
+            logger.exception('Makeup storage failed for makeup %s', makeup['id'])
+            self._fail_look(makeup, 'storage_error', f'图片保存失败，请检查存储空间及目录权限：{self.config.data_dir}', table='makeups')
+        except Exception:
+            logger.exception('Unexpected makeup failure for makeup %s', makeup['id'])
+            self._fail_look(makeup, 'generation_failed', '妆容生成失败，请稍后重试', table='makeups')
+
+    async def _execute_makeup_scoring(self, makeup_ids: list[str]):
+        """Likeness of each makeup candidate to the uploaded photo; the scores pick the most similar makeup of its
+        style unless the user picked one."""
+        try:
+            items, scored = [], []
+            with self.db.connect() as conn:
+                for makeup_id in makeup_ids:
+                    makeup = conn.execute('SELECT * FROM makeups WHERE id=?', (makeup_id,)).fetchone()
+                    source = self._asset_file(conn, makeup['source_asset_id']) if makeup else None
+                    target = self._asset_file(conn, makeup['image_asset_id']) if makeup and makeup['image_asset_id'] else None
+                    if source is not None and target is not None:
+                        items.append(ScoreItem(source, source, target))
+                        scored.append(makeup_id)
+            if not items:
+                return
+            scores = await asyncio.to_thread(self.swapper.score, items)
+            with self.db.connect(write=True) as conn:
+                for makeup_id, value in zip(scored, scores):
+                    if value is not None and value.get('bride') is not None:
+                        conn.execute('UPDATE makeups SET face_score=? WHERE id=? AND face_score IS NULL', (value['bride'], makeup_id))
+                        # Looks made on it before it was scored show its score too.
+                        conn.execute('UPDATE looks SET makeup_face_score=? WHERE makeup_id=? AND makeup_face_score IS NULL',
+                                     (value['bride'], makeup_id))
+                for makeup_id in scored:
+                    makeup = conn.execute('SELECT * FROM makeups WHERE id=?', (makeup_id,)).fetchone()
+                    project = conn.execute('SELECT * FROM projects WHERE id=?', (makeup['project_id'],)).fetchone()
+                    if project is not None:
+                        auto_select_makeup(conn, project, makeup)
+        except Exception:
+            logger.warning('Makeup scoring failed for %s makeups', len(makeup_ids), exc_info=True)
 
     async def _execute_look_scoring(self, look_ids: list[str]):
         """Likeness of each look (and of a bride look's made-up step, V7.5) to the uploaded photo it was made from;
@@ -443,6 +537,9 @@ class TaskManager:
                         continue
                     source = self._asset_file(conn, look['source_asset_id'])
                     for column, asset_id in (('face_score', look['image_asset_id']), ('makeup_face_score', look['makeup_asset_id'])):
+                        # A look made on a makeup candidate (V7.8) gets that candidate's score instead.
+                        if column == 'makeup_face_score' and look['makeup_id']:
+                            continue
                         target = self._asset_file(conn, asset_id) if asset_id else None
                         if source is not None and target is not None:
                             # One person per picture: the other role finds no face of its gender and stays empty.
@@ -563,7 +660,7 @@ class TaskManager:
         try:
             started = time.monotonic()
             logger.info('Face-fix request started model=%s task_id=%s', model, task['id'])
-            content = await asyncio.to_thread(self.generator.generate_image, [target_path, *photos], FACE_FIX_PROMPT, model,
+            content = await asyncio.to_thread(self.generator.generate_image, [target_path, *photos], face_fix_prompt(snapshot), model,
                                               snapshot.get('aspect_ratio') or self.config.aspect_ratio)
             logger.info('Face-fix request succeeded model=%s task_id=%s elapsed_seconds=%.3f',
                         model, task['id'], time.monotonic() - started)
@@ -713,15 +810,17 @@ class TaskManager:
             )
             if follow_up == 'face_fix':
                 # Same transaction as the new version, like the swap below.
+                fix_references, bride_reference = face_fix_reference_ids(conn, json.loads(task['reference_image_ids']))
                 conn.execute(
                     'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,'
                     'style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,regenerate_mode,'
                     "source_version_id,created_at) VALUES (?,?,?,?,'waiting',?,?,?,?,?,'',?,'face_fix',?,?)",
                     (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'],
-                     json.dumps(face_fix_reference_ids(conn, json.loads(task['reference_image_ids']))),
+                     json.dumps(fix_references),
                      task['style_id'], task['pose_id'], task['moment_title'], task['moment_shot_size'],
                      face_fix_snapshot(self.db.get_default_model() or DEFAULT_MODEL,
-                                       self._snapshot(task).get('aspect_ratio') or self.config.aspect_ratio), version_id, now),
+                                       self._snapshot(task).get('aspect_ratio') or self.config.aspect_ratio, bride_reference),
+                     version_id, now),
                 )
             elif follow_up == 'face_swap':
                 # Same transaction as the new version: the swap is queued exactly when the original exists.

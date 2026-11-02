@@ -12,6 +12,10 @@ style's colour family and finish; the groom's looks (style_id NULL) are shared b
 style) group has at most one selected look, and that is the look a new sample of the style uses. Looks of older
 versions are not used for new shots.
 
+V7.8: the bride's makeup for a style is its own candidates (the makeups table): makeup edits of the uploaded
+photo, hair unchanged, of which one is selected per style. Every new bride look of the style is a hair edit of
+that made-up photo, so its hair candidates differ only in the hair. V7.5–V7.7 looks made their own makeup each.
+
 A shot task records its looks in its model snapshot:
     'looks': {'version': STYLING_VERSION, 'bride': look id, 'groom': look id}
     'reference_slots': one [role, angle] per reference image, null for a sample reference
@@ -76,19 +80,31 @@ def default_look_items(project, role: str) -> list[str]:
     return items
 
 
-def look_problem(project, look) -> str | None:
-    """Why a front look cannot be used for a new shot; None when it can."""
-    if look['angle'] != 'front' or look['discarded_at'] is not None:
+def _candidate_problem(project, row, role: str) -> str | None:
+    """Why a look or makeup candidate of this role cannot be used any more; None when it can."""
+    if row['discarded_at'] is not None:
         return 'unavailable'
-    if look['status'] != 'ready' or look['image_asset_id'] is None:
+    if row['status'] != 'ready' or row['image_asset_id'] is None:
         return 'not_ready'
-    if look['styling_version'] != STYLING_VERSION:
+    if row['styling_version'] != STYLING_VERSION:
         return 'outdated'
-    if role_of(project, look['person']) != look['role']:
+    if role_of(project, row['person']) != role:
         return 'role_changed'
-    if project[f"person_{look['person']}_image_id"] != look['source_asset_id']:
+    if project[f"person_{row['person']}_image_id"] != row['source_asset_id']:
         return 'photo_replaced'
     return None
+
+
+def look_problem(project, look) -> str | None:
+    """Why a front look cannot be used for a new shot; None when it can."""
+    if look['angle'] != 'front':
+        return 'unavailable'
+    return _candidate_problem(project, look, look['role'])
+
+
+def makeup_problem(project, makeup) -> str | None:
+    """Why a makeup candidate cannot be used for a new bride look; None when it can (V7.8)."""
+    return _candidate_problem(project, makeup, 'bride')
 
 
 LOOK_PROBLEM_MESSAGES = {
@@ -97,6 +113,15 @@ LOOK_PROBLEM_MESSAGES = {
     'not_ready': '这套造型还没有生成好',
     'role_changed': '交换新娘和新郎之后，这套造型不能再用于新照片',
     'photo_replaced': '这个人的照片已经更换，这套造型不能再用于新照片',
+}
+
+
+MAKEUP_PROBLEM_MESSAGES = {
+    'unavailable': '这张妆容不存在或已删除',
+    'outdated': '这是旧版本的妆容，请重新生成',
+    'not_ready': '这张妆容还没有生成好',
+    'role_changed': '交换新娘和新郎之后，这张妆容不能再用于新造型',
+    'photo_replaced': '新娘的照片已经更换，这张妆容不能再用于新造型',
 }
 
 
@@ -150,6 +175,58 @@ def auto_select(conn, project, look):
     best = max(scored, key=lambda row: row['face_score']) if scored else (current or (rows[0] if rows else None))
     if best is not None and (current is None or best['id'] != current['id']):
         select_only(conn, best, 'auto')
+
+
+def _makeup_group(makeup) -> tuple[str, tuple]:
+    """SQL condition and parameters for the makeups that compete with this one: same person, same style."""
+    return ('project_id=? AND person=? AND style_id=? AND discarded_at IS NULL',
+            (makeup['project_id'], makeup['person'], makeup['style_id']))
+
+
+def select_makeup(conn, makeup, by: str = 'user'):
+    """Make this the makeup new bride looks of its style are made on (V7.8). by: as select_only."""
+    condition, params = _makeup_group(makeup)
+    conn.execute(f'UPDATE makeups SET selected_by=NULL WHERE {condition}', params)
+    conn.execute('UPDATE makeups SET selected_by=? WHERE id=?', (by, makeup['id']))
+
+
+def auto_select_makeup(conn, project, makeup):
+    """Pick the makeup of its style unless the user picked one, as auto_select does for looks: the most similar
+    usable one by its likeness score, or the first ready one while none is scored."""
+    condition, params = _makeup_group(makeup)
+    rows = [row for row in conn.execute(f'SELECT * FROM makeups WHERE {condition} ORDER BY rowid', params)
+            if makeup_problem(project, row) is None]
+    current = next((row for row in rows if row['selected_by'] is not None), None)
+    if current is not None and current['selected_by'] != 'auto':
+        return
+    scored = [row for row in rows if row['face_score'] is not None]
+    best = max(scored, key=lambda row: row['face_score']) if scored else (current or (rows[0] if rows else None))
+    if best is not None and (current is None or best['id'] != current['id']):
+        select_makeup(conn, best, 'auto')
+
+
+def selected_makeup(conn, project, style_id: str):
+    """The bride's selected makeup for this style, if it can still be used."""
+    row = conn.execute(
+        'SELECT * FROM makeups WHERE project_id=? AND person=? AND style_id=? AND selected_by IS NOT NULL '
+        'AND discarded_at IS NULL ORDER BY rowid DESC LIMIT 1', (project['id'], person_of(project, 'bride'), style_id)).fetchone()
+    return row if row is not None and makeup_problem(project, row) is None else None
+
+
+def makeup_response(project, makeup) -> dict:
+    color = MAKEUP_COLOR_BY_ID.get(makeup['makeup_color'])
+    problem = makeup_problem(project, makeup)
+    return {
+        'id': makeup['id'], 'person': makeup['person'], 'style_id': makeup['style_id'],
+        'makeup_color': makeup['makeup_color'], 'makeup_color_name': color.name if color else None,
+        'makeup_level': makeup['makeup_level'],
+        'status': makeup['status'], 'error_code': makeup['error_code'], 'error_message': makeup['error_message'],
+        'asset_id': makeup['image_asset_id'], 'source_asset_id': makeup['source_asset_id'],
+        'selected': makeup['selected_by'] is not None, 'selected_by': makeup['selected_by'],
+        'usable': problem is None,
+        'unusable_reason': MAKEUP_PROBLEM_MESSAGES[problem] if problem not in (None, 'not_ready') else None,
+        'face_score': makeup['face_score'], 'created_at': makeup['created_at'],
+    }
 
 
 def style_looks(conn, project) -> dict:
@@ -215,10 +292,18 @@ def task_face_swap_reference_ids(conn, project, snapshot: dict, references: list
     return result
 
 
-def face_fix_reference_ids(conn, references: list) -> list[str]:
-    """AI face-fix references: [bride front, groom front] of the picture itself, i.e. its looks (V7.4; the uploaded
-    photos in V7.1–V7.3, whose bare skin and old hair the edit copied). Pictures from before looks have the uploads."""
-    return list(references[:2])
+def face_fix_reference_ids(conn, references: list) -> tuple[list[str], str]:
+    """AI face-fix references and what the bride's one is ('makeup' or 'look', see face_fix_snapshot).
+
+    [bride front, groom front] of the picture itself, i.e. its looks (V7.4; the uploaded photos in V7.1–V7.3, whose
+    bare skin and old hair the edit copied). V7.9: the bride's look is replaced by its made-up photo (the step before
+    the hair edit) when it has one. Pictures from before looks have the uploads."""
+    bride, groom = references[:2]
+    row = conn.execute("SELECT makeup_asset_id FROM looks WHERE image_asset_id=? AND role='bride' AND angle='front' "
+                       'AND makeup_asset_id IS NOT NULL', (bride,)).fetchone()
+    if row is not None:
+        return [row['makeup_asset_id'], groom], 'makeup'
+    return [bride, groom], 'look'
 
 
 def uploaded_asset_id(conn, asset_id: str) -> str:
@@ -245,7 +330,7 @@ def look_response(project, look) -> dict:
         'unusable_reason': LOOK_PROBLEM_MESSAGES[problem] if problem not in (None, 'not_ready') else None,
         'face_score': look['face_score'], 'created_at': look['created_at'],
         'makeup_asset_id': look['makeup_asset_id'], 'makeup_face_score': look['makeup_face_score'],
-        'selected_by': look['selected_by'],
+        'selected_by': look['selected_by'], 'makeup_id': look['makeup_id'],
     }
 
 

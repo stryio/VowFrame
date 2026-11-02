@@ -1272,3 +1272,22 @@ FACE_FIX_PROMPT = '\n\n'.join((
     '光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，头饰、服装、场景、背景及遮挡关系。',
     '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
 ))
+# V7.9 (the user): the bride's reference is her made-up photo, the step before the hair edit, when her look has
+# one: it is the closer likeness, and the look's makeup is that photo's (the hair edit keeps it). Its hair is the
+# uploaded photo's, so the hair is never taken from it: the picture already has the look's hair. The groom's look
+# is one edit and stays his reference.
+FACE_FIX_MAKEUP_PROMPT = '\n\n'.join((
+    '第一张图是需要修正的婚纱照。第二张图是新娘婚礼当天化好妆、还没有做发型时的照片，第三张图是新郎的造型照（化好妆、做好发型后的样子），用于确定两人的长相。',
+    '请校正照片里新娘和新郎的长相，使新娘与第二张图中的本人一致，新郎与第三张图中的本人一致，同时保留第一张图的拍摄状态。',
+    '长相依据第二张图和第三张图：' + _IDENTITY_INVARIANTS + _EXPRESSION_ALLOWANCE +
+    '保留第一张图的笑容、嘴部开合和眼睛开合状态，不转成参考图的正面姿态和表情。',
+    '新娘的头发不参考第二张图：第二张图里是做发型之前的头发，新娘的发型、发色、刘海、鬓角和发际线都保持第一张图的样子。'
+    '第一张图中已经符合参考图的妆容和肤色保持不动；与参考图不符的地方按参考图：新娘的妆色、妆面和提白程度与第二张图相同，'
+    '新郎的发型、发色和皮肤的白皙程度与第三张图相同，每个人脸、脖子和手臂的肤色衔接自然，是同一种肤色。'
+    '只校正偏离本人的结构，以及结构校正必需的妆容位置调整：唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现；'
+    '不替换整颗头，不重新设计发型，不追加提白或重新上妆。光线只改变妆容和肤色在照片里的明暗和反光。',
+    '除了两人的长相，第一张图的其余部分都保持原样：构图、两人的位置和大小、姿态、动作、手势、头部角度、表情和视线，'
+    '光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，头饰、服装、场景、背景及遮挡关系。',
+    '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
+))
+

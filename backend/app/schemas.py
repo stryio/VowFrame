@@ -125,6 +125,14 @@ class LookCreate(InputModel):
     items: list[LookItem] = Field(min_length=1, max_length=16)
 
 
+class MakeupCreate(InputModel):
+    """Makeup candidates of the bride for one style (V7.8): each is one paid edit of her uploaded photo."""
+    client_request_id: str = Field(min_length=1)
+    person: Literal['a', 'b']
+    style_id: str
+    count: int = Field(ge=1, le=4)
+
+
 class RestoreCreate(InputModel):
     version_id: str
 
@@ -268,6 +276,31 @@ class Look(BaseModel):
     makeup_face_score: float | None
     # 'user' when the user picked the selected look, 'auto' when it was picked as the most similar; null otherwise.
     selected_by: Literal['user', 'auto'] | None
+    # V7.8: the makeup candidate the hair was done on; null for the groom's and for looks made before V7.8.
+    makeup_id: str | None
+
+
+class Makeup(BaseModel):
+    """The bride's makeup for one style, hair unchanged (V7.8); new bride looks of the style use the selected one."""
+    id: str
+    person: Literal['a', 'b']
+    style_id: str
+    makeup_color: str
+    makeup_color_name: str | None
+    makeup_level: MakeupLevel
+    status: Literal['waiting', 'running', 'ready', 'failed', 'interrupted']
+    error_code: str | None
+    error_message: str | None
+    asset_id: str | None
+    source_asset_id: str
+    selected: bool
+    # 'user' when the user picked it, 'auto' when it was picked as the most similar; null when not selected.
+    selected_by: Literal['user', 'auto'] | None
+    usable: bool
+    unusable_reason: str | None
+    # Likeness to the uploaded photo, as Look.face_score.
+    face_score: float | None
+    created_at: str
 
 
 class HairstyleOption(BaseModel):
@@ -335,6 +368,8 @@ class ProjectDetail(ProjectSummary):
     # Per style, the looks a new sample uses (V7.0): the bride's selected look for the style and the groom's
     # selected look; null where none is selected yet.
     style_looks: dict[str, dict[str, str | None]]
+    # The bride's makeup candidates of every style (V7.8), oldest first.
+    makeups: list[Makeup]
     # Per person, the default candidates for their stated hair length.
     default_look_items: dict[str, list[LookDefault]]
 
