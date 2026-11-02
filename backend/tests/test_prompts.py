@@ -22,6 +22,8 @@ from app.prompts import (
     Makeup,
     compose_preview_prompt,
     compose_look_prompt,
+    compose_bride_hair_prompt,
+    compose_bride_makeup_prompt,
     HAIRSTYLES,
     MAKEUP_COLORS,
     STYLE_MAKEUP_COLORS,
@@ -78,14 +80,16 @@ def test_full_example_matches_docs_verbatim():
 
 def test_styled_shot_prompts_copy_the_looks_hair_and_makeup_and_match_docs():
     identity = compose_preview_prompt('korean_minimal', '3:4', styled=True).split('\n\n')[1]
-    assert identity == doc_block('**V7.3 起：参考图是两人带妆的造型照')
+    assert identity == doc_block('**V7.5 起：参考图是两人带妆的造型照')
+    # V7.5: the structure that must not change, listed like Codex suggested, and smiles may still move the face.
+    assert '保留本人固有的骨相与脸部比例' in identity and '可见耳朵的位置和形态' in identity and '不减龄' in identity
     assert is_styled(compose_preview_prompt('korean_minimal', '3:4', styled=True))
     assert not is_styled(compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('natural', 'natural'), hair=Hair('long', 'short')))
     # V7.0: the looks wear the makeup, so a shot from looks takes no levels.
     with pytest.raises(ValueError):
         compose_preview_prompt('korean_minimal', '3:4', makeup=Makeup('natural', 'natural'), styled=True)
     assert '造型照就是两人婚礼当天化好妆、做好发型后的样子' in identity
-    assert '造型照用于确定两人的长相、发型和妆容' in identity and '不要额外美颜、瘦脸、磨皮或重塑五官' in identity
+    assert '造型照用于确定两人的长相、发型和妆容' in identity and '不额外美颜或磨皮' in identity and '不瘦脸，不重塑骨相' in identity
     # V7.3: the expression follows the shot, not the neutral look; no stiff "stand tall".
     assert '不照搬造型照中的表情和视线' in identity and '两人体态自然舒展' in identity and '挺拔' not in identity
     # The colours and finish of the style paragraph are the look's; V6.4's two sentences on visibility and light stay.
@@ -116,12 +120,22 @@ def test_styled_shot_prompts_copy_the_looks_hair_and_makeup_and_match_docs():
     # Prompts of V4.0–V5.2 and V6.0–V6.4 still count as styled.
     assert is_styled('竖构图。\n\n' + doc_block('**V4.0～V5.2：参考图是两人带妆的造型照'))
     assert is_styled('竖构图。\n\n' + doc_block('**V7.0～V7.2：'))
+    assert is_styled('竖构图。\n\n' + doc_block('**V7.3～V7.4：'))
     bare = doc_block('**V6.0～V6.4：参考图是只做了发型的素颜造型照')
     assert is_styled('竖构图。\n\n' + bare) and '卧蚕：微弱提亮，不改变眼睛大小' in bare
 
 
 def test_look_prompts_cover_every_hairstyle_level_and_style_and_match_docs():
-    assert doc_block('新娘正面照，`low_bun`') == compose_look_prompt('bride', 'low_bun', 'natural', style_id='korean_minimal')
+    assert doc_block('新娘正面照一次编辑的写法') == compose_look_prompt('bride', 'low_bun', 'natural', style_id='korean_minimal')
+    # V7.5: the bride's front look is makeup first, then only the hair on the made-up photo.
+    makeup = compose_bride_makeup_prompt('natural', 'korean_minimal')
+    assert '这一步只化妆、修整皮肤和换背景，头发保持原照片的样子' in makeup and '发型：' not in makeup
+    assert '新娘妆面：' + STYLE_MAKEUP_FINISH['korean_minimal'] in makeup and '保留本人固有的骨相与脸部比例' in makeup
+    hair = compose_bride_hair_prompt('low_bun', 'natural')
+    assert '这一步只改头发' in hair and '不再上妆、不再提白、不再修皮肤' in hair and '新娘妆色' not in hair
+    assert hair.split('\n\n')[1].startswith('发型：' + next(item.text for item in HAIRSTYLES if item.id == 'low_bun'))
+    assert '改变头发不授权改变脸部、耳朵、颅骨或发际线的真实位置' in hair and '头发不遮挡眼睛' in hair
+    assert makeup.split('\n\n')[0] in DOC and hair.split('\n\n')[0] in DOC
     assert doc_block('新郎脸朝画面左侧，`keep`') == compose_look_prompt('groom', 'keep', 'natural', facing='left')
     side = compose_look_prompt('bride', 'low_bun', 'natural', style_id='hanfu', facing='right')
     assert '头发按第二张图的发型重新画，不照搬第一张图里的头发。' in side and '发型、发色、妆容和肤色都与第二张图一致' in side
@@ -144,8 +158,9 @@ def test_look_prompts_cover_every_hairstyle_level_and_style_and_match_docs():
             paragraphs = prompt.split('\n\n')
             assert len(paragraphs) == 5
             assert paragraphs[1].startswith('发型：' + hairstyle.text + '；')
-            # V5.1: nothing asks the edit to keep the photo's hair. V5.2: the hair is redone boldly.
-            assert '头发按下面的发型大胆地重新做，可以和原照片完全不同。' in paragraphs[0]
+            # V5.1: nothing asks the edit to keep the photo's hair. V7.5: changing it licenses no change to the face.
+            assert '头发按下面的发型重新造型。' in paragraphs[0] and '大胆' not in prompt and '完全不同' not in prompt
+            assert '改变头发不授权改变脸部' in paragraphs[1] and '保留本人固有的骨相与脸部比例' in paragraphs[0]
             assert not any(term in prompt for term in ('头肩构图', '长短与原照片一致', '保留少量细软的碎发'))
             assert '头发部分完全重新画' in paragraphs[1] and '没有任何翘起的细碎毛发' in paragraphs[1]
             # V7.0: the look wears the makeup and retouching of the level, with the V6.4 limits.

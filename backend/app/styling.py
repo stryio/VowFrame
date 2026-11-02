@@ -122,12 +122,34 @@ def selected_look(conn, project, role: str, style_id: str | None):
     return row if row is not None and look_problem(project, row) is None else None
 
 
-def select_only(conn, look):
-    """Make this look the one its person uses for its style (or, for the groom, for every style)."""
+def _group(look) -> tuple[str, tuple]:
+    """SQL condition and parameters for the looks that compete with this one: same person, same style (or groom)."""
     style_clause = 'style_id IS NULL' if look['style_id'] is None else 'style_id=?'
-    conn.execute(f"UPDATE looks SET selected_order=NULL WHERE project_id=? AND person=? AND angle='front' AND {style_clause}",
-                 (look['project_id'], look['person'], *(() if look['style_id'] is None else (look['style_id'],))))
-    conn.execute('UPDATE looks SET selected_order=1 WHERE id=?', (look['id'],))
+    return (f"project_id=? AND person=? AND angle='front' AND discarded_at IS NULL AND {style_clause}",
+            (look['project_id'], look['person'], *(() if look['style_id'] is None else (look['style_id'],))))
+
+
+def select_only(conn, look, by: str = 'user'):
+    """Make this look the one its person uses for its style (or, for the groom, for every style). by: 'user' when
+    the user picked it, 'auto' when it was picked as the most similar (V7.5)."""
+    condition, params = _group(look)
+    conn.execute(f'UPDATE looks SET selected_order=NULL,selected_by=NULL WHERE {condition}', params)
+    conn.execute('UPDATE looks SET selected_order=1,selected_by=? WHERE id=?', (by, look['id']))
+
+
+def auto_select(conn, project, look):
+    """Pick the look its group uses unless the user picked one (V7.5): the most similar usable look by its likeness
+    score to the uploaded photo, or the first ready one while none is scored (no FaceFusion, or not scored yet)."""
+    condition, params = _group(look)
+    rows = [row for row in conn.execute(f'SELECT * FROM looks WHERE {condition} ORDER BY rowid', params)
+            if look_problem(project, row) is None]
+    current = next((row for row in rows if row['selected_order'] is not None), None)
+    if current is not None and current['selected_by'] != 'auto':
+        return
+    scored = [row for row in rows if row['face_score'] is not None]
+    best = max(scored, key=lambda row: row['face_score']) if scored else (current or (rows[0] if rows else None))
+    if best is not None and (current is None or best['id'] != current['id']):
+        select_only(conn, best, 'auto')
 
 
 def style_looks(conn, project) -> dict:
@@ -222,6 +244,8 @@ def look_response(project, look) -> dict:
         'usable': problem is None,
         'unusable_reason': LOOK_PROBLEM_MESSAGES[problem] if problem not in (None, 'not_ready') else None,
         'face_score': look['face_score'], 'created_at': look['created_at'],
+        'makeup_asset_id': look['makeup_asset_id'], 'makeup_face_score': look['makeup_face_score'],
+        'selected_by': look['selected_by'],
     }
 
 

@@ -633,11 +633,20 @@ function PersonLooks({
                       </button>
                     </div>
                   )}
-                  {used && <span className="status-chip selected-chip">选用中</span>}
+                  {used && (
+                    <span className="status-chip selected-chip" title={look.selected_by === "auto" ? "相似度最高，自动选用；点别的「选用」可以换" : undefined}>
+                      {look.selected_by === "auto" ? "选用中 · 最像" : "选用中"}
+                    </span>
+                  )}
                 </div>
                 <div className="look-body">
                   <strong>{lookLabel(look)}</strong>
-                  {look.face_score !== null && <span className="muted">相似度 {look.face_score.toFixed(2)}</span>}
+                  {look.face_score !== null && (
+                    <span className="muted">
+                      相似度 {look.face_score.toFixed(2)}
+                      {look.makeup_face_score !== null && `（化妆后 ${look.makeup_face_score.toFixed(2)}）`}
+                    </span>
+                  )}
                   {look.unusable_reason && <span className="error-text">{look.unusable_reason}</span>}
                   <div className="look-actions">
                     {look.status === "ready" && look.usable && (
@@ -678,6 +687,17 @@ function PersonLooks({
           onClose={() => setViewing(null)}
           items={[
             { key: "source", assetId: viewing.source_asset_id, title: "上传的照片", subtitle: "", actions: [] },
+            ...(viewing.makeup_asset_id
+              ? [
+                  {
+                    key: "makeup",
+                    assetId: viewing.makeup_asset_id,
+                    title: "化好妆（改发型之前）",
+                    subtitle: viewing.makeup_face_score !== null ? `与上传照片的相似度 ${viewing.makeup_face_score.toFixed(2)}` : "",
+                    actions: [],
+                  },
+                ]
+              : []),
             {
               key: "look",
               assetId: viewing.asset_id,

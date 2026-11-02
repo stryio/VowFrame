@@ -102,6 +102,11 @@ export interface Look {
   unusable_reason: string | null;
   face_score: number | null;
   created_at: string;
+  /** V7.5: the bride's made-up photo before the hair edit, and its likeness; null for one-edit looks. */
+  makeup_asset_id: string | null;
+  makeup_face_score: number | null;
+  /** "user" when the user picked the selected look, "auto" when it was picked as the most similar. */
+  selected_by: "user" | "auto" | null;
 }
 
 export interface LookItem {

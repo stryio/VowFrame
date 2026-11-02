@@ -99,7 +99,8 @@ def test_change_shot_keeps_the_looks_of_the_picture(app_factory):
         assert changed.status_code == 201, changed.text
         wait_batch(client, changed.json()['id'])
         # V5.0: a new shot keeps the picture's looks; the new level only applies to looks generated later.
-        assert len(app.state.stylist.calls) == 2
+        # Three edits made the two looks (the bride's is makeup then hair, V7.5); none were added.
+        assert len(app.state.stylist.calls) == 3
         task = client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json()[0]
         assert task['prompt'].split('\n\n')[1].startswith('图片角色：第一张图是新娘的造型照')
         changed_slot = next(photo for photo in client.get(f"/api/projects/{project['id']}").json()['photos'] if photo['id'] == target['id'])

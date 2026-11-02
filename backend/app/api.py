@@ -22,7 +22,7 @@ from .db import BATCH_REFERENCE_MODES, new_id, utc_now
 from .face_fix import face_fix_snapshot
 from .face_swap import face_scores, face_swap_snapshot, face_swap_weight
 from .models import MODEL_REGISTRY, get_model
-from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
+from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_bride_hair_prompt, compose_bride_makeup_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceFixCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .photo_prep import PhotoRejected
@@ -880,12 +880,17 @@ def create_looks(project_id: str, body: LookCreate, request: Request, response: 
             if style_id is not None and not fits_style(role, item.hairstyle_id, length, style_id):
                 error(422, 'invalid_hairstyle', f'「{STYLE_BY_ID[style_id]["name"]}」需要盘发，请换一个盘发发型')
             look_id = new_id()
+            # V7.5: a bride look is two edits, makeup then hair; the groom's stays one.
+            if role == 'bride':
+                prompt, hair_prompt = compose_bride_makeup_prompt(level, style_id), compose_bride_hair_prompt(item.hairstyle_id, level)
+            else:
+                prompt, hair_prompt = compose_look_prompt(role, item.hairstyle_id, level), None
             conn.execute(
                 'INSERT INTO looks (id,project_id,person,role,style_id,angle,hairstyle_id,hair_length,makeup_color,makeup_level,'
-                "source_asset_id,styling_version,status,model,prompt,client_request_id,created_at) VALUES (?,?,?,?,?,'front',?,?,?,?,?,?,'waiting',?,?,?,?)",
+                "source_asset_id,styling_version,status,model,prompt,hair_prompt,client_request_id,created_at) "
+                "VALUES (?,?,?,?,?,'front',?,?,?,?,?,?,'waiting',?,?,?,?,?)",
                 (look_id, project_id, body.person, role, style_id, item.hairstyle_id, length, color, level, source,
-                 STYLING_VERSION, model_id, compose_look_prompt(role, item.hairstyle_id, level, style_id=style_id),
-                 body.client_request_id, now))
+                 STYLING_VERSION, model_id, prompt, hair_prompt, body.client_request_id, now))
             ids.append(look_id)
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
         result = [look_response(project, _get_look(conn, look_id)) for look_id in ids]

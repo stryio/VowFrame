@@ -337,8 +337,8 @@ def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handl
 
     def handler(request):
         calls.append(request)
-        if len(calls) <= 2:
-            return image_response()  # the two looks (V5.0)
+        if len(calls) <= 3:
+            return image_response()  # the two looks (V5.0): the groom's, then the bride's makeup and hair (V7.5)
         raise httpx.ReadError(f'provider echoed {TEST_KEY}', request=request)
 
     app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
@@ -497,28 +497,28 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                 expected = [project['person_a']['asset_id'], project['person_b']['asset_id']]
                 assert uploaded_ids(app, json.loads(row['reference_image_ids'])) == (expected if role == 'bride' else expected[::-1])
                 # The two looks come first (V5.0), each sending one photo; the shot sends the looks.
-                assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 2]
-                file_names = [part[1] for part in multipart_parts(calls[2]) if part[1] is not None]
+                assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 1, 2]
+                file_names = [part[1] for part in multipart_parts(calls[3]) if part[1] is not None]
                 ordered = json.loads(row['reference_image_ids'])
                 assert [name.split('.')[0] for name in file_names] == ordered
             assert TEST_KEY not in client.get('/api/tasks').text
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert TEST_KEY not in caplog.text
     assert all(TEST_KEY not in repr(record.__dict__) for record in caplog.records)
 
 
 @pytest.mark.parametrize('failure,expected,calls_expected', [
-    # The first two requests are the two looks (V5.0); the third is the sample.
-    ('connect', 'completed', 4), ('read', 'interrupted', 3),
-    (502, 'interrupted', 3), (504, 'interrupted', 3),
-    (500, 'failed', 3), (503, 'failed', 3),
+    # The first three requests make the two looks (V5.0; the bride's in two edits, V7.5); the fourth is the sample.
+    ('connect', 'completed', 5), ('read', 'interrupted', 4),
+    (502, 'interrupted', 4), (504, 'interrupted', 4),
+    (500, 'failed', 4), (503, 'failed', 4),
 ])
 def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected, calls_expected):
     calls = []
 
     def handler(request):
         calls.append(request)
-        if len(calls) == 3:
+        if len(calls) == 4:
             if isinstance(failure, int):
                 return httpx.Response(failure, text='model service error')
             exception = httpx.ConnectError if failure == 'connect' else httpx.ReadTimeout

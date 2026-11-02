@@ -185,16 +185,20 @@ ProjectSummary 加上：
   "usable": true,
   "unusable_reason": string | null,
   "face_score": 0.62 | null,
-  "created_at": "…"
+  "created_at": "…",
+  "makeup_asset_id": "…" | null,
+  "makeup_face_score": 0.64 | null,
+  "selected_by": "user" | "auto" | null
 }
 ```
 
 - `style_id`（V7.0）：新娘造型是为哪个风格做的，妆色和妆面按这个风格；新郎的造型所有风格共用，为 null；V7.0 以前的造型也为 null。
 - `role`、`makeup_level`、`hair_length`：生成时这个人的角色、档位和头发长度。V7.0 起造型一次修图做好发型和妆容，编辑结果原样保存（不贴回原脸，docs/prompts.md 第 8 节）；档位决定妆容和精修的强度以及头发的完成度。`makeup_color` 是新娘造型的色系（这个风格的主推色系），新郎为 null；V6.x 的造型也为 null。
 - `status` 为 `failed` 时，`error_code` 是生成失败的原因（与镜头任务相同）。V6.x 的 `look_no_face`、`look_face_lost`、`mask_editor_missing`、`face_model_missing`、`face_model_runtime_missing` 不再出现，旧记录里可能还留着。
-- `selected` / `selected_order`（V7.0）：每个风格只有一套选用的新娘造型，新郎只有一套；选用的为 1，其余为 null。
+- `selected` / `selected_order`（V7.0）：每个风格只有一套选用的新娘造型，新郎只有一套；选用的为 1，其余为 null。`selected_by`（V7.5）：`user` 是用户点了「选用」，`auto` 是系统选的（有相似度分数后选最像的一套，没有分数时选第一套生成好的）；用户选过的不再自动更换。
+- `makeup_asset_id` / `makeup_face_score`（V7.5）：新娘正面造型分两次编辑，这是第一次化好妆、还没改发型的照片和它与上传照的相似度；新郎和侧面造型为 null。发型这一步失败后重试，直接从这张照片开始。
 - `usable`：能否用于新照片。换了这个人的正面照（`unusable_reason`「这个人的照片已经更换……」）、交换了新娘和新郎，或者是 V7.0 以前的造型（「这是旧版本的造型……」）时为 false；还没生成好时也为 false，但 `unusable_reason` 为 null。
-- `face_score`：造型与上传照片的人脸相似度（FaceFusion 的 ArcFace 余弦相似度）；换脸不可用、还没测或没检测到脸时为 null。
+- `face_score`：造型与上传照片的人脸相似度（FaceFusion 的 ArcFace 余弦相似度）；换脸不可用、还没测或没检测到脸时为 null。重试生成后重新计算。
 
 `LookItem`：`{"hairstyle_id": string}`（妆色由风格决定，带上 `makeup_color` 会 422）。
 
@@ -486,6 +490,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - 一次编辑请求，发送 `[要修的照片, 新娘造型照, 新郎造型照]`（V7.4；此前是上传的正面照），用 `face_fix` 提示词（88API，作品自己的比例，不带蒙版），结果整张保存为新版本并设为当前版本。每张照片一次付费修图。不需要 FaceFusion。
   - 请求校验：该位置没有当前版本时 409 `slot_not_ready`；有 `waiting`/`running`/`held` 任务时 409 `slot_busy`；照片缺失时 409 `photos_missing`；局部特写 409 `no_faces`；`model` 不在列表中时 422 `invalid_model`。输入版本是当前版本，当前版本本身是换脸或 AI 修脸的结果时，改用它的来源版本。
   - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘正面造型照, 新郎正面造型照]`（输入版本任务的前两张参考图；V4.0 以前的作品是上传照片）；`prompt` 为空字符串（提示词是固定的 `FACE_FIX_PROMPT`）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "aspect_ratio": 输入版本的比例}`。
-  - 失败处理与生成任务相同（含自动重试、`interrupted` 和余额搁置），失败不影响当前版本。调度：和生成任务同一条队列，计入 `max_concurrency`；启动恢复时按生成任务处理（`running` 改为 `interrupted`，`waiting` 改为 `held`），因为修图会扣费。
+  - 失败处理与生成任务相同（含自动重试、`interrupted` 和余额搁置），失败不影响当前版本。
+  - 验收（V7.5）：修好的版本和它的来源版本都有 `face_scores` 后，新娘或新郎任意一人比来源低 0.02 以上（或修后为 null 而来源有分数），作品的当前版本换回来源版本，修好的版本留在历史里，任务快照追加 `"kept_original": ["bride" | "groom", …]`。没有 FaceFusion 或分数不全时不判断。调度：和生成任务同一条队列，计入 `max_concurrency`；启动恢复时按生成任务处理（`running` 改为 `interrupted`，`waiting` 改为 `held`），因为修图会扣费。
   - **自动修脸**：设置 `auto_face_fix = "ai"`（默认）时，任何生成任务成功保存版本的同一个事务里，插入一个 AI 修脸任务（同一批次、同一位置，`source_version_id` 为刚保存的版本）；`"facefusion"` 时改为插入换脸任务（需要 FaceFusion 可用，见上文）；细节特写、背影和剪影镜头不插入。修脸和换脸任务完成后不会再触发修脸。重新生成、加强长相等操作读取「来源任务」时，同样沿 `source_version_id` 越过 AI 修脸任务。
 - **数据库升级**：启动时通过 `PRAGMA table_info` 检查 `generation_tasks.regenerate_mode`。升级保留现有任务和版本数据；为使删除作品后仍能保留任务行，任务表升级时会以事务复制原有列、增加可空的 `regenerate_mode`，并解除任务目标位置的级联外键；删除后 `target_slot_id` 继续保存原位置 ID 供追溯。

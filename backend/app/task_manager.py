@@ -16,12 +16,15 @@ from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, crea
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, FACE_FIX_PROMPT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
 from .storage import asset_path, save_image
-from .styling import (face_fix_reference_ids, find_side_look, look_problem, select_only, selected_look,
-                      task_face_swap_reference_ids, uploaded_asset_id)
+from .styling import (auto_select, face_fix_reference_ids, find_side_look, task_face_swap_reference_ids,
+                      uploaded_asset_id)
 
 logger = logging.getLogger(__name__)
 # Pictures per face-scoring run.
 SCORE_CHUNK = 20
+# How much less alike (ArcFace cosine similarity) an AI face fix may make a person before the original is kept (V7.5):
+# small differences are measurement noise, not a worse face.
+FACE_FIX_TOLERANCE = 0.02
 
 
 class TaskManager:
@@ -337,20 +340,47 @@ class TaskManager:
                      model, prompt, asset_id, now, now))
             return asset_id
 
+    async def _look_edit(self, look: dict, images: list, prompt: str, model: str, step: str) -> bytes:
+        started = time.monotonic()
+        logger.info('Look request started model=%s look_id=%s step=%s', model, look['id'], step)
+        content = await asyncio.to_thread(self.stylist.generate_image, images, prompt, model, STYLING_ASPECT_RATIO)
+        logger.info('Look request succeeded model=%s look_id=%s step=%s elapsed_seconds=%.3f',
+                    model, look['id'], step, time.monotonic() - started)
+        return content
+
+    async def _save_look_image(self, look: dict, content: bytes) -> str:
+        asset_id = new_id()
+        relative_path = await asyncio.to_thread(save_image, self.config, look['project_id'], asset_id, content)
+        with self.db.connect(write=True) as conn:
+            conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at,source_asset_id) '
+                         "VALUES (?,?,?,'styled',?,?)", (asset_id, look['project_id'], relative_path, utc_now(), look['source_asset_id']))
+        return asset_id
+
     async def _execute_look(self, look: dict):
-        """Edit an uploaded photo into a look candidate the user asked for: hair and, for the bride, the style's
-        makeup in one edit, kept as it comes back (V7.0). Its likeness score tells the user when to redo it."""
+        """Edit an uploaded photo into a look candidate the user asked for, kept as it comes back (V7.0).
+
+        The groom's look is one edit (hair and grooming). The bride's front look is two (V7.5): makeup, skin and
+        background on the uploaded photo, then only the hair on that made-up photo; a retry after a failed hair edit
+        starts from the saved made-up photo. Likeness scores then pick the most similar look of its style.
+        """
         model = look['model'] or self.db.get_default_model() or DEFAULT_MODEL
+        with self.db.connect() as conn:
+            source = self._asset_file(conn, look['source_asset_id'])
+            makeup = self._asset_file(conn, look['makeup_asset_id']) if look['makeup_asset_id'] else None
+        if source is None:
+            self._fail_look(look, 'reference_missing', '这个人的照片文件缺失或无法读取，请重新上传后重试')
+            return
         try:
-            with self.db.connect() as conn:
-                path = self._asset_file(conn, look['source_asset_id'])
-            if path is None:
-                self._fail_look(look, 'reference_missing', '这个人的照片文件缺失或无法读取，请重新上传后重试')
-                return
-            started = time.monotonic()
-            logger.info('Look request started model=%s look_id=%s', model, look['id'])
-            content = await asyncio.to_thread(self.stylist.generate_image, [path], look['prompt'], model, STYLING_ASPECT_RATIO)
-            logger.info('Look request succeeded model=%s look_id=%s elapsed_seconds=%.3f', model, look['id'], time.monotonic() - started)
+            if look['hair_prompt']:
+                if makeup is None:
+                    content = await self._look_edit(look, [source], look['prompt'], model, 'makeup')
+                    makeup_id = await self._save_look_image(look, content)
+                    with self.db.connect(write=True) as conn:
+                        conn.execute('UPDATE looks SET makeup_asset_id=?,makeup_face_score=NULL WHERE id=?', (makeup_id, look['id']))
+                        makeup = self._asset_file(conn, makeup_id)
+                content = await self._look_edit(look, [makeup], look['hair_prompt'], model, 'hair')
+            else:
+                content = await self._look_edit(look, [source], look['prompt'], model, 'look')
         except GeneratorError as error:
             logger.warning('Generator outcome %s for look %s', error.kind, look['id'])
             if error.kind == OutcomeKind.RATE_LIMITED:
@@ -365,27 +395,25 @@ class TaskManager:
             self._fail_look(look, error.error_code, error.message,
                             status='interrupted' if error.kind == OutcomeKind.UNKNOWN_OUTCOME else 'failed')
             return
+        except OSError:
+            logger.exception('Look storage failed for look %s', look['id'])
+            self._fail_look(look, 'storage_error', f'图片保存失败，请检查存储空间及目录权限：{self.config.data_dir}')
+            return
         except Exception:
             logger.exception('Unexpected look failure for look %s', look['id'])
             self._fail_look(look, 'generation_failed', '造型生成失败，请稍后重试')
             return
         try:
-            asset_id = new_id()
-            relative_path = await asyncio.to_thread(save_image, self.config, look['project_id'], asset_id, content)
+            asset_id = await self._save_look_image(look, content)
             now = utc_now()
             with self.db.connect(write=True) as conn:
-                conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at,source_asset_id) '
-                             "VALUES (?,?,?,'styled',?,?)", (asset_id, look['project_id'], relative_path, now, look['source_asset_id']))
                 conn.execute("UPDATE looks SET status='ready',image_asset_id=?,model=?,error_code=NULL,error_message=NULL,"
-                             "finished_at=? WHERE id=? AND status='running'", (asset_id, model, now, look['id']))
+                             "face_score=NULL,finished_at=? WHERE id=? AND status='running'", (asset_id, model, now, look['id']))
                 conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, look['project_id']))
-                # The first usable look of a style (or the groom's first) is selected for it; the user may pick
-                # another (V7.0).
                 ready = conn.execute("SELECT * FROM looks WHERE id=? AND status='ready'", (look['id'],)).fetchone()
                 project = conn.execute('SELECT * FROM projects WHERE id=?', (look['project_id'],)).fetchone()
-                if (ready is not None and look_problem(project, ready) is None
-                        and selected_look(conn, project, ready['role'], ready['style_id']) is None):
-                    select_only(conn, ready)
+                if ready is not None:
+                    auto_select(conn, project, ready)
             self._rate_limit_count = 0
             if self.swapper.status['available']:
                 self._look_score_queue.append(look['id'])
@@ -404,26 +432,34 @@ class TaskManager:
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), look['project_id']))
 
     async def _execute_look_scoring(self, look_ids: list[str]):
-        """Likeness of each look to the uploaded photo it was made from, shown on the candidate card."""
+        """Likeness of each look (and of a bride look's made-up step, V7.5) to the uploaded photo it was made from;
+        the scores then pick the most similar look of its style unless the user picked one."""
         try:
             items, scored = [], []
             with self.db.connect() as conn:
                 for look_id in look_ids:
-                    look = conn.execute('SELECT role,source_asset_id,image_asset_id FROM looks WHERE id=?', (look_id,)).fetchone()
+                    look = conn.execute('SELECT * FROM looks WHERE id=?', (look_id,)).fetchone()
                     if look is None or look['image_asset_id'] is None:
                         continue
-                    source, target = self._asset_file(conn, look['source_asset_id']), self._asset_file(conn, look['image_asset_id'])
-                    if source is not None and target is not None:
-                        # One person per picture: the other role finds no face of its gender and stays empty.
-                        items.append(ScoreItem(source, source, target))
-                        scored.append((look_id, look['role']))
+                    source = self._asset_file(conn, look['source_asset_id'])
+                    for column, asset_id in (('face_score', look['image_asset_id']), ('makeup_face_score', look['makeup_asset_id'])):
+                        target = self._asset_file(conn, asset_id) if asset_id else None
+                        if source is not None and target is not None:
+                            # One person per picture: the other role finds no face of its gender and stays empty.
+                            items.append(ScoreItem(source, source, target))
+                            scored.append((look_id, look['role'], column))
             if not items:
                 return
             scores = await asyncio.to_thread(self.swapper.score, items)
             with self.db.connect(write=True) as conn:
-                for (look_id, role), value in zip(scored, scores):
+                for (look_id, role, column), value in zip(scored, scores):
                     if value is not None and value.get(role) is not None:
-                        conn.execute('UPDATE looks SET face_score=? WHERE id=? AND face_score IS NULL', (value[role], look_id))
+                        conn.execute(f'UPDATE looks SET {column}=? WHERE id=? AND {column} IS NULL', (value[role], look_id))
+                for look_id in dict.fromkeys(look_id for look_id, _role, _column in scored):
+                    look = conn.execute('SELECT * FROM looks WHERE id=?', (look_id,)).fetchone()
+                    project = conn.execute('SELECT * FROM projects WHERE id=?', (look['project_id'],)).fetchone() if look else None
+                    if project is not None:
+                        auto_select(conn, project, look)
         except Exception:
             logger.warning('Look scoring failed for %s looks', len(look_ids), exc_info=True)
 
@@ -605,9 +641,38 @@ class TaskManager:
                     if value is not None:
                         conn.execute('UPDATE photo_versions SET face_scores=? WHERE id=? AND face_scores IS NULL',
                                      (json.dumps(value), version_id))
+                for version_id in scored:
+                    self._accept_face_fix(conn, version_id)
         except Exception:
             # A score is only shown to help judge the picture; never retried in a loop, the next start tries again.
             logger.warning('Face scoring failed for %s versions', len(version_ids), exc_info=True)
+
+    def _accept_face_fix(self, conn, version_id: str):
+        """An AI face fix that made either person less like their uploaded photo does not replace the picture it
+        fixed (V7.5): the slot goes back to the original, and the fix stays in the version history."""
+        row = conn.execute(
+            'SELECT version.photo_slot_id,version.face_scores,task.id AS task_id,task.source_version_id,'
+            'task.model_config_snapshot FROM photo_versions version JOIN generation_tasks task '
+            "ON task.id=version.generation_task_id WHERE version.id=? AND task.regenerate_mode='face_fix'", (version_id,)).fetchone()
+        if row is None or not row['source_version_id']:
+            return
+        source = conn.execute('SELECT face_scores FROM photo_versions WHERE id=?', (row['source_version_id'],)).fetchone()
+        before = json.loads(source['face_scores']) if source and source['face_scores'] else None
+        after = json.loads(row['face_scores']) if row['face_scores'] else None
+        if before is None or after is None:
+            return  # nothing to compare: the fix stays
+        worse = [role for role in ('bride', 'groom') if before.get(role) is not None
+                 and (after.get(role) is None or after[role] < before[role] - FACE_FIX_TOLERANCE)]
+        if not worse:
+            return
+        changed = conn.execute('UPDATE photo_slots SET current_version_id=? WHERE id=? AND current_version_id=?',
+                               (row['source_version_id'], row['photo_slot_id'], version_id)).rowcount
+        if changed:
+            snapshot = json.loads(row['model_config_snapshot'])
+            snapshot['kept_original'] = worse
+            conn.execute('UPDATE generation_tasks SET model_config_snapshot=? WHERE id=?',
+                         (json.dumps(snapshot, ensure_ascii=False), row['task_id']))
+            logger.info('Face fix made %s less alike; kept the original version slot_id=%s', '/'.join(worse), row['photo_slot_id'])
 
     def _commit_result(self, task: dict, asset_id: str, relative_path: str, scores: dict | None = None,
                        score_later: bool = False):

@@ -103,17 +103,27 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         ids = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'high_bun'}],
                          style_id='korean_minimal', select=False)
         calls = app.state.stylist.calls
-        assert len(calls) == 2 and all(len(call[0]) == 1 for call in calls)
-        assert all(call[0][0].stem == project['person_a']['asset_id'] for call in calls)
-        prompt = next(call[1] for call in calls if '发型：赫本高盘发，' in call[1])
-        assert '新娘婚礼当天化好妆' in prompt and '新娘化精致的影楼新娘妆' in prompt
-        assert '新娘妆色：眼影用奶咖棕和米杏色' in prompt and '新娘妆面：底妆是清透柔光的质感' in prompt
+        # V7.5: each bride look is two edits, makeup on the uploaded photo, then only the hair on that made-up photo.
+        assert len(calls) == 4 and all(len(call[0]) == 1 for call in calls)
+        makeup_calls = [call for call in calls if '这一步只化妆、修整皮肤和换背景' in call[1]]
+        hair_calls = [call for call in calls if '这一步只改头发' in call[1]]
+        assert len(makeup_calls) == 2 and len(hair_calls) == 2
+        assert all(call[0][0].stem == project['person_a']['asset_id'] for call in makeup_calls)
+        makeup = makeup_calls[0][1]
+        assert '新娘化精致的影楼新娘妆' in makeup and '新娘妆色：眼影用奶咖棕和米杏色' in makeup and '新娘妆面：底妆是清透柔光的质感' in makeup
+        assert '发型：' not in makeup
+        hair = next(call[1] for call in hair_calls if '发型：赫本高盘发，' in call[1])
+        assert '不再上妆、不再提白' in hair and '新娘妆色' not in hair
         looks = {look['id']: look for look in detail(client, project['id'])['looks']}
         assert [looks[look_id]['status'] for look_id in ids] == ['ready', 'ready']
+        made_up = {looks[look_id]['makeup_asset_id'] for look_id in ids}
+        assert None not in made_up and {call[0][0].stem for call in hair_calls} == made_up
+        assert uploaded_ids(app, list(made_up)) == [project['person_a']['asset_id']] * 2
         assert {looks[look_id]['style_id'] for look_id in ids} == {'korean_minimal'}
         assert looks[ids[1]]['makeup_level'] == 'refined' and looks[ids[1]]['makeup_color'] == 'milk_tea'
-        # The first one ready is selected for the style; the other waits to be picked.
+        # Without scores the first one ready is picked for the style; the other waits.
         assert sorted(looks[look_id]['selected'] for look_id in ids) == [False, True]
+        assert {looks[look_id]['selected_by'] for look_id in ids} == {None, 'auto'}
         assert all(looks[look_id]['usable'] for look_id in ids)
         assert uploaded_ids(app, [looks[ids[0]]['asset_id']]) == [project['person_a']['asset_id']]
         groom = make_looks(client, project['id'], 'b', [{'hairstyle_id': 'keep'}], select=False)[0]
@@ -350,8 +360,8 @@ def test_side_looks_are_made_once_from_the_side_photo_and_the_front_look(app_fac
 
 
 def test_a_failed_side_look_holds_the_set_and_a_retry_reuses_the_rest(app_factory):
-    # Two looks, then the groom's left side look is refused for lack of balance.
-    stylist = ScriptedGenerator([None, None, GeneratorError('auth_or_quota')])
+    # Two looks (three edits: the bride's is makeup then hair), then the groom's left side look is refused.
+    stylist = ScriptedGenerator([None, None, None, GeneratorError('auth_or_quota')])
     with app_factory(generator=ScriptedGenerator(), stylist=stylist, concurrency=1) as (client, _app):
         project = create_project(client)
         for person, angle in (('a', 'right'), ('b', 'left')):
@@ -366,8 +376,8 @@ def test_a_failed_side_look_holds_the_set_and_a_retry_reuses_the_rest(app_factor
         assert client.post(f"/api/tasks/{tasks[1]['id']}/retry").status_code == 201
         assert client.post(f'/api/batches/{batch_id}/continue').status_code == 200
         wait_batch(client, batch_id)
-        side_edits = [call for call in stylist.calls[2:] if '脸朝画面' in call[1]]
-        assert len(stylist.calls) == 5 and len(side_edits) == 3 and all(len(call[0]) == 2 for call in side_edits)
+        side_edits = [call for call in stylist.calls[3:] if '脸朝画面' in call[1]]
+        assert len(stylist.calls) == 6 and len(side_edits) == 3 and all(len(call[0]) == 2 for call in side_edits)
 
 
 def test_a_side_look_whose_file_is_gone_is_edited_again(app_factory):
@@ -419,7 +429,10 @@ def test_candidates_show_their_likeness_to_the_uploaded_photo(app_factory):
         with _app.state.db.connect() as conn:
             uploads = {row['id']: row['file_path'] for row in conn.execute('SELECT id,file_path FROM image_assets')}
         sources = {uploads[project['person_a']['asset_id']], uploads[project['person_b']['asset_id']]}
-        assert len(swapper.scored) == 2 and all(item.bride == item.groom for item in swapper.scored)
+        # The bride's look is scored twice, its made-up step and the finished look (V7.5).
+        assert len(swapper.scored) == 3 and all(item.bride == item.groom for item in swapper.scored)
+        bride = next(look for look in looks if look['role'] == 'bride')
+        assert bride['makeup_face_score'] == 0.55 and bride['selected_by'] == 'auto'
         assert {next(path for path in sources if item.bride.as_posix().endswith(path)) for item in swapper.scored} == sources
 
 
@@ -511,3 +524,42 @@ def test_an_old_database_gets_the_look_table(tmp_path):
     assert {'person', 'role', 'style_id', 'angle', 'parent_look_id', 'hairstyle_id', 'makeup_color', 'selected_order',
             'face_score'} <= columns
     assert ('project_id', 'projects', 'CASCADE') in foreign_keys and ('parent_look_id', 'looks', 'NO ACTION') in foreign_keys
+
+
+def test_the_most_similar_look_is_picked_unless_the_user_picked_one(app_factory):
+    from app.styling import auto_select
+    with app_factory(generator=ScriptedGenerator()) as (client, app):
+        project = create_project(client)
+        first, second = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'low_bun'}],
+                                   style_id='korean_minimal', select=False)
+
+        def state():
+            looks = {look['id']: look for look in detail(client, project['id'])['looks']}
+            return {look_id: (looks[look_id]['selected'], looks[look_id]['selected_by']) for look_id in (first, second)}
+
+        # Scores pick the most similar look of the style (V7.5), not the first one ready.
+        with app.state.db.connect(write=True) as conn:
+            conn.execute('UPDATE looks SET face_score=? WHERE id=?', (0.41, first))
+            conn.execute('UPDATE looks SET face_score=? WHERE id=?', (0.63, second))
+            row = conn.execute('SELECT * FROM looks WHERE id=?', (first,)).fetchone()
+            auto_select(conn, conn.execute('SELECT * FROM projects WHERE id=?', (project['id'],)).fetchone(), row)
+        assert state() == {first: (False, None), second: (True, 'auto')}
+        # The user's pick stays, whatever the scores say.
+        assert client.post(f'/api/looks/{first}/select').status_code == 200
+        with app.state.db.connect(write=True) as conn:
+            auto_select(conn, conn.execute('SELECT * FROM projects WHERE id=?', (project['id'],)).fetchone(), row)
+        assert state() == {first: (True, 'user'), second: (False, None)}
+
+
+def test_a_failed_hair_edit_is_retried_from_the_saved_made_up_photo(app_factory):
+    stylist = ScriptedGenerator([None, GeneratorError('rejected')])
+    with app_factory(generator=ScriptedGenerator(), stylist=stylist, concurrency=1) as (client, _app):
+        project = create_project(client)
+        look_id = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='korean_minimal', select=False)[0]
+        look = next(look for look in detail(client, project['id'])['looks'] if look['id'] == look_id)
+        assert look['status'] == 'failed' and look['makeup_asset_id']
+        assert client.post(f'/api/looks/{look_id}/retry').status_code == 200
+        wait_until(lambda: detail(client, project['id'])['looks'], lambda looks: looks[0]['status'] == 'ready')
+        # Makeup, the refused hair edit, and the hair edit again: the makeup is not paid for twice.
+        assert len(stylist.calls) == 3 and '这一步只改头发' in stylist.calls[2][1]
+        assert stylist.calls[2][0][0].stem == look['makeup_asset_id']

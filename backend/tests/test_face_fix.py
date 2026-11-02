@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.generator import GeneratorError
 from app.prompts import FACE_FIX_PROMPT
-from conftest import ScriptedGenerator, create_project, preview_batch, wait_batch
+from conftest import ScriptedGenerator, create_project, preview_batch, wait_batch, wait_until
 from test_face_swap import ScriptedFaceSwapper
 
 
@@ -18,7 +18,8 @@ def fix_task(client, batch_id):
 def test_the_prompt_assigns_each_attribute_to_its_image_and_matches_the_docs():
     assert FACE_FIX_PROMPT.startswith('第一张图是需要修正的婚纱照。第二张图是新娘的造型照，第三张图是新郎的造型照')
     # V7.4: hair, makeup and skin tone follow the looks, so the face matches the body.
-    assert '长相依据造型照' in FACE_FIX_PROMPT and '妆容、肤色和发型与各自的造型照一致' in FACE_FIX_PROMPT
+    assert '长相依据造型照' in FACE_FIX_PROMPT and '第一张图中已经符合造型照的妆容、发型和肤色保持不动' in FACE_FIX_PROMPT
+    assert '不替换整颗头' in FACE_FIX_PROMPT and '保留本人固有的骨相与脸部比例' in FACE_FIX_PROMPT
     assert '是同一种肤色' in FACE_FIX_PROMPT and '原始照片' not in FACE_FIX_PROMPT and '换脸' not in FACE_FIX_PROMPT
     doc = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
     assert re.search(r'### 9\.2 编辑提示词.*?```text\n(.*?)\n```', doc, re.S).group(1) == FACE_FIX_PROMPT
@@ -96,3 +97,37 @@ def test_a_picture_can_be_fixed_by_hand_and_a_fix_starts_from_the_original(app_f
         assert bad.status_code == 422 and bad.json()['detail']['code'] == 'invalid_model'
         batch = client.post('/api/slots/batch-action', json={'client_request_id': 'many', 'slot_ids': [slot['id']], 'action': 'face_fix'})
         assert batch.status_code == 201, batch.text
+
+
+class FallingScores(ScriptedFaceSwapper):
+    """Every picture scored after another one has a less alike groom: the AI fix (scored after the picture it fixed)
+    makes him less alike."""
+
+    def score(self, items):
+        result = []
+        for item in items:
+            self.scored.append(item)
+            result.append({'bride': 0.6, 'groom': round(0.9 - 0.05 * len(self.scored), 3)})
+        return result
+
+
+def test_a_fix_that_makes_someone_less_alike_keeps_the_original(app_factory):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=FallingScores(), auto_face_fix='ai', concurrency=1) as (client, app):
+        project = create_project(client)
+        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        wait_batch(client, batch['id'])
+        slot = wait_until(lambda: client.get(f"/api/projects/{project['id']}").json()['previews'][0],
+                          lambda slot: slot['current_version']['version_number'] == 1)
+        assert slot['version_count'] == 2                        # the fix stays in the history
+        with app.state.db.connect() as conn:
+            row = conn.execute("SELECT model_config_snapshot FROM generation_tasks WHERE regenerate_mode='face_fix'").fetchone()
+        assert json.loads(row[0])['kept_original'] == ['groom']
+
+
+def test_a_fix_that_keeps_the_likeness_stays(app_factory):
+    with app_factory(generator=ScriptedGenerator(), face_swapper=ScriptedFaceSwapper(), auto_face_fix='ai', concurrency=1) as (client, app):
+        project = create_project(client)
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['korean_minimal'])['id'])
+        wait_until(lambda: client.get(f"/api/projects/{project['id']}").json()['previews'][0],
+                   lambda slot: slot['current_version']['face_scores'] is not None)
+        assert client.get(f"/api/projects/{project['id']}").json()['previews'][0]['current_version']['version_number'] == 2

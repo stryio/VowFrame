@@ -570,7 +570,7 @@ POSES = tuple(
 POSE_BY_ID = {pose['id']: pose for pose in POSES}
 
 PREVIEW_MOMENT = '镜头：两人并肩站立，新娘轻挽新郎的手臂，身体自然靠近，肩颈放松，两人开心地露齿笑着看向镜头，七分身构图，两人面部清晰。'
-GENERAL_AVOID = '网红脸、整容脸、幼态脸、五官欧美化、过度磨皮的塑料皮肤、皮肤暗沉、痘印和斑点、厚重结块的底妆、面部大面积油光或汗珠、生硬的贴片状发际线、面部被遮挡、多余的人物、手部或手指畸形、人物像抠图贴在背景上、杂乱的地面和背景、影楼廉价感、过度锐化、粗糙的数码噪点、HDR 感、文字和水印'
+GENERAL_AVOID = '网红脸、整容脸、幼态脸、五官欧美化、过度磨皮的塑料皮肤、皮肤暗沉、痘印和临时的色斑、厚重结块的底妆、面部大面积油光或汗珠、生硬的贴片状发际线、面部被遮挡、多余的人物、手部或手指畸形、人物像抠图贴在背景上、杂乱的地面和背景、影楼廉价感、过度锐化、粗糙的数码噪点、HDR 感、文字和水印'
 QUALITY_PARAGRAPH = (
     '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境处在同一光源下，受光方向、色温和明暗一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感：地面没有杂物，背景里没有杂乱无章的元素；'
     '两人面部清晰可辨，亮度跟随场景的光线；表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；焦外自然虚化，影调柔和、细节细腻，带有轻微的胶片颗粒感；白平衡准确，白色呈现干净的白；色彩处理统一，皮肤干净细腻、有自然的光泽。'
@@ -713,7 +713,7 @@ _BRIDE_STYLING = {
                '眼影：颜色和层次清楚，着色范围在本人原有的上眼睑内；睫毛：卷翘、根根分明；'
                '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：气色清楚、晕染均匀；唇妆：着色均匀清楚，保留原有唇形',
     'refined': '新娘化精致的影楼新娘妆。底妆：皮肤非常白皙透亮，比原照片白两个色号，肤色均匀通透；'
-               '去掉痘痘、痘印、色斑和干纹，淡化黑眼圈和细纹，底妆无瑕服帖；'
+               '去掉痘痘、痘印、色斑和干纹，淡化黑眼圈和疲态，保留与年龄相符的细纹，底妆无瑕服帖；'
                '眉妆：沿原有眉毛的生长方向，在原眉范围内细致地补足稀疏处，保留原有的疏密，眉头、眉峰、眉尾的位置和粗细不变；'
                '眼影：层次细腻、着色饱满，范围在本人原有的上眼睑内；睫毛：卷翘、分束细致、根根分明，不加长加密；'
                '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：着色充分、边缘柔和；唇妆：着色饱满、边缘完整，保留原有唇形',
@@ -734,18 +734,28 @@ _HAIR_FINISH = {
               'refined': '干净整齐，定型清楚，带有克制的光泽'},
 }
 _STYLING_AVOID = '避免：照搬原照片的头发状态、毛躁乱翘的头发、油腻扁塌的头发、头盔一样僵硬的头发、生硬的贴片状发际线、改变脸和五官、磨皮、文字和水印。'
+# What may not change about a person, in every image that has to keep them (V7.5, with Codex): the structure, not a
+# description of their looks; expressions may still move the face in shots and the face fix.
+_IDENTITY_INVARIANTS = ('保留本人固有的骨相与脸部比例、眼睛间距及眼部结构、眉毛位置与原有形态、鼻部和嘴唇结构、下颌与下巴特征，'
+                        '以及可见耳朵的位置和形态；保留可见的痣、胎记、疤痕等辨识特征和本人年龄感。'
+                        '不按模板审美美化五官，不减龄，不瘦脸，不重塑骨相，不混入其他人的特征。')
+_EXPRESSION_ALLOWANCE = '上述特征自然呈现在当前角度和表情下，允许微笑、张嘴、眯眼产生合理的形变，不要求轮廓与正面静态参考逐像素相同。'
 # What retouching and makeup may change on a face (looks; the shot in V6.x). V6.4: aegyo-sal and contour are
 # allowed as the levels word them; eyeliner, nose shadow and drawn highlights stay out.
 _RETOUCH_LIMITS = ('精修和妆容只调整肤色、皮肤的干净程度、妆色和表面质感，不改变长相：保留原本的眉形、眼型、双眼皮、鼻子和嘴唇的形状以及脸部轮廓；'
                    '不另画眼线，不拉长或上挑眼尾；不另画鼻影和高光亮条，皮肤的细微亮泽只跟随场景主光；'
                    '保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；明显的痣、胎记和疤痕是本人的特征，保留不去；'
-                   '提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，脸和脖子的肤色衔接自然，提白但不是惨白；'
+                   '提白只提高明度，不改变肤色的冷暖底调，同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，脸和脖子的肤色衔接自然，提白但不是惨白；'
                    '底妆轻薄服帖，不卡粉，没有大面积油光、浮粉和结块。')
 
 
 # Written after every hairstyle (V5.1): the photo's hair is not kept, only its length limits the hairstyle.
-# V5.2: the hair is redrawn boldly, and its outline is spelled out, since the photo's flyaways at the sides survived.
-_HAIR_RULES = ('头发部分完全重新画：形状、体积、分布和轮廓都按上面的发型来；除了发型里写明沿用的地方，可以和原照片完全不同，不保留原照片头发的样子。'
+# V5.2: the outline is spelled out, since the photo's flyaways at the sides survived. V7.5 (Codex): "may be
+# completely different" licensed changing the face too; the hair still changes, the face, ears and hairline do not,
+# and the hair never covers the eyes or the cheeks to slim the face.
+_HAIR_RULES = ('头发部分完全重新画：形状、体积、分布和轮廓都按上面的发型来，除了发型里写明沿用的地方，不保留原照片头发的样子；'
+               '改变头发不授权改变脸部、耳朵、颅骨或发际线的真实位置。'
+               '头发不遮挡眼睛，不用新增的发束覆盖两颊或下颌来制造瘦脸效果；是否露耳按发型要求，不改变可见耳朵的位置和形态。'
                '原照片里的毛躁、乱翘、碎发、扁塌、油腻、打结和发丝走向凌乱的地方都不保留；'
                '头部两侧和头顶的外轮廓是光滑整齐的线条，没有任何翘起的细碎毛发。'
                '按造型师洗吹、梳理、定型后的样子画，发丝干净顺滑，有健康的光泽。'
@@ -908,23 +918,45 @@ def compose_look_prompt(role: str, hairstyle_id: str, level: str, *, style_id: s
     # photo fixes the face, the hair follows the hairstyle. The face is kept as the edit draws it (V7.0).
     done = '化好妆、由造型师重新做好发型' if role == 'bride' else '由造型师重新做好发型、修整好皮肤'
     if facing is None:
-        opening = (f'把这张照片修成{name}婚礼当天{done}后的造型照。原照片用来确定这个人的长相：'
-                   '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与原照片一致，不要改变五官；'
-                   '头部的角度和表情保持原照片的样子。头发按下面的发型大胆地重新做，可以和原照片完全不同。')
+        opening = (f'把这张照片修成{name}婚礼当天{done}后的造型照。原照片用来确定这个人的长相：' + _IDENTITY_INVARIANTS +
+                   '发际线位置与原照片一致；头部的角度和表情保持原照片的样子。头发按下面的发型重新造型。')
     else:
         opening = (f'第一张图是要修的照片，{name}脸朝画面{_FACING_NAMES[facing]}侧；第二张图是同一个人已经做好的正面造型照。'
                    '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。第一张图用来确定这个人的长相：'
-                   '脸型、五官比例、眼型、鼻型、唇形、发际线位置和年龄感都与第一张图一致，不要改变五官；'
-                   '头部的角度和表情保持第一张图的样子。头发按第二张图的发型重新画，不照搬第一张图里的头发。')
+                   + _IDENTITY_INVARIANTS + '发际线位置与第一张图一致；头部的角度和表情保持第一张图的样子。'
+                   '头发按第二张图的发型重新画，不照搬第一张图里的头发。')
     hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES
-    if role == 'bride':
-        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style_id][0]]
-        makeup = ('妆容和精修：' + _BRIDE_STYLING[level] + '。新娘妆色：' + color.text + '新娘妆面：' + STYLE_MAKEUP_FINISH[style_id] +
-                  '妆色清楚可辨，一眼能看出是精心化过的新娘妆，但不为显示妆容而改变眼型和唇形。')
-    else:
-        makeup = '皮肤和精修：' + _GROOM_STYLING[level] + '。'
-    background = '背景和光线：背景换成干净均匀的浅灰色纯色背景；柔和均匀的正面光，脸上没有明显的阴影；衣服保持原样。'
-    return '\n\n'.join((opening, hair, makeup + _RETOUCH_LIMITS, background, _STYLING_AVOID))
+    makeup = _bride_makeup(level, style_id) if role == 'bride' else '皮肤和精修：' + _GROOM_STYLING[level] + '。' + _RETOUCH_LIMITS
+    return '\n\n'.join((opening, hair, makeup, _LOOK_BACKGROUND, _STYLING_AVOID))
+
+
+def _bride_makeup(level: str, style_id: str) -> str:
+    color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style_id][0]]
+    return ('妆容和精修：' + _BRIDE_STYLING[level] + '。新娘妆色：' + color.text + '新娘妆面：' + STYLE_MAKEUP_FINISH[style_id] +
+            '妆色清楚可辨，一眼能看出是精心化过的新娘妆，但不为显示妆容而改变眼型和唇形。' + _RETOUCH_LIMITS)
+
+
+# V7.5: the bride's front look is made in two edits, makeup first, then hair on the made-up photo, so each change is
+# smaller and a drift away from the person shows at the step that caused it. The hair step keeps the face, makeup
+# and skin as they are: the makeup and whitening are never done twice. The groom's look stays one edit.
+_LOOK_BACKGROUND = '背景和光线：背景换成干净均匀的浅灰色纯色背景；柔和均匀的正面光，脸上没有明显的阴影；衣服保持原样。'
+
+
+def compose_bride_makeup_prompt(level: str, style_id: str) -> str:
+    """First edit of a bride look (V7.5): makeup, skin and background on the uploaded photo, hair unchanged."""
+    opening = ('把这张照片修成新娘婚礼当天化好妆后的样子：这一步只化妆、修整皮肤和换背景，头发保持原照片的样子。'
+               '原照片用来确定这个人的长相：' + _IDENTITY_INVARIANTS + '头部的角度和表情保持原照片的样子。')
+    avoid = '避免：改变发型和发色、改变脸和五官、浓重的舞台妆、磨皮、文字和水印。'
+    return '\n\n'.join((opening, _bride_makeup(level, style_id), _LOOK_BACKGROUND, avoid))
+
+
+def compose_bride_hair_prompt(hairstyle_id: str, level: str) -> str:
+    """Second edit of a bride look (V7.5): only the hair, on the made-up photo of the first edit."""
+    opening = ('这张照片是新娘婚礼当天化好妆的样子。把她的头发改成下面的发型，这一步只改头发：'
+               '脸、五官、表情、头部角度、妆容、肤色、皮肤状态、背景、光线和衣服都保持这张照片的样子，不再上妆、不再提白、不再修皮肤。'
+               + _IDENTITY_INVARIANTS)
+    hair = f'发型：{HAIRSTYLE_BY_KEY[("bride", hairstyle_id)].text}；{_HAIR_FINISH["bride"][level]}。' + _HAIR_RULES
+    return '\n\n'.join((opening, hair, _STYLING_AVOID))
 
 
 # Every styled shot prompt carries one of these sentences; it tells such prompts apart from older ones.
@@ -946,8 +978,8 @@ def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[s
     # V7.3 (with Codex): the looks fix identity, hair and makeup, but not the expression; "only clothes, pose, scene
     # and light may change" kept the looks' neutral faces, and "stand tall" stiffened every pose.
     return ('图片角色：' + roles + _STYLED_MARKER + '。'
-            '造型照用于确定两人的长相、发型和妆容：保留本人的脸部基本轮廓、五官固有特征与比例、肤色、发际线和年龄感，'
-            '以及发型、发色、妆容和皮肤状态；不要额外美颜、瘦脸、磨皮或重塑五官。'
+            '造型照用于确定两人的长相、发型和妆容：' + _IDENTITY_INVARIANTS +
+            '肤色、发际线位置，以及发型、发色、妆容和皮肤状态都与造型照一致；不额外美颜或磨皮。'
             '表情、视线、头部角度、姿态和动作按「镜头」描写，不照搬造型照中的表情和视线；'
             '微笑或大笑时，允许面部出现与表情相符的自然变化，同时保持可辨认的本人特征。'
             '服装、场景和光线按本提示词表现，头发随姿态自然垂落。'
@@ -1172,12 +1204,13 @@ def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect
 FACE_FIX_PROMPT = '\n\n'.join((
     '第一张图是需要修正的婚纱照。第二张图是新娘的造型照，第三张图是新郎的造型照：两人婚礼当天化好妆、做好发型后的样子，用于确定两人的长相。',
     '请校正照片里新娘和新郎的长相，使新娘与第二张图中的本人一致，新郎与第三张图中的本人一致，同时保留第一张图的拍摄状态。',
-    '长相依据造型照：每个人本人的五官固有形态、相对比例、眉眼特征、鼻型、唇形、脸部基本轮廓和年龄感。'
-    '把这些特征自然呈现在第一张图现有的头部角度、表情和视线下，保留笑容、嘴部开合和眼睛开合状态，不转成造型照的正面姿态和表情。',
-    '妆容、肤色和发型与各自的造型照一致：新娘的妆色、妆面和提白程度，两人皮肤的干净程度和白皙程度，以及两人的发型和发色，'
-    '都和造型照相同；每个人脸、脖子和手臂的肤色衔接自然，是同一种肤色。光线只改变妆容和肤色在照片里的明暗和反光。'
-    '妆容自然贴合校正后的本人五官，唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现。',
-    '不新增美白或磨皮，不进一步瘦脸、削尖下巴或放大眼睛。',
+    '长相依据造型照：' + _IDENTITY_INVARIANTS + _EXPRESSION_ALLOWANCE +
+    '保留第一张图的笑容、嘴部开合和眼睛开合状态，不转成造型照的正面姿态和表情。',
+    # V7.5 (Codex): what is already right in the picture stays; only what differs from the look is corrected.
+    '第一张图中已经符合造型照的妆容、发型和肤色保持不动；与造型照不符的地方按造型照：新娘的妆色、妆面和提白程度，'
+    '两人的发型、发色和皮肤的白皙程度都和各自的造型照相同，每个人脸、脖子和手臂的肤色衔接自然，是同一种肤色。'
+    '只校正偏离本人的结构，以及结构校正必需的妆容位置调整：唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现；'
+    '不替换整颗头，不重新设计发型，不追加提白或重新上妆。光线只改变妆容和肤色在照片里的明暗和反光。',
     '除了两人的长相，第一张图的其余部分都保持原样：构图、两人的位置和大小、姿态、动作、手势、头部角度、表情和视线，'
     '光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，头饰、服装、场景、背景及遮挡关系。',
     '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',

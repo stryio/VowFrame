@@ -263,6 +263,11 @@ class Look(BaseModel):
     # Likeness to the uploaded photo (FaceFusion's ArcFace cosine similarity); null until measured.
     face_score: float | None
     created_at: str
+    # V7.5: the bride's made-up photo before the hair edit, and its likeness; null for one-edit looks.
+    makeup_asset_id: str | None
+    makeup_face_score: float | None
+    # 'user' when the user picked the selected look, 'auto' when it was picked as the most similar; null otherwise.
+    selected_by: Literal['user', 'auto'] | None
 
 
 class HairstyleOption(BaseModel):
