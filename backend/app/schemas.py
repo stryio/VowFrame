@@ -148,6 +148,8 @@ class SettingsPatch(InputModel):
     portrait_ratio: str | None = None
     # V7.1: replaces auto_face_swap.
     auto_face_fix: Literal['ai', 'facefusion', 'off'] | None = None
+    # V7.11: the image service, '88api' or 'pptoken'.
+    image_provider: Literal['88api', 'pptoken'] | None = None
 
     @field_validator('default_model', 'batch_reference_mode', 'portrait_ratio', 'auto_face_fix')
     @classmethod
@@ -157,12 +159,23 @@ class SettingsPatch(InputModel):
         return value
 
 
+class ImageProvider(BaseModel):
+    id: Literal['88api', 'pptoken']
+    name: str
+    available: bool
+    # Why it cannot be selected, written for the user; null when it can.
+    reason: str | None
+
+
 class Settings(BaseModel):
     default_model: str
     batch_reference_mode: Literal['prompt_only', 'with_preview']
     director_model: str | None
     portrait_ratio: Literal['3:4', '2:3', '9:16']
     auto_face_fix: Literal['ai', 'facefusion', 'off']
+    # V7.11: the image service models both services offer go to, and whether each one can be selected.
+    image_provider: Literal['88api', 'pptoken']
+    image_providers: list[ImageProvider]
 
 
 class Model(BaseModel):
@@ -171,6 +184,8 @@ class Model(BaseModel):
     family: Literal['openai', 'gemini']
     max_reference_images: int
     description: str
+    # The image services offering it (V7.11).
+    providers: list[Literal['88api', 'pptoken']]
 
 
 class Style(BaseModel):

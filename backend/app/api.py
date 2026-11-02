@@ -21,7 +21,7 @@ from .aspect import PORTRAIT_RATIOS, orientation_of, ratio_for
 from .db import BATCH_REFERENCE_MODES, new_id, utc_now
 from .face_fix import face_fix_snapshot
 from .face_swap import face_scores, face_swap_snapshot, face_swap_weight
-from .models import MODEL_REGISTRY, get_model
+from .models import PROVIDERS, get_model, provider_for, provider_models
 from .prompts import DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_bride_hair_prompt, compose_bride_makeup_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
 from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceFixCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Makeup, MakeupCreate, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
@@ -110,6 +110,13 @@ def stored_face_scores(value):
 
 def invalid_model():
     error(422, 'invalid_model', '请选择有效的生成模型')
+
+
+def _offered(request: Request, model_id: str | None) -> bool:
+    """Whether the image service Settings selects offers this model (V7.11). Only checked for a model the request
+    names: the default model always fits the selected service, and a replay keeps the model it recorded."""
+    model = get_model(model_id) if model_id else None
+    return model is not None and request.app.state.db.get_image_provider() in model.providers
 
 
 def slot_response(conn, slot, project):
@@ -411,6 +418,8 @@ def _fresh_snapshot(request: Request, model_id: str, aspect_ratio: str, looks=No
     snapshot = dict(request.app.state.config.model_config_snapshot)
     snapshot['model'] = model_id
     snapshot['aspect_ratio'] = aspect_ratio
+    # V7.11: the image service the request goes to when the task is made (base_url is always 88API's).
+    snapshot['provider'] = provider_for(get_model(model_id), request.app.state.db.get_image_provider())
     if looks is not None:
         snapshot['looks'] = look_snapshot(looks[0]['id'], looks[1]['id'])
         snapshot['reference_slots'] = reference_slots(list(side_references), with_preview)
@@ -573,6 +582,8 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         references = _parse_json_list(source['reference_image_ids'], slot_label)
         source_snapshot = _parse_snapshot(source['model_config_snapshot'], slot_label)
         effective_model = explicit_model or source_snapshot.get('model') or request.app.state.db.get_default_model()
+        if explicit_model is not None and not _offered(request, explicit_model):
+            invalid_model()
         _validate_reference_capacity(effective_model, references)
         snapshot = source['model_config_snapshot']
         if explicit_model is not None:
@@ -660,6 +671,8 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         raise ValueError(f'Unsupported slot action: {action}')
 
     model_id = explicit_model or request.app.state.db.get_default_model()
+    if explicit_model is not None and not _offered(request, explicit_model):
+        invalid_model()
     _validate_reference_capacity(model_id, references)
     return {
         'slot_id': slot_id, 'style_id': style_id, 'pose_id': pose_id,
@@ -728,7 +741,7 @@ def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label:
     """An AI face fix (V7.1) of the slot's picture: likeness from the picture's own looks (V7.4), in its own frame."""
     input_task = _face_fix_input(conn, slot, project, slot_label=slot_label, what='AI 修脸')
     model_id = explicit_model or request.app.state.db.get_default_model()
-    if get_model(model_id) is None:
+    if get_model(model_id) is None or (explicit_model is not None and not _offered(request, explicit_model)):
         invalid_model()
     references, bride_reference = face_fix_reference_ids(conn, _parse_json_list(input_task['reference_image_ids'], slot_label))
     return {
@@ -775,15 +788,26 @@ def health(request: Request):
 
 
 @router.get('/models', response_model=list[Model])
-def models():
-    return [model.__dict__ for model in MODEL_REGISTRY]
+def models(request: Request):
+    """The models of the image service Settings selects (V7.11)."""
+    return [model.__dict__ for model in provider_models(request.app.state.db.get_image_provider())]
+
+
+def _provider_problem(request: Request, provider: str) -> str | None:
+    """Why Settings cannot switch to this image service; None when it can."""
+    config = request.app.state.config
+    if provider == 'pptoken' and config.generator != 'mock' and not config.pptoken_api_key.strip():
+        return '没有配置 PPTOKEN 的密钥：在 backend/config.local.json 里填写 pptoken_api_key 后重启后端'
+    return None
 
 
 def _settings_response(request: Request) -> dict:
     db = request.app.state.db
     return {'default_model': db.get_default_model(), 'batch_reference_mode': db.get_batch_reference_mode(),
             'director_model': db.get_director_model(), 'portrait_ratio': db.get_portrait_ratio(),
-            'auto_face_fix': db.get_auto_face_fix()}
+            'auto_face_fix': db.get_auto_face_fix(), 'image_provider': db.get_image_provider(),
+            'image_providers': [{'id': provider, 'name': name, 'available': _provider_problem(request, provider) is None,
+                                 'reason': _provider_problem(request, provider)} for provider, name in PROVIDERS.items()]}
 
 
 @router.get('/settings', response_model=Settings)
@@ -794,11 +818,23 @@ def get_settings(request: Request):
 @router.patch('/settings', response_model=Settings)
 def patch_settings(body: SettingsPatch, request: Request):
     changes = body.model_dump(exclude_unset=True)
+    db = request.app.state.db
+    provider = changes.get('image_provider')
+    if provider is not None:
+        problem = _provider_problem(request, provider)
+        if problem is not None:
+            error(409, 'provider_unavailable', problem)
     model = changes.get('default_model')
+    provider_after = provider or db.get_image_provider()
+    if model is not None and (get_model(model) is None or provider_after not in get_model(model).providers):
+        invalid_model()
+    if provider is not None:
+        db.set_image_provider(provider)
+        # The default model must be one the service offers: keep it if it does, else the service's first one.
+        if model is None and provider not in get_model(db.get_default_model()).providers:
+            db.set_default_model(provider_models(provider)[0].id)
     if model is not None:
-        if get_model(model) is None:
-            invalid_model()
-        request.app.state.db.set_default_model(model)
+        db.set_default_model(model)
     mode = changes.get('batch_reference_mode')
     if mode is not None:
         if mode not in BATCH_REFERENCE_MODES:
@@ -1186,7 +1222,7 @@ def create_previews(project_id: str, body: PreviewCreate, request: Request, resp
             error(409, 'photos_missing', '请先上传两个人的照片')
         model_id = body.model if body.model is not None else request.app.state.db.get_default_model()
         model = get_model(model_id)
-        if model is None:
+        if model is None or (body.model is not None and not _offered(request, body.model)):
             invalid_model()
         style_ids = body.style_ids if body.style_ids is not None else list(DEFAULT_PREVIEW_STYLE_IDS)
         if not style_ids or len(set(style_ids)) != len(style_ids) or any(style not in STYLE_BY_ID for style in style_ids):
@@ -1353,7 +1389,7 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
             error(409, 'slot_not_ready', '样片尚未生成成功，请等待完成后再拍组')
         model_id = body.model if body.model is not None else request.app.state.db.get_default_model()
         model = get_model(model_id)
-        if model is None:
+        if model is None or (body.model is not None and not _offered(request, body.model)):
             invalid_model()
         mode = request.app.state.db.get_batch_reference_mode()
         preview_version = preview['current_version_id']

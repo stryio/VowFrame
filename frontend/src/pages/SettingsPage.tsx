@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { api, type AutoFaceFix, type BatchReferenceMode, type Health, type Model, type PortraitRatio } from "../api";
+import {
+  api,
+  type AutoFaceFix,
+  type BatchReferenceMode,
+  type Health,
+  type ImageProvider,
+  type ImageProviderId,
+  type Model,
+  type PortraitRatio,
+} from "../api";
 import { EmptyState, useToast } from "../components/feedback";
 
 const AUTO_FACE_FIX_OPTIONS: [AutoFaceFix, string][] = [
@@ -13,6 +22,8 @@ export function SettingsPage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [models, setModels] = useState<Model[] | null>(null);
   const [defaultModel, setDefaultModel] = useState("");
+  const [provider, setProvider] = useState<ImageProviderId>("88api");
+  const [providers, setProviders] = useState<ImageProvider[]>([]);
   const [referenceMode, setReferenceMode] = useState<BatchReferenceMode>("prompt_only");
   const [portraitRatio, setPortraitRatio] = useState<PortraitRatio>("3:4");
   const [autoFaceFix, setAutoFaceFix] = useState<AutoFaceFix>("ai");
@@ -27,6 +38,8 @@ export function SettingsPage() {
         setHealth(h);
         setModels(list);
         setDefaultModel(settings.default_model);
+        setProvider(settings.image_provider);
+        setProviders(settings.image_providers);
         setReferenceMode(settings.batch_reference_mode);
         setPortraitRatio(settings.portrait_ratio);
         setAutoFaceFix(settings.auto_face_fix);
@@ -47,6 +60,27 @@ export function SettingsPage() {
       toast.info("默认模型已更新，新建的任务将使用它");
     } catch (err) {
       setDefaultModel(previous);
+      toast.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // V7.11: switching the service also lists its models; the backend keeps a default model it offers.
+  const changeProvider = async (id: ImageProviderId) => {
+    setSaving(true);
+    try {
+      const saved = await api.updateSettings({ image_provider: id });
+      setProvider(saved.image_provider);
+      setModels(await api.models());
+      if (saved.default_model !== defaultModel) {
+        toast.info(`已切换到 ${providers.find((item) => item.id === id)?.name}，默认模型改为它提供的 ${saved.default_model}`);
+      } else {
+        toast.info(`已切换到 ${providers.find((item) => item.id === id)?.name}，新建的任务将发给它`);
+      }
+      setDefaultModel(saved.default_model);
+      setHealth((h) => (h ? { ...h, model: saved.default_model } : h));
+    } catch (err) {
       toast.error(err);
     } finally {
       setSaving(false);
@@ -217,6 +251,32 @@ export function SettingsPage() {
           }}
         >
           <h3>模型</h3>
+          <label className="field" style={{ maxWidth: 420 }}>
+            <span className="field-label">生图服务</span>
+            <select
+              className="input"
+              value={provider}
+              disabled={saving}
+              onChange={(e) => changeProvider(e.target.value as ImageProviderId)}
+            >
+              {providers.map((item) => (
+                <option key={item.id} value={item.id} disabled={!item.available}>
+                  {item.name}
+                  {item.available ? "" : "（未配置）"}
+                </option>
+              ))}
+            </select>
+            {providers
+              .filter((item) => !item.available && item.reason)
+              .map((item) => (
+                <span key={item.id} className="field-hint">
+                  {item.name}：{item.reason}
+                </span>
+              ))}
+            <span className="field-hint">
+              妆容、造型、样片、成片和 AI 修脸都发给这个服务；AI 导演写分镜仍用 88API。切换前已经在排队的任务，若用的模型只有另一个服务提供，仍发给那个服务。
+            </span>
+          </label>
           <label className="field" style={{ maxWidth: 420 }}>
             <span className="field-label">默认模型</span>
             <select

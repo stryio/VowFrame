@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS moment_drafts (
 BATCH_REFERENCE_MODES = ('prompt_only', 'with_preview')
 # V7.1: replaces the on/off auto_face_swap setting, which is no longer read.
 AUTO_FACE_FIX_MODES = ('ai', 'facefusion', 'off')
+IMAGE_PROVIDERS = ('88api', 'pptoken')
 DEFAULT_BATCH_REFERENCE_MODE = 'prompt_only'
 
 
@@ -414,6 +415,20 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (mode,),
             )
+
+    def get_image_provider(self) -> str:
+        """The image service models both services offer go to (V7.11); 88API until Settings changes it."""
+        with self.connect() as connection:
+            row = connection.execute("SELECT value FROM app_settings WHERE key='image_provider'").fetchone()
+        return row['value'] if row is not None and row['value'] in IMAGE_PROVIDERS else '88api'
+
+    def set_image_provider(self, provider: str):
+        if provider not in IMAGE_PROVIDERS:
+            raise ValueError('unsupported image provider')
+        with self.connect(write=True) as connection:
+            connection.execute(
+                "INSERT INTO app_settings (key,value) VALUES ('image_provider',?) "
+                'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (provider,))
 
     def get_director_model(self) -> str | None:
         with self.connect() as connection:

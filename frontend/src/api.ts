@@ -302,6 +302,18 @@ export interface Model {
   family: "openai" | "gemini";
   max_reference_images: number;
   description: string;
+  /** The image services offering it (V7.11). */
+  providers: ImageProviderId[];
+}
+
+export type ImageProviderId = "88api" | "pptoken";
+
+export interface ImageProvider {
+  id: ImageProviderId;
+  name: string;
+  available: boolean;
+  /** Why it cannot be selected, written for the user. */
+  reason: string | null;
 }
 
 export type BatchReferenceMode = "prompt_only" | "with_preview";
@@ -312,6 +324,9 @@ export interface Settings {
   director_model: string | null;
   portrait_ratio: PortraitRatio;
   auto_face_fix: AutoFaceFix;
+  /** V7.11: the image service models both services offer go to. */
+  image_provider: ImageProviderId;
+  image_providers: ImageProvider[];
 }
 
 export interface FaceSwapStatus {

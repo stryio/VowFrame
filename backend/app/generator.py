@@ -3,7 +3,7 @@
 import time
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 
 class OutcomeKind(StrEnum):
@@ -39,6 +39,26 @@ class GeneratorError(Exception):
 
 class ImageGenerator(Protocol):
     def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes: ...
+
+
+class ProviderGenerator:
+    """Sends each image request to the service its model goes to (V7.11): the one Settings selects when it offers
+    the model, else the only one that does. A service without a configured client is never sent anything."""
+
+    def __init__(self, generators: dict[str, 'ImageGenerator'], selected: Callable[[], str]):
+        self.generators = generators
+        self._selected = selected
+
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+        from .models import PROVIDERS, get_model, provider_for
+        definition = get_model(model)
+        if definition is None:
+            raise ValueError('暂不支持此模型，请使用模型列表中的模型')
+        provider = provider_for(definition, self._selected())
+        generator = self.generators.get(provider)
+        if generator is None:
+            raise GeneratorError(OutcomeKind.NOT_SENT, f'{PROVIDERS[provider]} 没有配置密钥，请在本地配置文件里填写后重启，或在设置里换回另一个服务')
+        return generator.generate_image(images, prompt, model, aspect_ratio)
 
 
 class MockGenerator:

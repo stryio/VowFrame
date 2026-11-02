@@ -71,6 +71,19 @@ cp backend/config.local.example.json backend/config.local.json
 }
 ```
 
+### 可选：PPTOKEN（V7.11）
+
+想在设置页切换到 PPTOKEN 的生图服务时，在同一个文件里再加上它的密钥，然后重启后端：
+
+```json
+  "pptoken_api_key": "sk-...",
+  "pptoken_base_url": "https://api.pptoken.cc"
+```
+
+`pptoken_base_url` 可以不写，默认就是这个地址。没有填 `pptoken_api_key` 时，设置页里的 PPTOKEN 是灰的，
+不能选。PPTOKEN 用和 88API 相同的 `/v1/images/edits` 接口和同一套尺寸；它提供 GPT Image 2 和 GPT Image 2.5，
+没有 Flare、Sunburst 和 Gemini。AI 导演写分镜仍用 88API。
+
 `backend/app/assets/` 里的 SegFace 人脸解析模型（28 MB，运行它需要 `requirements.txt` 里的
 `onnxruntime`）现在没有被调用：V6.x 用它把原照片的脸贴回造型照，V7.0 起造型照由修图直接画好发型和妆容，
 不再贴回。它暂时保留给程序美白去斑的试验，不采用就删除。SegFace 的权重只允许非商业用途

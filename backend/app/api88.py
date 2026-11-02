@@ -65,7 +65,10 @@ def retry_after_seconds(value: str | None) -> float | None:
 
 
 class Api88Generator(ImageGenerator):
-    def __init__(self, config: Config, *, transport: httpx.BaseTransport | None = None):
+    """88API, or any service with the same OpenAI-style endpoints (PPTOKEN, V7.11): provider names it in the logs."""
+
+    def __init__(self, config: Config, *, transport: httpx.BaseTransport | None = None, provider: str = '88API'):
+        self.provider = provider
         if not isinstance(config.api_key, str) or not config.api_key.strip():
             raise ValueError('使用 88API 时必须在本地配置文件中填写非空 api_key')
         if get_model(config.model) is None:
@@ -99,7 +102,7 @@ class Api88Generator(ImageGenerator):
         detail = self._error_detail(response).replace(self._config.api_key, '[REDACTED]')
         escaped_key = json.dumps(self._config.api_key)[1:-1]
         detail = detail.replace(escaped_key, '[REDACTED]')
-        logger.warning('88API HTTP %s: %s', response.status_code, detail[:2000])
+        logger.warning('%s HTTP %s: %s', self.provider, response.status_code, detail[:2000])
 
     def _redact(self, value: object) -> str:
         text = str(value)
@@ -117,7 +120,7 @@ class Api88Generator(ImageGenerator):
         }
         if url is not None:
             fields['url_host'] = urlsplit(url).hostname or ''
-        logger.warning('88API transport failure %s', ' '.join(f'{key}={value}' for key, value in fields.items()))
+        logger.warning('%s transport failure %s', self.provider, ' '.join(f'{key}={value}' for key, value in fields.items()))
 
     def _check_request_url(self, request: httpx.Request):
         # HTTPX logs request URLs, including redirect targets. Stop any echoed

@@ -366,25 +366,32 @@ ProjectSummary 加上：
 ### Model
 
 ```json
-{ "id": "gpt-image-2.5-flare", "name": "GPT Image 2.5 Flare", "family": "openai", "max_reference_images": 10, "description": "OpenAI，按张计费，参考图≤10" }
+{ "id": "gpt-image-2.5-flare", "name": "GPT Image 2.5 Flare", "family": "openai", "max_reference_images": 10, "description": "OpenAI，按张计费，参考图≤10", "providers": ["88api"] }
 ```
 
-首版内置模型（固定顺序）：
+内置模型（固定顺序）；`providers`（V7.11）是提供它的生图服务：
 
-| id | family | max_reference_images |
-|---|---|---|
-| `gpt-image-2` | openai | 4 |
-| `gpt-image-2.5-flare` | openai | 10 |
-| `gpt-image-2.5-sunburst` | openai | 10 |
-| `gemini-nano-banana-2.1` | gemini | 6 |
+| id | family | max_reference_images | providers |
+|---|---|---|---|
+| `gpt-image-2` | openai | 4 | `88api`、`pptoken` |
+| `gpt-image-2.5` | openai | 10 | `pptoken` |
+| `gpt-image-2.5-flare` | openai | 10 | `88api` |
+| `gpt-image-2.5-sunburst` | openai | 10 | `88api` |
+| `gemini-nano-banana-2.1` | gemini | 6 | `88api` |
+
+`GET /api/models` 只列出设置里选中的生图服务提供的模型。
 
 Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个任务至少需要 2 张（新娘、新郎）。
 
 ### Settings
 
 ```json
-{ "default_model": "gpt-image-2", "batch_reference_mode": "prompt_only", "director_model": "gpt-6.1-sol" | null, "portrait_ratio": "3:4", "auto_face_fix": "ai" | "facefusion" | "off" }
+{ "default_model": "gpt-image-2", "batch_reference_mode": "prompt_only", "director_model": "gpt-6.1-sol" | null, "portrait_ratio": "3:4", "auto_face_fix": "ai" | "facefusion" | "off",
+  "image_provider": "88api" | "pptoken",
+  "image_providers": [{"id": "88api", "name": "88API", "available": true, "reason": null}, {"id": "pptoken", "name": "PPTOKEN", "available": false, "reason": "没有配置 PPTOKEN 的密钥：…"}] }
 ```
+
+`image_provider`（V7.11）：生图服务，默认 `88api`。妆容、造型、样片、成片和 AI 修脸的修图请求发给它（AI 导演的文字模型仍走 88API）。请求按模型分发：选中的服务提供这个模型就发给它，否则发给唯一提供它的服务（例如切换前排队的 Sunburst 任务、重放旧任务）。`image_providers` 列出每个服务能否选择：PPTOKEN 要在 `config.local.json` 里填 `pptoken_api_key`（地址 `pptoken_base_url`，默认 `https://api.pptoken.cc`），模拟生图模式下都可选。PPTOKEN 与 88API 用同一个客户端：`/v1/images/edits`、同一套尺寸和同一套结果判断，日志里记为 `PPTOKEN`。镜头任务的模型快照记录 `provider`。
 
 `batch_reference_mode`（PRD 3.3）：
 
@@ -410,7 +417,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/health` | — | `{"ok": true, "generator": "mock" \| "88api", "model": "<当前默认模型>", "face_swap": FaceSwapStatus}` |
 | GET | `/api/models` | — | `Model[]` |
 | GET | `/api/settings` | — | `Settings` |
-| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "ai" \| "facefusion" \| "off"}` | `Settings`；模型不在列表中时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
+| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "ai" \| "facefusion" \| "off", "image_provider"?: "88api" \| "pptoken"}` | `Settings`；切换服务时默认模型不是它提供的，改为它的第一个模型；服务没有配置密钥时 409 `provider_unavailable`；模型不在列表中或不是（切换后的）服务提供的时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
 | GET | `/api/styles` | — | `Style[]`（内置风格，固定顺序，见 docs/prompts.md 第 3 节） |
 | GET | `/api/projects` | — | `ProjectSummary[]`，按 `updated_at` 倒序 |
 | POST | `/api/projects` | `{"name"?: string}` | `ProjectDetail`（201），默认名「我的婚纱照」 |

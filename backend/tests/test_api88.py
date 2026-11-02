@@ -23,7 +23,7 @@ from app.api88 import (
     SERVICE_MESSAGE, Api88Generator, retry_after_seconds,
 )
 from app.config import Config, load_config
-from app.generator import GeneratorError, MockGenerator, OutcomeKind
+from app.generator import GeneratorError, MockGenerator, OutcomeKind, ProviderGenerator
 from app.main import create_app
 from app.photo_prep import PassthroughPhotoPreparer
 from app.prompts import STYLING_VERSION
@@ -411,7 +411,10 @@ def test_local_config_and_environment_override(tmp_path, monkeypatch):
     config = load_config()
     assert (config.generator, config.api_key, config.base_url, config.model, config.timeout, config.aspect_ratio, config.resolution) == (
         '88api', TEST_KEY, 'https://provider.example', 'gemini-nano-banana-2.1', 123, '3:4', '4K')
-    assert isinstance(create_app(config).state.generator, Api88Generator)
+    generator = create_app(config).state.generator
+    # V7.11: 88API behind the service router; no PPTOKEN client without its key.
+    assert isinstance(generator, ProviderGenerator) and set(generator.generators) == {'88api'}
+    assert isinstance(generator.generators['88api'], Api88Generator)
     assert TEST_KEY not in repr(config)
 
 
@@ -488,7 +491,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                 row = conn.execute('SELECT * FROM generation_tasks WHERE batch_id=?', (batch['id'],)).fetchone()
                 assert json.loads(row['model_config_snapshot']) == {
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
-                    'aspect_ratio': '3:4', 'resolution': '2K',
+                    'aspect_ratio': '3:4', 'resolution': '2K', 'provider': '88api',
                     # V5.0: the looks the sample was shot from and what each reference image is.
                     'looks': {'version': STYLING_VERSION, 'bride': looks['bride'], 'groom': looks['groom']},
                     'reference_slots': [['bride', 'front'], ['groom', 'front']],

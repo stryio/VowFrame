@@ -3,6 +3,7 @@
 import logging
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -15,7 +16,7 @@ from .api88 import Api88Generator
 from .config import Config, load_config
 from .db import Database
 from .director import Api88Director, MockDirector
-from .generator import ImageGenerator, MockGenerator
+from .generator import ImageGenerator, MockGenerator, ProviderGenerator
 from .face_swap import FaceSwapper, create_face_swapper
 from .photo_prep import FacePhotoPreparer, PhotoPreparer
 from .task_manager import TaskManager
@@ -50,16 +51,21 @@ def create_app(config: Config | None = None, generator: ImageGenerator | None = 
                face_swapper: FaceSwapper | None = None, photo_preparer: PhotoPreparer | None = None,
                stylist: ImageGenerator | None = None) -> FastAPI:
     config = config if config is not None else load_config()
+    db = Database(config.db_path)
     if generator is None:
         if config.generator == 'mock':
             generator = MockGenerator(config.mock_delay_seconds)
         elif config.generator == '88api':
-            generator = Api88Generator(config)
+            # V7.11: PPTOKEN is reached through the same client with its own address and key, when one is filled in.
+            generators = {'88api': Api88Generator(config)}
+            if config.pptoken_api_key.strip():
+                generators['pptoken'] = Api88Generator(
+                    replace(config, base_url=config.pptoken_base_url, api_key=config.pptoken_api_key), provider='PPTOKEN')
+            generator = ProviderGenerator(generators, lambda: db.get_image_provider())
         else:
             raise ValueError('不支持此生成器，请配置 mock 或 88api')
     director = MockDirector() if config.generator == 'mock' else Api88Director(config)
     face_swapper = face_swapper or create_face_swapper(config)
-    db = Database(config.db_path)
     manager = TaskManager(config, db, generator, face_swapper, stylist)
 
     @asynccontextmanager
