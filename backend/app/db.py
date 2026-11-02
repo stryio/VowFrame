@@ -148,6 +148,10 @@ CREATE TABLE IF NOT EXISTS makeups (
 CREATE INDEX IF NOT EXISTS makeup_project ON makeups(project_id,person,style_id);
 CREATE INDEX IF NOT EXISTS makeup_queue ON makeups(status,created_at);
 CREATE INDEX IF NOT EXISTS makeup_request ON makeups(client_request_id);
+CREATE TABLE IF NOT EXISTS project_outfits (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, style_id TEXT NOT NULL, outfit_id TEXT NOT NULL,
+    PRIMARY KEY (project_id, style_id)
+);
 CREATE TABLE IF NOT EXISTS moment_drafts (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     preview_slot_id TEXT NOT NULL REFERENCES photo_slots(id), style_id TEXT NOT NULL REFERENCES style_presets(id),

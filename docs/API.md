@@ -153,6 +153,7 @@ ProjectSummary 加上：
   "photos": [Slot],
   "looks": [Look],
   "style_looks": {"korean_minimal": {"bride": "…" | null, "groom": "…" | null}, …},
+  "style_outfits": {"korean_minimal": "satin_a_line", …},
   "makeups": [Makeup],
   "default_look_items": {"bride": [LookItem], "groom": [LookItem]}
 }
@@ -160,6 +161,7 @@ ProjectSummary 加上：
 
 - `looks`（V5.0）：两人的正面造型候选（不含已删除的和侧面造型），按创建时间排列。
 - `style_looks`（V7.0，取代 `default_looks`）：每个风格生成新样片时使用的造型：新娘为这个风格选用的造型，新郎选用的造型（所有风格共用）；还没有选用时为 null。
+- `style_outfits`（V7.17）：每个在用风格的新样片穿哪套固定服饰：项目选过的，否则是这个风格的第一套。已有样片和它的成片不随选择改变。
 - `makeups`（V7.8）：新娘各个风格的妆容候选（不含已删除的），按创建时间排列。
 - `default_look_items`：按项目里两人的头发长度给出的建议发型。新郎默认勾选全部；新娘每个风格只勾第一个适合这个风格的（docs/prompts.md 第 8.1 节）。
 
@@ -431,6 +433,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | DELETE | `/api/projects/{id}/images/{person}/{angle}` | `person` = `a`/`b`，`angle` = `left`/`right` | 204；只清空侧照引用，保留图片资产 |
 | GET | `/api/assets/{id}` | — | 图片文件 |
 | GET | `/api/look-options` | — | `{"hairstyles": [{"id", "name", "role", "lengths", "updo"}], "makeup_colors": [{"id", "name", "text"}], "styles": {style_id: {"primary", "alternates", "needs_updo"}}}`（docs/prompts.md 第 8 节） |
+| PUT | `/api/projects/{id}/style-outfits/{style_id}` | `{"outfit_id": string}` | ProjectDetail；选用这个风格新样片的服饰（V7.17），风格没有这套时 422 `invalid_outfit` |
 | POST | `/api/projects/{id}/looks` | `{"client_request_id": string, "person": "a" \| "b", "style_id"?: string, "items": [LookItem]}`（1～16 项；新娘必须给 `style_id`，新郎不能给） | `Look[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；这个编号已用于别的项目、另一个人或另一个风格时 409 `request_id_reused`）；没有这个人的正面照时 409 `photos_missing`；新娘缺少或给了无效的风格、新郎给了风格、风格已停用且项目没有它的样片时 422 `invalid_style`；发型不适合当前头发长度或这个风格（要求盘发）时 422 `invalid_hairstyle`；新娘在这个风格还没有选用的妆容时 409 `makeup_required`（V7.8） |
 | POST | `/api/projects/{id}/makeups` | `{"client_request_id": string, "person": "a" \| "b", "style_id": string, "count": 1～4}` | `Makeup[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；编号已用于别的项目、另一个人或另一个风格时 409 `request_id_reused`）；`person` 不是新娘时 422 `invalid_person`；没有正面照时 409 `photos_missing`；风格无效或已停用（且项目没有它的样片）时 422 `invalid_style` |
 | POST | `/api/makeups/{id}/retry` | — | `Makeup`；只有 `failed` / `interrupted` 可以重试，否则 409 `makeup_not_retryable`；照片已更换或是旧版本时 409 `makeup_unusable` |
@@ -537,14 +540,14 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - **自动换脸**：设置 `auto_face_fix = "facefusion"`（V7.1 起不再是默认）且 FaceFusion 可用时，任何非换脸任务成功保存版本的**同一个事务**里，再插入一个换脸任务：同一批次、同一位置，`source_version_id` 为刚保存的版本，`reference_image_ids` 为该生图任务的前两张参考图（生成时用的新娘、新郎照片），其余字段同上。换脸任务本身完成后不会再触发换脸。
   - **对换脸版本的其他操作**：重新生成、加强长相、换动作、换景别以及导出时读取的「来源任务」，会沿 `source_version_id` 追溯到生成该图的生图任务，而不是换脸任务（换脸任务的 `prompt` 为空）。
 - **AI 修脸（face-fix，V7.1；V7.2 起修整张照片，docs/prompts.md 第 9 节）**：
-  - 一次编辑请求，发送 `[要修的照片, 新娘化妆图, 新郎造型照]`（V7.9：新娘用她这套造型改发型之前的化妆图，没有化妆图时用造型照；V7.4～V7.8 两人都用造型照；此前是上传的正面照），用 `face_fix` 提示词（88API，作品自己的比例，不带蒙版），结果整张保存为新版本并设为当前版本。每张照片一次付费修图。不需要 FaceFusion。
+  - 一次编辑请求，发送 `[要修的照片, 新娘造型照, 新郎造型照]`（V7.14 起；V7.9～V7.13 新娘用改发型之前的化妆图；V7.4～V7.8 两人都用造型照；此前是上传的正面照），用 `face_fix` 提示词（88API，作品自己的比例，不带蒙版），结果整张保存为新版本并设为当前版本。每张照片一次付费修图。不需要 FaceFusion。
   - 请求校验：该位置没有当前版本时 409 `slot_not_ready`；有 `waiting`/`running`/`held` 任务时 409 `slot_busy`；照片缺失时 409 `photos_missing`；局部特写 409 `no_faces`；`model` 不在列表中时 422 `invalid_model`。输入版本是当前版本，当前版本本身是换脸或 AI 修脸的结果时，改用它的来源版本。
-  - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘化妆图或正面造型照, 新郎正面造型照]`（由输入版本任务的前两张参考图得出；V4.0 以前的作品是上传照片）；`prompt` 为空字符串（提示词按 `bride_reference` 选固定的 `FACE_FIX_MAKEUP_PROMPT` 或 `FACE_FIX_PROMPT`）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "aspect_ratio": 输入版本的比例, "bride_reference": "makeup" | "look"}`（V7.9 以前的任务没有 `bride_reference`，按 `look` 处理）。
+  - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘正面造型照, 新郎正面造型照]`（由输入版本任务的前两张参考图得出；V4.0 以前的作品是上传照片）；`prompt` 为空字符串（新任务用固定的 `FACE_FIX_PROMPT`；已记录 `bride_reference = "makeup"` 的旧任务仍用 `FACE_FIX_MAKEUP_PROMPT`）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "aspect_ratio": 输入版本的比例, "bride_reference": "look"}`（V7.9～V7.13 的任务可能是 `makeup`；V7.9 以前的任务没有这个字段，按 `look` 处理）。
   - 失败处理与生成任务相同（含自动重试、`interrupted` 和余额搁置），失败不影响当前版本。
   - 验收（V7.5）：修好的版本和它的来源版本都有 `face_scores` 后，新娘或新郎任意一人比来源低 0.02 以上（或修后为 null 而来源有分数），作品的当前版本换回来源版本，修好的版本留在历史里，任务快照追加 `"kept_original": ["bride" | "groom", …]`。没有 FaceFusion 或分数不全时不判断。调度：和生成任务同一条队列，计入 `max_concurrency`；启动恢复时按生成任务处理（`running` 改为 `interrupted`，`waiting` 改为 `held`），因为修图会扣费。
   - **自动修脸**：设置 `auto_face_fix = "ai"` 时，任何生成任务成功保存版本的同一个事务里，插入一个 AI 修脸任务（同一批次、同一位置，`source_version_id` 为刚保存的版本）；`"facefusion"` 时改为插入换脸任务（需要 FaceFusion 可用，见上文）；`"split"` 时按下述分人物流程处理。细节特写、背影和剪影镜头不插入。修脸和换脸任务完成后不会再触发新一轮自动修脸。重新生成、加强长相等操作读取「来源任务」时，同样沿 `source_version_id` 越过 AI 修脸任务。
 - **分人物自动修脸（V7.13，`auto_face_fix = "split"`，默认）**：
-  - 先排一个 `face_fix` 任务，快照追加 `roles: ["bride"]`、`then: "groom_swap"`；实际只发送 `[要修的照片, 新娘化妆图或造型照]`，使用只修新娘的提示词，新郎保持原样。仍记录两人的参考图，供相似度评分使用。
+  - 先排一个 `face_fix` 任务，快照追加 `roles: ["bride"]`、`then: "groom_swap"`；实际只发送 `[要修的照片, 新娘造型照]`，使用只修新娘的提示词，新郎保持原样。仍记录两人的参考图，供相似度评分使用。
   - 保存新娘 AI 修图版本的同一个事务里，FaceFusion 可用时创建只换新郎的 `face_swap` 任务（同批次、同位置，快照 `roles: ["groom"]`），并在 AI 任务快照记录 `groom_swap_queued: true`。因此评分期间批次仍未完成，暂停、中断、重启都能识别这个后续任务。
   - 新郎任务先在换脸通道中为原图和 AI 修图评分，已测过的分数保留。验收只看新娘：相似度降低超过 0.02 或原本能识别、修后无法识别时，退回原图；AI 修图留在历史版本。然后更新新郎任务的 `source_version_id`，只在保留的图片上换新郎。评分失败不阻断换脸，保留 AI 修图；作品已切换到其他版本时取消这次自动换脸（`source_changed`）。
   - 新郎使用这张作品原本的新郎造型照和适用的侧面照，按目标转头程度选模型；样片强度 1.0，相册 0.5。只要求目标图能识别到新郎，`faces` 和成功后的 `model` 只记录新郎；两个人的分数仍照常返回。

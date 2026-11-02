@@ -141,6 +141,9 @@ export interface LookOptions {
   hairstyles: { id: string; name: string; role: Role; lengths: string[]; updo: boolean }[];
   makeup_colors: { id: string; name: string; text: string }[];
   styles: Record<string, { primary: string; alternates: string[]; needs_updo: boolean }>;
+  /** The fixed outfits (V7.17), and which of them each style offers, the default first. */
+  outfits: { id: string; name: string; bride: string; groom: string; headwear: string }[];
+  style_outfits: Record<string, string[]>;
 }
 
 export interface PhotoSet {
@@ -177,6 +180,8 @@ export interface ProjectDetail extends ProjectSummary {
   looks: Look[];
   /** Per style, the looks a new sample uses (V7.0): the bride's selected look for it and the groom's selected look. */
   style_looks: Record<string, { bride: string | null; groom: string | null }>;
+  /** Per style, the fixed outfit a new sample wears (V7.17). */
+  style_outfits: Record<string, string>;
   /** The bride's makeup candidates of every style (V7.8), oldest first. */
   makeups: Makeup[];
   /** Per role, the default candidates for the stated hair length. */
@@ -425,6 +430,8 @@ export const api = {
       }),
     ),
   lookOptions: () => request<LookOptions>("/look-options"),
+  chooseStyleOutfit: (projectId: string, styleId: string, outfitId: string) =>
+    request<ProjectDetail>(`/projects/${projectId}/style-outfits/${styleId}`, json("PUT", { outfit_id: outfitId })),
   /** styleId: the style a bride look is made for; omitted for the groom (V7.0). */
   createLooks: (projectId: string, person: "a" | "b", items: LookItem[], styleId?: string) =>
     request<Look[]>(

@@ -16,7 +16,7 @@ from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, crea
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
 from .storage import asset_path, save_image
-from .styling import (auto_select, auto_select_makeup, face_fix_reference_ids, find_side_look, task_face_swap_reference_ids,
+from .styling import (auto_select, auto_select_makeup, find_side_look, task_face_swap_reference_ids,
                       uploaded_asset_id)
 
 logger = logging.getLogger(__name__)
@@ -916,16 +916,15 @@ class TaskManager:
             )
             if follow_up in ('face_fix', 'face_fix_bride'):
                 # Same transaction as the new version, like the swap below.
-                fix_references, bride_reference = face_fix_reference_ids(conn, json.loads(task['reference_image_ids']))
                 conn.execute(
                     'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,'
                     'style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,regenerate_mode,'
                     "source_version_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,'',?,'face_fix',?,?)",
                     (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'], follow_up_status,
-                     json.dumps(fix_references),
+                     json.dumps(json.loads(task['reference_image_ids'])[:2]),
                      task['style_id'], task['pose_id'], task['moment_title'], task['moment_shot_size'],
                      face_fix_snapshot(self.db.get_default_model() or DEFAULT_MODEL,
-                                       self._snapshot(task).get('aspect_ratio') or self.config.aspect_ratio, bride_reference,
+                                       self._snapshot(task).get('aspect_ratio') or self.config.aspect_ratio,
                                        bride_only=follow_up == 'face_fix_bride'),
                      version_id, now),
                 )

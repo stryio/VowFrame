@@ -6,9 +6,10 @@ sample prompt, so an example shows what the prompt asks for. Paid: about 40 imag
 model in config.local.json, at 1K.
 
 Run from backend/:
-    .venv/bin/python scripts/make_examples.py [models|hair|styles|all]
+    .venv/bin/python scripts/make_examples.py [models|hair|styles|outfits|all] [--force] [--pptoken]
 
-Existing pictures are kept; delete one to make it again (e.g. after its hairstyle or style text changed).
+Existing pictures are kept; --force makes the style and outfit pictures again (a failed one keeps the old picture).
+--pptoken sends the requests to PPTOKEN with its gpt-image-2.5 instead.
 """
 
 from __future__ import annotations
@@ -27,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api88 import OPENAI_SIZES, Api88Generator  # noqa: E402
 from app.config import load_config  # noqa: E402
-from app.prompts import (HAIRSTYLES, RETIRED_STYLE_IDS, STYLES, STYLING_ASPECT_RATIO, UPDO_STYLES,  # noqa: E402
-                         compose_look_prompt, compose_preview_prompt)
+from app.prompts import (HAIRSTYLES, RETIRED_STYLE_IDS, STYLE_OUTFITS, STYLES, STYLING_ASPECT_RATIO, UPDO_STYLES,  # noqa: E402
+                         compose_look_prompt, compose_moment_prompt, compose_preview_prompt)
 
 BACKEND = Path(__file__).resolve().parents[1]
 MODELS = BACKEND / 'scripts' / 'example_models'
@@ -128,18 +129,49 @@ def make_hair(config, generator):
     return run(jobs)
 
 
+def hair_references(hair: str) -> list[Path]:
+    """The full-size edit when it is still here (data/ is not in git), else the shipped example."""
+    result = []
+    for name in (f'bride_{hair}', 'groom_keep'):
+        raw = RAW / 'hair' / f'{name}.jpg'
+        result.append(raw if raw.exists() else PUBLIC / 'hair' / f'{name}.webp')
+    return result
+
+
+# V7.17: a style with a choice of outfits shows each in full, so its neckline, skirt and train can be checked.
+OUTFIT_SHOT = '50mm 镜头，平视机位，全身。两人并肩站在画面中央，脚下和裙摆完整入画，放松地牵着手，开心地看向镜头。'
+
+
+def make_outfits(config, generator):
+    jobs = {}
+    for style_id, outfits in STYLE_OUTFITS.items():
+        if len(outfits) < 2:
+            continue
+        for outfit in outfits:
+            public = PUBLIC / 'outfits' / f'{outfit}.webp'
+            if public.exists() and '--force' not in sys.argv:
+                continue
+            prompt = compose_moment_prompt(style_id, OUTFIT_SHOT, '3:4', scene=1, styled=True, outfit=outfit)
+            references = hair_references(STYLE_HAIR.get(style_id, DEFAULT_STYLE_HAIR))
+
+            def job(references=references, prompt=prompt, public=public):
+                save_example(generator.generate_image(references, prompt, config.model, '3:4'), public)
+            jobs[f'outfit {outfit}'] = job
+    return run(jobs)
+
+
 def make_styles(config, generator):
     jobs = {}
     for style in STYLES:
         if style['id'] in RETIRED_STYLE_IDS:
             continue
         public = PUBLIC / 'styles' / f"{style['id']}.webp"
-        if public.exists():
+        if public.exists() and '--force' not in sys.argv:
             continue
         hair = STYLE_HAIR.get(style['id'], DEFAULT_STYLE_HAIR)
         assert style['id'] not in UPDO_STYLES or hair in STYLE_HAIR.values()
-        references = [RAW / 'hair' / f'bride_{hair}.jpg', RAW / 'hair' / 'groom_keep.jpg']
-        prompt = compose_preview_prompt(style['id'], '3:4', styled=True)
+        references = hair_references(hair)
+        prompt = compose_preview_prompt(style['id'], '3:4', styled=True, outfit=STYLE_OUTFITS[style['id']][0])
 
         def job(references=references, prompt=prompt, public=public):
             save_example(generator.generate_image(references, prompt, config.model, '3:4'), public)
@@ -148,9 +180,13 @@ def make_styles(config, generator):
 
 
 def main():
-    step = sys.argv[1] if len(sys.argv) > 1 else 'all'
+    step = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else 'all'
     config = replace(load_config(), resolution='1K')
-    generator = Api88Generator(config)
+    if '--pptoken' in sys.argv:
+        config = replace(config, base_url=config.pptoken_base_url, api_key=config.pptoken_api_key, model='gpt-image-2.5')
+        generator = Api88Generator(config, provider='PPTOKEN')
+    else:
+        generator = Api88Generator(config)
     failed = []
     if step in ('models', 'all'):
         failed += make_models(config)
@@ -158,6 +194,8 @@ def main():
         failed += make_hair(config, generator)
     if step in ('styles', 'all') and not failed:
         failed += make_styles(config, generator)
+    if step in ('outfits', 'all') and not failed:
+        failed += make_outfits(config, generator)
     print('failed:', failed or 'none')
     sys.exit(1 if failed else 0)
 

@@ -342,10 +342,25 @@ class LookDefault(BaseModel):
     hairstyle_id: str
 
 
+class OutfitOption(BaseModel):
+    id: str
+    name: str
+    bride: str
+    groom: str
+    headwear: str
+
+
 class LookOptions(BaseModel):
     hairstyles: list[HairstyleOption]
     makeup_colors: list[MakeupColorOption]
     styles: dict[str, StyleMakeup]
+    # The fixed outfits (V7.17), and which of them each style offers, the default first.
+    outfits: list[OutfitOption]
+    style_outfits: dict[str, list[str]]
+
+
+class OutfitChoice(InputModel):
+    outfit_id: str
 
 
 class PhotoSet(BaseModel):
@@ -383,6 +398,8 @@ class ProjectDetail(ProjectSummary):
     # Per style, the looks a new sample uses (V7.0): the bride's selected look for the style and the groom's
     # selected look; null where none is selected yet.
     style_looks: dict[str, dict[str, str | None]]
+    # Per style, the fixed outfit a new sample wears (V7.17).
+    style_outfits: dict[str, str]
     # The bride's makeup candidates of every style (V7.8), oldest first.
     makeups: list[Makeup]
     # Per person, the default candidates for their stated hair length.

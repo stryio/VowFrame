@@ -493,6 +493,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
                     'aspect_ratio': '3:4', 'resolution': '2K', 'provider': '88api',
                     # V5.0: the looks the sample was shot from and what each reference image is.
+                    'outfit': 'satin_a_line',
                     'looks': {'version': STYLING_VERSION, 'bride': looks['bride'], 'groom': looks['groom']},
                     'reference_slots': [['bride', 'front'], ['groom', 'front']],
                 }

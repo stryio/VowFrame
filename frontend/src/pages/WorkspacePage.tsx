@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   api,
@@ -203,7 +203,7 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
         {row("groom_makeup_level", "新郎精修", GROOM_MAKEUP_OPTIONS)}
         <span className="muted">
           头发长度请按照片里的实际长度选，它决定能做哪些发型，长度保持和照片一致。妆容档位决定造型照的化妆、提白和去瑕疵程度，越高修得越多；
-          新郎只在「精致」一档化淡妆；新娘的妆色和妆面按风格配。改了只影响之后生成的造型，已经生成的不变。
+          妆容档位也决定脸部轮廓修整；新郎只在「精致」一档化淡妆；新娘的妆色和妆面按风格配。改了只影响之后生成的造型，已经生成的不变。
         </span>
       </div>
     </div>
@@ -482,12 +482,15 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
             );
           })}
         </div>
-        <span className="muted">示例图里是虚构的模特，用来看风格的场景、服装和光线。</span>
+        <span className="muted">示例图里是虚构的模特，用来看这个风格固定的服饰、场景和光线。</span>
       </div>
       {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
 
       {chosen.map((style) => (
-        <PersonLooks key={style.id} project={project} which={bride} role="bride" options={options.data!} style={style} />
+        <Fragment key={style.id}>
+          <OutfitPicker project={project} style={style} options={options.data!} onZoom={setZoom} />
+          <PersonLooks project={project} which={bride} role="bride" options={options.data!} style={style} />
+        </Fragment>
       ))}
 
       <div className="action-bar">
@@ -500,6 +503,57 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
         </button>
       </div>
     </>
+  );
+}
+
+/** The outfit a new sample of this style wears (V7.17), for a style that offers more than one. */
+function OutfitPicker({
+  project,
+  style,
+  options,
+  onZoom,
+}: {
+  project: ProjectDetail;
+  style: Style;
+  options: LookOptions;
+  onZoom: (zoom: { src: string; caption: string }) => void;
+}) {
+  const { refresh } = useCurrentProject();
+  const toast = useToast();
+  const ids = options.style_outfits[style.id] ?? [];
+  if (ids.length < 2) return null;
+  const choose = async (outfitId: string) => {
+    try {
+      await api.chooseStyleOutfit(project.id, style.id, outfitId);
+      await refresh();
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+  return (
+    <div className="card style-picker">
+      <div className="style-picker-header">
+        <h3>{style.name}：选择服饰</h3>
+        <span className="muted">换服饰后，新生成的样片才穿新服饰；已有样片和它的成片不变</span>
+      </div>
+      <div className="example-grid style-examples">
+        {ids.map((id) => {
+          const outfit = options.outfits.find((item) => item.id === id)!;
+          const src = `/examples/outfits/${id}.webp`;
+          return (
+            <ExampleCard
+              key={id}
+              src={src}
+              label={outfit.name}
+              on={project.style_outfits[style.id] === id}
+              title={outfit.bride}
+              onToggle={() => void choose(id)}
+              onZoom={() => onZoom({ src, caption: `${outfit.name}（示例）：${outfit.bride}${outfit.groom}` })}
+            />
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

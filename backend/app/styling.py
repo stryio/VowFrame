@@ -28,7 +28,7 @@ automatic styling is retired.
 """
 
 from .face_swap import face_swap_reference_ids
-from .prompts import (FACE_SHAPING_LEVELS, HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLES, STYLING_VERSION,
+from .prompts import (FACE_SHAPING_LEVELS, HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLE_OUTFITS, STYLES, STYLING_VERSION,
                       UPDO_STYLES)
 
 # Order of face_swap_reference_ids().
@@ -171,7 +171,10 @@ def auto_select(conn, project, look):
     current = next((row for row in rows if row['selected_order'] is not None), None)
     if current is not None and current['selected_by'] != 'auto':
         return
-    scored = [row for row in rows if row['face_score'] is not None]
+    # V7.15: a groom look is one edit, so at a level that reshapes the face the score would favour the one that did
+    # the least of it, as for the bride's makeups. Her looks of a style share one makeup and differ only in the hair.
+    scored = [row for row in rows if row['face_score'] is not None
+              and not (row['role'] == 'groom' and row['makeup_level'] in FACE_SHAPING_LEVELS)]
     best = max(scored, key=lambda row: row['face_score']) if scored else (current or (rows[0] if rows else None))
     if best is not None and (current is None or best['id'] != current['id']):
         select_only(conn, best, 'auto')
@@ -242,6 +245,14 @@ def style_looks(conn, project) -> dict:
     return result
 
 
+def style_outfits(conn, project) -> dict[str, str]:
+    """Per style with outfits, the outfit a new sample wears (V7.17): the project's choice, else the style's first."""
+    chosen = {row['style_id']: row['outfit_id'] for row in conn.execute(
+        'SELECT style_id,outfit_id FROM project_outfits WHERE project_id=?', (project['id'],))}
+    return {style_id: chosen[style_id] if chosen.get(style_id) in outfits else outfits[0]
+            for style_id, outfits in STYLE_OUTFITS.items()}
+
+
 def look_snapshot(bride_look_id: str, groom_look_id: str) -> dict:
     return {'version': STYLING_VERSION, 'bride': bride_look_id, 'groom': groom_look_id}
 
@@ -293,20 +304,6 @@ def task_face_swap_reference_ids(conn, project, snapshot: dict, references: list
         else:
             result.append(upload)
     return result
-
-
-def face_fix_reference_ids(conn, references: list) -> tuple[list[str], str]:
-    """AI face-fix references and what the bride's one is ('makeup' or 'look', see face_fix_snapshot).
-
-    [bride front, groom front] of the picture itself, i.e. its looks (V7.4; the uploaded photos in V7.1–V7.3, whose
-    bare skin and old hair the edit copied). V7.9: the bride's look is replaced by its made-up photo (the step before
-    the hair edit) when it has one. Pictures from before looks have the uploads."""
-    bride, groom = references[:2]
-    row = conn.execute("SELECT makeup_asset_id FROM looks WHERE image_asset_id=? AND role='bride' AND angle='front' "
-                       'AND makeup_asset_id IS NOT NULL', (bride,)).fetchone()
-    if row is not None:
-        return [row['makeup_asset_id'], groom], 'makeup'
-    return [bride, groom], 'look'
 
 
 def uploaded_asset_id(conn, asset_id: str) -> str:

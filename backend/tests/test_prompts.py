@@ -454,7 +454,7 @@ def test_hair_looks_fuller_and_the_hairline_is_filled_only_inside_its_border_v7_
     assert '发量' not in compose_bride_makeup_prompt('natural', 'korean_minimal')
 
 
-def test_the_face_contour_follows_the_level_and_only_the_bride_makeup_allows_it():
+def test_the_face_contour_follows_the_level_for_both_people():
     # V7.10: soft tissue only at the standard level, plus a very slight jawline at the refined one; light has none.
     from app.prompts import FACE_SHAPING_LEVELS, compose_bride_makeup_prompt, compose_look_prompt
     light, natural, refined = (compose_bride_makeup_prompt(level, 'korean_minimal') for level in ('light', 'natural', 'refined'))
@@ -463,6 +463,10 @@ def test_the_face_contour_follows_the_level_and_only_the_bride_makeup_allows_it(
     assert '极轻微地收窄下颌两侧软组织的外轮廓' in refined and '不改变下巴形状、颧骨' in refined
     assert all('除本档位「脸部轮廓」部分明确允许的' in prompt for prompt in (light, natural, refined))
     assert '瘦脸' not in natural.split('不瘦脸')[-1] and 'V脸' not in refined
-    groom = compose_look_prompt('groom', 'keep', 'refined')
-    assert '脸部轮廓' not in groom and '骨骼结构与体积' in groom
+    # V7.15: the groom has the same contour at each level, without the bride's makeup.
+    groom_light, groom_natural, groom_refined = (compose_look_prompt('groom', 'keep', level) for level in ('light', 'natural', 'refined'))
+    assert '脸部轮廓：' not in groom_light
+    assert '仅当照片中清楚可见下巴下方由松弛软组织形成的堆积时' in groom_natural and '下颌两侧' not in groom_natural and '新郎不化妆' in groom_natural
+    assert '极轻微地收窄下颌两侧软组织的外轮廓' in groom_refined and '新郎化淡淡的男士妆' in groom_refined
+    assert all('除本档位「脸部轮廓」部分明确允许的' in prompt and '骨骼结构与体积' in prompt for prompt in (groom_light, groom_natural, groom_refined))
     assert FACE_SHAPING_LEVELS == {'refined'}

@@ -153,12 +153,12 @@ def test_each_style_uses_one_selected_bride_look_and_every_style_the_same_groom_
         project = create_project(client)
         first, second = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'soft_waves'}],
                                    style_id='korean_minimal')
-        bun = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='hanfu')[0]
+        bun = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='chinese_traditional')[0]
         grooms = make_looks(client, project['id'], 'b', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'textured'}])
         looks = detail(client, project['id'])['style_looks']
         # Selecting a look replaces the one its style used; other styles keep theirs.
         assert looks['korean_minimal'] == {'bride': second, 'groom': grooms[1]}
-        assert looks['hanfu'] == {'bride': bun, 'groom': grooms[1]}
+        assert looks['chinese_traditional'] == {'bride': bun, 'groom': grooms[1]}
         assert looks['french_vintage'] == {'bride': None, 'groom': grooms[1]}
         state = {look['id']: look for look in detail(client, project['id'])['looks']}
         assert [state[look_id]['selected'] for look_id in (first, second, bun)] == [False, True, True]
@@ -168,7 +168,7 @@ def test_each_style_uses_one_selected_bride_look_and_every_style_the_same_groom_
         assert detail(client, project['id'])['style_looks']['korean_minimal']['bride'] is None
         assert client.delete(f'/api/looks/{bun}').status_code == 204
         remaining = detail(client, project['id'])
-        assert bun not in [look['id'] for look in remaining['looks']] and remaining['style_looks']['hanfu']['bride'] is None
+        assert bun not in [look['id'] for look in remaining['looks']] and remaining['style_looks']['chinese_traditional']['bride'] is None
 
 
 def test_samples_use_the_styles_selected_looks(app_factory):
@@ -191,21 +191,21 @@ def test_the_chinese_styles_need_the_bride_in_an_updo(app_factory):
     with app_factory(generator=ScriptedGenerator()) as (client, _app):
         project = create_project(client)
         response = client.post(f"/api/projects/{project['id']}/looks", json={
-            'client_request_id': 'own', 'person': 'a', 'style_id': 'hanfu', 'items': [{'hairstyle_id': 'keep'}]})
+            'client_request_id': 'own', 'person': 'a', 'style_id': 'chinese_traditional', 'items': [{'hairstyle_id': 'keep'}]})
         assert response.status_code == 422 and response.json()['detail']['code'] == 'invalid_hairstyle'
         assert '需要盘发' in response.json()['detail']['message']
-        batch = preview_batch(client, project['id'], request_id='hanfu-ok', style_ids=['hanfu'])
+        batch = preview_batch(client, project['id'], request_id='chinese-ok', style_ids=['chinese_traditional'])
         wait_batch(client, batch['id'])
         prompt = batch_tasks(client, batch['id'])[0]['prompt']
-        assert '头饰：在造型照的发型上，新娘戴一顶素雅的小花冠' in prompt.split('\n\n')[2]
+        assert '头饰：新娘在后脑别一枚小型金色花叶发梳' in prompt.split('\n\n')[2]
 
 
 def test_a_bride_with_short_hair_keeps_her_own_hair_in_the_chinese_styles(app_factory):
     with app_factory(generator=ScriptedGenerator()) as (client, _app):
         project = create_project(client)
         client.patch(f"/api/projects/{project['id']}", json={'bride_hair_length': 'short'})
-        own = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='hanfu')[0]
-        assert detail(client, project['id'])['style_looks']['hanfu']['bride'] == own
+        own = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='chinese_traditional')[0]
+        assert detail(client, project['id'])['style_looks']['chinese_traditional']['bride'] == own
 
 
 def test_the_bride_look_wears_the_styles_makeup_and_the_shot_copies_it(app_factory):
@@ -551,6 +551,27 @@ def test_the_most_similar_look_is_picked_unless_the_user_picked_one(app_factory)
         with app.state.db.connect(write=True) as conn:
             auto_select(conn, conn.execute('SELECT * FROM projects WHERE id=?', (project['id'],)).fetchone(), row)
         assert state() == {first: (True, 'user'), second: (False, None)}
+
+
+def test_a_refined_groom_look_is_not_picked_by_its_score(app_factory):
+    # V7.15: the refined level narrows his jaw in the one edit, so a higher score may only mean less was done.
+    from app.styling import auto_select
+    with app_factory(generator=ScriptedGenerator()) as (client, app):
+        project = create_project(client)
+        first, second = make_looks(client, project['id'], 'b', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'keep'}], select=False)
+
+        def pick(level):
+            with app.state.db.connect(write=True) as conn:
+                conn.execute('UPDATE looks SET selected_order=NULL,selected_by=NULL,makeup_level=? WHERE id IN (?,?)', (level, first, second))
+                conn.execute("UPDATE looks SET selected_order=1,selected_by='auto' WHERE id=?", (first,))
+                conn.execute('UPDATE looks SET face_score=? WHERE id=?', (0.41, first))
+                conn.execute('UPDATE looks SET face_score=? WHERE id=?', (0.63, second))
+                row = conn.execute('SELECT * FROM looks WHERE id=?', (first,)).fetchone()
+                auto_select(conn, conn.execute('SELECT * FROM projects WHERE id=?', (project['id'],)).fetchone(), row)
+                return conn.execute('SELECT id FROM looks WHERE id IN (?,?) AND selected_order IS NOT NULL', (first, second)).fetchone()[0]
+
+        assert pick('refined') == first
+        assert pick('natural') == second
 
 
 def test_a_failed_hair_edit_is_retried_from_the_saved_made_up_photo(app_factory):
