@@ -1165,22 +1165,20 @@ def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect
                                                        makeup=makeup, hair=hair, side_references=side_references, styled=styled))
 
 
-# AI face fix (V7.1, app/face_fix.py; the whole picture since V7.2): one edit with both uploaded photos. Written
-# with Codex: each attribute is assigned to the image that decides it, the makeup follows the corrected features,
-# and nothing new (whitening, slimming) is added. The bride is told apart by her wedding dress, so nothing local
-# has to find the faces.
+# AI face fix (V7.1, app/face_fix.py; the whole picture since V7.2). V7.4: the references are the couple's looks,
+# not the uploaded photos: the edit copied the bare-faced uploads' skin tone, missing makeup and old hairstyle onto
+# the faces (a face two shades darker than the body). The looks carry the right hair, makeup and whitening, so
+# whatever the edit copies from them is right. Attribute-by-attribute wording from Codex (V7.1).
 FACE_FIX_PROMPT = '\n\n'.join((
-    '第一张图是需要修正的婚纱照。第二张图是新娘本人的原始照片，第三张图是新郎本人的原始照片，只用于确定两人的长相。',
-    '请校正照片里新娘和新郎的长相，使新娘可辨认为第二张图中的本人，新郎可辨认为第三张图中的本人，同时保留第一张图已经完成的妆容、皮肤精修和拍摄状态。',
-    '长相依据第二、三张图：每个人本人的五官固有形态、相对比例、眉眼特征、鼻型、唇形、脸部基本轮廓和年龄感。'
-    '把这些特征自然呈现在第一张图现有的头部角度、表情和视线下，保留笑容、嘴部开合和眼睛开合状态，不转成原始照片的正面姿态。',
-    '妆容和精修依据第一张图：保留新娘底妆的遮盖力和质感、眉妆的颜色与浓淡、眼影的颜色与层次、睫毛效果、腮红的颜色与晕染，'
-    '以及唇妆的颜色、饱和度和光泽。妆容自然贴合校正后的本人五官，唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现，'
-    '妆效不减淡也不加浓。新郎同样只保留第一张图已有的修饰，不额外加妆。',
-    '保留第一张图已有的肤色明度、遮瑕效果和细腻皮肤质感，不新增美白或磨皮。'
-    '原始照片中素颜的肤色、痘痘、痘印、黑眼圈、皮肤粗糙和拍摄色偏都不带入。'
-    '脸部基本轮廓按本人校正，只保留第一张图已有的轻微修饰程度，不进一步瘦脸、削尖下巴或放大眼睛。',
+    '第一张图是需要修正的婚纱照。第二张图是新娘的造型照，第三张图是新郎的造型照：两人婚礼当天化好妆、做好发型后的样子，用于确定两人的长相。',
+    '请校正照片里新娘和新郎的长相，使新娘与第二张图中的本人一致，新郎与第三张图中的本人一致，同时保留第一张图的拍摄状态。',
+    '长相依据造型照：每个人本人的五官固有形态、相对比例、眉眼特征、鼻型、唇形、脸部基本轮廓和年龄感。'
+    '把这些特征自然呈现在第一张图现有的头部角度、表情和视线下，保留笑容、嘴部开合和眼睛开合状态，不转成造型照的正面姿态和表情。',
+    '妆容、肤色和发型与各自的造型照一致：新娘的妆色、妆面和提白程度，两人皮肤的干净程度和白皙程度，以及两人的发型和发色，'
+    '都和造型照相同；每个人脸、脖子和手臂的肤色衔接自然，是同一种肤色。光线只改变妆容和肤色在照片里的明暗和反光。'
+    '妆容自然贴合校正后的本人五官，唇妆边缘随本人唇形贴合，眉妆沿本人眉形呈现。',
+    '不新增美白或磨皮，不进一步瘦脸、削尖下巴或放大眼睛。',
     '除了两人的长相，第一张图的其余部分都保持原样：构图、两人的位置和大小、姿态、动作、手势、头部角度、表情和视线，'
-    '光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，发型、发际线位置、头饰、服装、场景、背景及遮挡关系。',
+    '光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，头饰、服装、场景、背景及遮挡关系。',
     '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
 ))

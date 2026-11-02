@@ -194,9 +194,9 @@ def task_face_swap_reference_ids(conn, project, snapshot: dict, references: list
 
 
 def face_fix_reference_ids(conn, references: list) -> list[str]:
-    """AI face-fix references (V7.1): [bride's uploaded front photo, groom's], the photos behind the picture's own
-    front references; likeness comes from the uploaded photos, never from the looks."""
-    return [uploaded_asset_id(conn, asset_id) for asset_id in references[:2]]
+    """AI face-fix references: [bride front, groom front] of the picture itself, i.e. its looks (V7.4; the uploaded
+    photos in V7.1–V7.3, whose bare skin and old hair the edit copied). Pictures from before looks have the uploads."""
+    return list(references[:2])
 
 
 def uploaded_asset_id(conn, asset_id: str) -> str:

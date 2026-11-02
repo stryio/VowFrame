@@ -1,8 +1,9 @@
-"""AI face fix (V7.1; the whole picture since V7.2): make both faces in a finished picture look like the uploaded
-photos, keeping the makeup and retouching the picture already has (docs/prompts.md section 9).
+"""AI face fix (V7.1; the whole picture since V7.2): make both faces in a finished picture look like the couple,
+keeping hair, makeup and retouching (docs/prompts.md section 9).
 
 FaceFusion's swap re-renders the face from the uploaded photo, and the bare-faced photo washes the makeup out.
-Here the image model makes the likeness edit: one edit of the whole picture with both uploaded photos.
+Here the image model makes the likeness edit: one edit of the whole picture with both looks (V7.4; the uploaded
+photos before, whose bare skin and old hair the edit copied onto the faces).
 
 V7.1 edited a crop around each face and laid only the face back. The laid-back face did not belong to the head
 around it (a different expression and light inside the same outline), and looked like a pasted meme face, so the

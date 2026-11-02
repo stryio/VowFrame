@@ -483,9 +483,9 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   - **自动换脸**：设置 `auto_face_fix = "facefusion"`（V7.1 起不再是默认）且 FaceFusion 可用时，任何非换脸任务成功保存版本的**同一个事务**里，再插入一个换脸任务：同一批次、同一位置，`source_version_id` 为刚保存的版本，`reference_image_ids` 为该生图任务的前两张参考图（生成时用的新娘、新郎照片），其余字段同上。换脸任务本身完成后不会再触发换脸。
   - **对换脸版本的其他操作**：重新生成、加强长相、换动作、换景别以及导出时读取的「来源任务」，会沿 `source_version_id` 追溯到生成该图的生图任务，而不是换脸任务（换脸任务的 `prompt` 为空）。
 - **AI 修脸（face-fix，V7.1；V7.2 起修整张照片，docs/prompts.md 第 9 节）**：
-  - 一次编辑请求，发送 `[要修的照片, 新娘上传正面照, 新郎上传正面照]`，用 `face_fix` 提示词（88API，作品自己的比例，不带蒙版），结果整张保存为新版本并设为当前版本。每张照片一次付费修图。不需要 FaceFusion。
+  - 一次编辑请求，发送 `[要修的照片, 新娘造型照, 新郎造型照]`（V7.4；此前是上传的正面照），用 `face_fix` 提示词（88API，作品自己的比例，不带蒙版），结果整张保存为新版本并设为当前版本。每张照片一次付费修图。不需要 FaceFusion。
   - 请求校验：该位置没有当前版本时 409 `slot_not_ready`；有 `waiting`/`running`/`held` 任务时 409 `slot_busy`；照片缺失时 409 `photos_missing`；局部特写 409 `no_faces`；`model` 不在列表中时 422 `invalid_model`。输入版本是当前版本，当前版本本身是换脸或 AI 修脸的结果时，改用它的来源版本。
-  - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘上传正面照, 新郎上传正面照]`（输入版本的造型照背后的上传照片）；`prompt` 为空字符串（提示词是固定的 `FACE_FIX_PROMPT`）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "aspect_ratio": 输入版本的比例}`。
+  - 任务字段：`regenerate_mode = "face_fix"`；`reference_image_ids = [新娘正面造型照, 新郎正面造型照]`（输入版本任务的前两张参考图；V4.0 以前的作品是上传照片）；`prompt` 为空字符串（提示词是固定的 `FACE_FIX_PROMPT`）；`model_config_snapshot = {"generator": "face_fix", "model": 修图模型, "aspect_ratio": 输入版本的比例}`。
   - 失败处理与生成任务相同（含自动重试、`interrupted` 和余额搁置），失败不影响当前版本。调度：和生成任务同一条队列，计入 `max_concurrency`；启动恢复时按生成任务处理（`running` 改为 `interrupted`，`waiting` 改为 `held`），因为修图会扣费。
   - **自动修脸**：设置 `auto_face_fix = "ai"`（默认）时，任何生成任务成功保存版本的同一个事务里，插入一个 AI 修脸任务（同一批次、同一位置，`source_version_id` 为刚保存的版本）；`"facefusion"` 时改为插入换脸任务（需要 FaceFusion 可用，见上文）；细节特写、背影和剪影镜头不插入。修脸和换脸任务完成后不会再触发修脸。重新生成、加强长相等操作读取「来源任务」时，同样沿 `source_version_id` 越过 AI 修脸任务。
 - **数据库升级**：启动时通过 `PRAGMA table_info` 检查 `generation_tasks.regenerate_mode`。升级保留现有任务和版本数据；为使删除作品后仍能保留任务行，任务表升级时会以事务复制原有列、增加可空的 `regenerate_mode`，并解除任务目标位置的级联外键；删除后 `target_slot_id` 继续保存原位置 ID 供追溯。

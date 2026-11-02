@@ -730,7 +730,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
       label: "AI 修脸",
       onSelect: () => actions.faceFix([slot]),
       disabled: !idle(slot),
-      title: "用上传的原照把脸修得更像本人，保留妆容和精修；每张修一次，按模型计费",
+      title: "用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致；每张修一次，按模型计费",
     },
     {
       label: "换脸修正",

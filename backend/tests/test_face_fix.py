@@ -16,14 +16,15 @@ def fix_task(client, batch_id):
 
 
 def test_the_prompt_assigns_each_attribute_to_its_image_and_matches_the_docs():
-    assert FACE_FIX_PROMPT.startswith('第一张图是需要修正的婚纱照。第二张图是新娘本人的原始照片，第三张图是新郎本人的原始照片')
-    assert '长相依据第二、三张图' in FACE_FIX_PROMPT and '妆容和精修依据第一张图' in FACE_FIX_PROMPT
-    assert '不新增美白或磨皮' in FACE_FIX_PROMPT and '换脸' not in FACE_FIX_PROMPT
+    assert FACE_FIX_PROMPT.startswith('第一张图是需要修正的婚纱照。第二张图是新娘的造型照，第三张图是新郎的造型照')
+    # V7.4: hair, makeup and skin tone follow the looks, so the face matches the body.
+    assert '长相依据造型照' in FACE_FIX_PROMPT and '妆容、肤色和发型与各自的造型照一致' in FACE_FIX_PROMPT
+    assert '是同一种肤色' in FACE_FIX_PROMPT and '原始照片' not in FACE_FIX_PROMPT and '换脸' not in FACE_FIX_PROMPT
     doc = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
     assert re.search(r'### 9\.2 编辑提示词.*?```text\n(.*?)\n```', doc, re.S).group(1) == FACE_FIX_PROMPT
 
 
-def test_every_picture_gets_one_ai_face_fix_of_the_whole_picture_without_facefusion(app_factory):
+def test_every_picture_gets_one_ai_face_fix_of_the_whole_picture_with_its_looks(app_factory):
     generator = ScriptedGenerator()
     with app_factory(generator=generator, auto_face_fix='ai', concurrency=1) as (client, app):
         project = create_project(client)
@@ -32,16 +33,19 @@ def test_every_picture_gets_one_ai_face_fix_of_the_whole_picture_without_facefus
         assert client.get(f"/api/batches/{batch['id']}").json()['total'] == 2
         _shot, (images, prompt, _at) = generator.calls
         assert prompt == FACE_FIX_PROMPT and generator.aspect_ratios == ['3:4', '3:4']
-        uploads = [project['person_a']['asset_id'], project['person_b']['asset_id']]
-        # The picture, then the bride's and the groom's uploaded photos (never the looks).
-        assert [path.stem for path in images[1:]] == uploads
+        slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
+        with app.state.db.connect() as conn:
+            looks = [conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (slot['look_ids'][role],)).fetchone()[0]
+                     for role in ('bride', 'groom')]
+        # The picture, then the bride's and the groom's looks (V7.4), never the bare uploaded photos.
+        assert [path.stem for path in images[1:]] == looks
         task = fix_task(client, batch['id'])
         with app.state.db.connect() as conn:
             row = conn.execute('SELECT * FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
             source = conn.execute('SELECT asset.file_path FROM photo_versions version JOIN image_assets asset '
                                   'ON asset.id=version.image_asset_id WHERE version.id=?', (row['source_version_id'],)).fetchone()
         assert images[0].as_posix().endswith(source['file_path'])
-        assert json.loads(row['reference_image_ids']) == uploads
+        assert json.loads(row['reference_image_ids']) == looks
         assert json.loads(row['model_config_snapshot']) == {'generator': 'face_fix', 'model': 'gpt-image-2', 'aspect_ratio': '3:4'}
         slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         assert slot['current_version']['version_number'] == 2 and slot['current_version']['source_version_id']

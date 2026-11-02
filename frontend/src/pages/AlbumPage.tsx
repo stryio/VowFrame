@@ -153,7 +153,7 @@ export function AlbumPage() {
         label: "AI 修脸",
         onSelect: () => actions.faceFix([slot]),
         disabled: !idle || !hasFaces(slot),
-        title: !hasFaces(slot) ? "局部特写没有人脸，无需修脸" : "用上传的原照把脸修得更像本人，保留妆容和精修；每张修一次，按模型计费",
+        title: !hasFaces(slot) ? "局部特写没有人脸，无需修脸" : "用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致；每张修一次，按模型计费",
       },
       {
         label: "换脸修正",

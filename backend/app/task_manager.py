@@ -507,8 +507,8 @@ class TaskManager:
             self._fail(task, 'save_failed', '换脸结果保存失败，请稍后重试', hold=False)
 
     async def _execute_face_fix(self, task: dict):
-        """The AI face fix (V7.1; the whole picture since V7.2): one edit of the source version with both uploaded
-        photos, kept as it comes back as the slot's new version (docs/prompts.md section 9)."""
+        """The AI face fix (V7.1; the whole picture since V7.2): one edit of the source version with both looks (V7.4),
+        kept as it comes back as the slot's new version (docs/prompts.md section 9)."""
         snapshot = self._snapshot(task)
         model = snapshot.get('model') or self.db.get_default_model() or DEFAULT_MODEL
         try:

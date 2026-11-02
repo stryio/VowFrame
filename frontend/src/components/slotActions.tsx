@@ -82,7 +82,7 @@ export function useSlotActions(onChanged: () => Promise<void> | void) {
     if (slots.length === 0) return false;
     const ok = await confirm({
       title: slots.length === 1 ? "AI 修脸" : `AI 修脸 ${slots.length} 张`,
-      message: `用两人上传的原照把脸修得更像本人，妆容、精修、构图和光线保持不变。每张照片修一次，共 ${slots.length} 次修图，按默认模型计费；原图保留在历史版本中。`,
+      message: `用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致，构图和光线保持不变。每张照片修一次，共 ${slots.length} 次修图，按默认模型计费；原图保留在历史版本中。`,
       confirmText: "开始修脸",
     });
     if (!ok) return false;

@@ -165,7 +165,7 @@ export function SettingsPage() {
         >
           <h3>修脸（AI 修脸 / FaceFusion 换脸）</h3>
           <p className="field-hint">
-            用上传的原照修正两人的脸，构图、服装和光线不变；原图保留在历史版本中，可随时「对比原图」或恢复原图。
+            用两人的造型照修正照片里的脸，构图、服装和光线不变；原图保留在历史版本中，可随时「对比原图」或恢复原图。
           </p>
           <div className="field">
             <span className="field-label">生成后自动修脸</span>
@@ -182,7 +182,7 @@ export function SettingsPage() {
               ))}
             </div>
             <span className="field-hint">
-              每张有人脸的样片和相册照片生成后自动做一次。AI 修脸：用两人上传的原照把整张照片里的脸修得更像本人，保留妆容和精修，每张修一次，按默认模型计费；FaceFusion 换脸：本地处理、不花钱，但会把妆洗淡一些，需要配置 FaceFusion。两种都可以在照片菜单里手动点。
+              每张有人脸的样片和相册照片生成后自动做一次。AI 修脸：用两人的造型照把整张照片里的脸修得更像本人，发型、妆容和美白与造型照一致，每张修一次，按默认模型计费；FaceFusion 换脸：本地处理、不花钱，但会把妆洗淡一些，需要配置 FaceFusion。两种都可以在照片菜单里手动点。
             </span>
           </div>
           <span className="field-label">FaceFusion 换脸</span>

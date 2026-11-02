@@ -722,8 +722,7 @@ def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label
 
 
 def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label: str, explicit_model: str | None) -> dict:
-    """An AI face fix (V7.1) of the slot's picture: likeness from the uploaded photos behind it, in the picture's
-    own frame."""
+    """An AI face fix (V7.1) of the slot's picture: likeness from the picture's own looks (V7.4), in its own frame."""
     input_task = _face_fix_input(conn, slot, project, slot_label=slot_label, what='AI 修脸')
     model_id = explicit_model or request.app.state.db.get_default_model()
     if get_model(model_id) is None:
