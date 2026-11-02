@@ -226,7 +226,7 @@ ProjectSummary 加上：
 ```
 
 - 新娘在上传照上化好这个风格的妆、头发不动的样子（docs/prompts.md 第 8.2 节第一次编辑），每张一次付费编辑，图片类型 `styled`。
-- `selected` / `selected_by`：每个风格只选用一张，规则与 Look 相同（有分数后自动选最像的，用户选过的不再自动更换）。之后这个风格新做的新娘造型都在它上面改发型。
+- `selected` / `selected_by`：每个风格只选用一张，规则与 Look 相同（有分数后自动选最像的，用户选过的不再自动更换）。精致档（`makeup_level = refined`，V7.10）的妆容会轻微收窄下颌线，不按分数自动选，第一张生成好的先选用。之后这个风格新做的新娘造型都在它上面改发型。
 - `usable`、`unusable_reason`、`face_score`：含义与 Look 相同。
 - `usable`：能否用于新照片。换了这个人的正面照（`unusable_reason`「这个人的照片已经更换……」）、交换了新娘和新郎，或者是 V7.0 以前的造型（「这是旧版本的造型……」）时为 false；还没生成好时也为 false，但 `unusable_reason` 为 null。
 - `face_score`：造型与上传照片的人脸相似度（FaceFusion 的 ArcFace 余弦相似度）；换脸不可用、还没测或没检测到脸时为 null。重试生成后重新计算。

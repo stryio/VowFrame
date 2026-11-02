@@ -742,6 +742,8 @@ function MakeupPicker({
   const [viewing, setViewing] = useState<Makeup | null>(null);
   const makeups = project.makeups.filter((makeup) => makeup.person === which && makeup.style_id === style.id);
   const label = (makeup: Makeup) => `妆容 ${makeups.indexOf(makeup) + 1}`;
+  // The refined level narrows the jawline a little, so the likeness score cannot pick its best candidate (V7.10).
+  const shaping = (makeup: Makeup) => makeup.makeup_level === "refined";
 
   const generate = async (n: number) => {
     setSubmitting(true);
@@ -752,6 +754,9 @@ function MakeupPicker({
   return (
     <div className="makeup-picker">
       <h4 className="look-step-title">第一步：化妆（头发不动），挑一张最好的</h4>
+      {project.makeup_level === "refined" && (
+        <span className="muted">精致档会轻微收窄下颌线，相似度会比其他档低一些，系统不按相似度挑，请自己选最满意的一张。</span>
+      )}
       <div className="look-form-actions">
         <label className="muted">
           生成{" "}
@@ -794,9 +799,15 @@ function MakeupPicker({
                   {used && (
                     <span
                       className="status-chip selected-chip"
-                      title={makeup.selected_by === "auto" ? "相似度最高，自动选用；点别的「选用」可以换" : undefined}
+                      title={
+                        makeup.selected_by !== "auto"
+                          ? undefined
+                          : shaping(makeup)
+                            ? "精致档不按相似度挑，先用第一张生成好的；点别的「选用」可以换"
+                            : "相似度最高，自动选用；点别的「选用」可以换"
+                      }
                     >
-                      {makeup.selected_by === "auto" ? "选用中 · 最像" : "选用中"}
+                      {makeup.selected_by !== "auto" ? "选用中" : shaping(makeup) ? "选用中 · 先生成的" : "选用中 · 最像"}
                     </span>
                   )}
                 </div>

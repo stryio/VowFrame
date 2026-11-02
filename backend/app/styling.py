@@ -28,7 +28,7 @@ automatic styling is retired.
 """
 
 from .face_swap import face_swap_reference_ids
-from .prompts import (HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLES, STYLING_VERSION,
+from .prompts import (FACE_SHAPING_LEVELS, HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLES, STYLING_VERSION,
                       UPDO_STYLES)
 
 # Order of face_swap_reference_ids().
@@ -192,14 +192,17 @@ def select_makeup(conn, makeup, by: str = 'user'):
 
 def auto_select_makeup(conn, project, makeup):
     """Pick the makeup of its style unless the user picked one, as auto_select does for looks: the most similar
-    usable one by its likeness score, or the first ready one while none is scored."""
+    usable one by its likeness score, or the first ready one while none is scored.
+
+    V7.10: a level that reshapes the face a little (FACE_SHAPING_LEVELS) is never picked by score, since the score
+    would favour the candidate that did the least of it; the first ready one stays until the user picks."""
     condition, params = _makeup_group(makeup)
     rows = [row for row in conn.execute(f'SELECT * FROM makeups WHERE {condition} ORDER BY rowid', params)
             if makeup_problem(project, row) is None]
     current = next((row for row in rows if row['selected_by'] is not None), None)
     if current is not None and current['selected_by'] != 'auto':
         return
-    scored = [row for row in rows if row['face_score'] is not None]
+    scored = [row for row in rows if row['face_score'] is not None and row['makeup_level'] not in FACE_SHAPING_LEVELS]
     best = max(scored, key=lambda row: row['face_score']) if scored else (current or (rows[0] if rows else None))
     if best is not None and (current is None or best['id'] != current['id']):
         select_makeup(conn, best, 'auto')

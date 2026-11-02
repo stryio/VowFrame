@@ -169,3 +169,22 @@ def test_makeups_go_with_their_project(app_factory):
         with app.state.db.connect() as conn:
             assert conn.execute('SELECT COUNT(*) FROM makeups').fetchone()[0] == 0
             assert conn.execute('PRAGMA foreign_key_check').fetchall() == []
+
+
+def test_the_refined_level_is_not_picked_by_likeness(app_factory):
+    # V7.10: the refined level narrows the jawline a little; the score would favour the candidate that did the least.
+    from app.styling import auto_select_makeup
+    with app_factory(generator=ScriptedGenerator()) as (client, app):
+        project = create_project(client)
+        client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
+        ids = make_makeups(client, project['id'], 2)
+        chosen = next(makeup_id for makeup_id, item in makeup_state(client, project['id']).items() if item['selected'])
+        other = next(makeup_id for makeup_id in ids if makeup_id != chosen)
+        # The other one scores higher, and the first one ready still stays.
+        with app.state.db.connect(write=True) as conn:
+            conn.execute('UPDATE makeups SET face_score=? WHERE id=?', (0.41, chosen))
+            conn.execute('UPDATE makeups SET face_score=? WHERE id=?', (0.63, other))
+            row = conn.execute('SELECT * FROM makeups WHERE id=?', (other,)).fetchone()
+            auto_select_makeup(conn, conn.execute('SELECT * FROM projects WHERE id=?', (project['id'],)).fetchone(), row)
+        state = makeup_state(client, project['id'])
+        assert (state[chosen]['selected_by'], state[other]['selected']) == ('auto', False)

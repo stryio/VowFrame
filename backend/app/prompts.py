@@ -702,7 +702,7 @@ STYLING_VERSION = 4
 STYLING_ASPECT_RATIO = '3:4'
 # The bride's makeup by level, part by part (V6.4), drawn in her look for one style (V7.0). The colours come from
 # the style's colour family and the finish from its STYLE_MAKEUP_FINISH, so the levels only say how much. Aegyo-sal and contour are back at the user's request (V6.4), each limited to an effect that keeps the
-# shape; eyeliner, nose shadow, slimming and a lower hairline stay out.
+# shape; nose shadow and a lower hairline stay out (eyeliner came back in V7.6, a bounded face contour in V7.10).
 # V7.6 (with Codex): brows are groomed by a few bounded actions (comb, clear strays outside the main outline, trim
 # the odd long hair, fill gaps inside), never reshaped; "already tidy stays as it is" instead of an "if messy" clause.
 _BROW_TIDY = ('沿各部位原有生长方向梳顺乱翘眉毛，只清理原眉主体轮廓外零散的杂毛，略剪梳顺后仍明显伸出主体轮廓的个别过长毛尖，'
@@ -716,6 +716,13 @@ _LASH_KEEP = '和本人睫毛融为一体，不改变眼型和眼睛大小'
 # the style's colour family and the finish from its STYLE_MAKEUP_FINISH. V7.6 (Codex, the user found it too plain):
 # each part says how strong it is (eye shadow depth, lash definition, a clear blush, full lip colour), never by
 # reshaping; eyeliner on the lash line and false lashes are added at the user's request.
+# V7.10 (the user, wording by Codex): the standard level tidies soft tissue only (a double chin, the nasolabial
+# folds), and only where the photo shows it; the refined level also narrows the jawline's soft outline very slightly.
+# The light level does neither. Never "slimming" as a goal: that is the V3.41 lesson of a redrawn person.
+_CHIN_TIDY = ('脸部轮廓：仅当照片中清楚可见下巴下方由松弛软组织形成的堆积时，才轻柔收整该处，使下颌至颈部的过渡更自然；没有明显堆积时保持原样，不削减本人自然的脸颊丰润度，不改变年龄感；淡化鼻唇沟的阴影与折痕，保留本人自然表情和皮肤纹理')
+_JAW_NARROW = ('；可在本人原有结构基础上极轻微地收窄下颌两侧软组织的外轮廓，变化幅度小，仍清楚保持本人原有脸型和辨识度，不改变下巴形状、颧骨、脸颊软组织和整体脸部比例')
+# Levels whose makeup edit reshapes the face a little: their likeness score cannot pick the best candidate.
+FACE_SHAPING_LEVELS = frozenset({'refined'})
 _BRIDE_STYLING = {
     'light': ('新娘化清透但妆色清楚的婚礼新娘妆。底妆：皮肤比原照片白半个到一个色号，修匀轻微的泛红和暗沉，减弱痘痘和痘印，淡化黑眼圈，'
               '底妆轻薄服帖、肤色均匀；眉妆：' + _BROW_TIDY + '在原眉主体轮廓内的局部空缺轻补少量自然毛流，着色轻透，保留自然透肤感；'
@@ -725,7 +732,7 @@ _BRIDE_STYLING = {
               '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：颜色清楚、轻盈晕开，与周围肤色有自然区别；'
               '唇妆：在原唇形内均匀着色，所选唇色清楚可见，保留少量自身唇色'),
     'natural': ('新娘化妆色鲜明、完成度高的标准婚纱照新娘妆。底妆：皮肤白皙透亮，比原照片白一到两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
-                '遮盖痘痘、痘印和临时色斑，淡化黑眼圈和干纹，遮瑕充分、妆面平整服帖；眉妆：' + _BROW_TIDY +
+                '遮盖痘痘、痘印和临时色斑，淡化黑眼圈和干纹，遮瑕充分、妆面平整服帖；' + _CHIN_TIDY + '；眉妆：' + _BROW_TIDY +
                 '在原眉主体轮廓内的局部空缺轻补自然毛流，颜色与周围眉毛自然衔接，保留自然透肤感；' + _BROW_KEEP + '；'
                 '眼影：在本人原有上眼睑内充分着色，底色与加深色层次清楚，近睫毛处加深、向上细腻过渡，明暗贴合原有眼睑结构；'
                 '眼线：沿本人上睫毛根部画一条细而清晰的眼线，填满睫毛根之间的空隙，' + _LINER_KEEP + '；'
@@ -734,7 +741,8 @@ _BRIDE_STYLING = {
                 '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：显色清楚、气色鲜明，着色中心明确、边缘自然晕开；'
                 '唇妆：在原唇形内充分着色，所选色系显色鲜明、覆盖均匀，唇缘贴合本人原有边界'),
     'refined': ('新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆。底妆：皮肤非常白皙透亮，比原照片白两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
-                '充分遮盖痘痘、痘印和临时色斑，淡化黑眼圈和疲态，保留与年龄相符的细纹，妆面细腻平整、遮瑕完整服帖；眉妆：' + _BROW_TIDY +
+                '充分遮盖痘痘、痘印和临时色斑，淡化黑眼圈和疲态，保留与年龄相符的细纹，妆面细腻平整、遮瑕完整服帖；' + _CHIN_TIDY + _JAW_NARROW +
+                '；眉妆：' + _BROW_TIDY +
                 '在原眉主体轮廓内的局部空缺细致补出自然毛流，着色细腻，保留自然透肤感，不整片填实；' + _BROW_KEEP + '；'
                 '眼影：在本人原有上眼睑内饱满着色，底色、加深色和过渡色层次分明，近睫毛处加深，颜色对比鲜明、边缘细腻，明暗贴合原有眼睑结构；'
                 '眼线：沿本人上睫毛根部画一条细而清晰、线条流畅的眼线，填满睫毛根之间的空隙，' + _LINER_KEEP + '；'
@@ -771,9 +779,9 @@ _EXPRESSION_ALLOWANCE = '上述特征自然呈现在当前角度和表情下，�
 # may not change; the brow shape is the main outline (strays are not), eyeliner and false lashes stay on the roots.
 _RETOUCH_LIMITS = ('精修和妆容只按各自档位调整肤色、皮肤的干净程度、妆色的覆盖与显色、贴合本人原有结构的深浅层次和表面质感，以及明确要求的眉毛局部整理；'
                    '妆色可以清楚鲜明，五官结构与比例保持本人原样：保留原本的眉形（眉毛主体轮廓）、眉头、眉峰、眉尾的位置、主体粗细、弧度和倾斜角度，'
-                   '以及眼型、双眼皮、鼻子和嘴唇的形状及脸部轮廓；眼线只沿上睫毛根部，不外延、不上挑、不拉长眼尾，'
+                   '以及眼型、双眼皮、鼻子和嘴唇的形状；眼线只沿上睫毛根部，不外延、不上挑、不拉长眼尾，'
                    '假睫毛贴合本人睫毛根部，不改变眼型和眼睛大小，不以眼影重画眼窝；'
-                   '不另画鼻影和高光亮条，不用修容改变鼻部、颧骨、脸颊或下颌的结构与体积，皮肤的细微亮泽只跟随场景主光；'
+                   '不另画鼻影和高光亮条，不用妆色、修容或光影改变鼻部、颧骨、脸颊或下颌的骨骼结构与体积，皮肤的细微亮泽只跟随场景主光；'
                    '保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；明显的痣、胎记和疤痕是本人的特征，保留不去；'
                    '提白只提高明度，不改变肤色的冷暖底调，同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，脸和脖子的肤色衔接自然，提白但不是惨白；'
                    '底妆服帖，不卡粉，没有大面积油光、浮粉和结块。')
@@ -985,7 +993,9 @@ def _bride_makeup(level: str, style_id: str) -> str:
             '按本档位在本人原有五官结构上完成新娘妆，上传照用于确定长相，不以原照的素颜或淡妆状态限制目标妆容。'
             '眼影、眼线、睫毛、腮红和唇色都有清楚的妆效；着色强度与覆盖程度按档位，色相按所选色系，光泽与晕染位置按妆面；'
             '柔雾、润泽和小范围均不表示降低显色。低饱和色系也应有清楚的着色覆盖与深浅区别，黑白风格以相应灰阶层次表现。'
-            '仅用妆色和深浅层次增强妆感，保留眼型、唇形和五官比例。' + _RETOUCH_LIMITS)
+            '仅用妆色和深浅层次增强妆感，保留眼型、唇形和五官比例。' + _RETOUCH_LIMITS +
+            # V7.10: the shared limits protect the bone structure; only the level's contour part may go further.
+            '除本档位「脸部轮廓」部分明确允许的轻微软组织修整或外轮廓调整外，五官结构、骨相和脸部比例保持本人原样；不以妆容或光影掩盖、重画或替代这些结构。')
 
 
 # V7.5: the bride's front look is made in two edits, makeup first, then hair on the made-up photo, so each change is
