@@ -80,7 +80,9 @@ def test_full_example_matches_docs_verbatim():
 
 def test_styled_shot_prompts_copy_the_looks_hair_and_makeup_and_match_docs():
     identity = compose_preview_prompt('korean_minimal', '3:4', styled=True).split('\n\n')[1]
-    assert identity == doc_block('**V7.5 起：参考图是两人带妆的造型照')
+    assert identity == doc_block('**V7.6 起：参考图是两人带妆的造型照')
+    # V7.6: the look's makeup strength carries over; wide shots never enlarge people to show it.
+    assert '不将已有婚礼妆淡化为素颜或日常淡妆' in identity and '不为展示妆容移动机位、放大人物' in identity
     # V7.5: the structure that must not change, listed like Codex suggested, and smiles may still move the face.
     assert '保留本人固有的骨相与脸部比例' in identity and '可见耳朵的位置和形态' in identity and '不减龄' in identity
     assert is_styled(compose_preview_prompt('korean_minimal', '3:4', styled=True))
@@ -93,9 +95,9 @@ def test_styled_shot_prompts_copy_the_looks_hair_and_makeup_and_match_docs():
     # V7.3: the expression follows the shot, not the neutral look; no stiff "stand tall".
     assert '不照搬造型照中的表情和视线' in identity and '两人体态自然舒展' in identity and '挺拔' not in identity
     # The colours and finish of the style paragraph are the look's; V6.4's two sentences on visibility and light stay.
-    assert '妆色和妆面就是「服装与风格」里写的新娘妆色和新娘妆面' in identity
-    assert '但不为显示妆容而改变眼型、唇形或人物在画面里的大小' in identity and '同一套妆的质感不随场景改变' in identity
-    assert not any(term in identity for term in ('底妆：', '卧蚕', '比原照片白', '比造型照白', '比日常妆更浓', '素颜'))
+    assert '与「服装与风格」中的新娘妆色和新娘妆面一致' in identity
+    assert '不为展示妆容移动机位、放大人物或改变眼型、唇形' in identity and '场景光线只改变合理的受光明暗与反光' in identity
+    assert not any(term in identity for term in ('底妆：', '卧蚕', '比原照片白', '比造型照白', '比日常妆更浓', '眼线：'))
     for style in STYLES:
         prompt = compose_moment_prompt(style['id'], EXAMPLE_SHOT, '3:4', scene=1, styled=True)
         assert_six_paragraphs(prompt, '镜头：')
@@ -121,6 +123,7 @@ def test_styled_shot_prompts_copy_the_looks_hair_and_makeup_and_match_docs():
     assert is_styled('竖构图。\n\n' + doc_block('**V4.0～V5.2：参考图是两人带妆的造型照'))
     assert is_styled('竖构图。\n\n' + doc_block('**V7.0～V7.2：'))
     assert is_styled('竖构图。\n\n' + doc_block('**V7.3～V7.4：'))
+    assert is_styled('竖构图。\n\n' + doc_block('**V7.5：'))
     bare = doc_block('**V6.0～V6.4：参考图是只做了发型的素颜造型照')
     assert is_styled('竖构图。\n\n' + bare) and '卧蚕：微弱提亮，不改变眼睛大小' in bare
 
@@ -165,7 +168,9 @@ def test_look_prompts_cover_every_hairstyle_level_and_style_and_match_docs():
             assert '头发部分完全重新画' in paragraphs[1] and '没有任何翘起的细碎毛发' in paragraphs[1]
             # V7.0: the look wears the makeup and retouching of the level, with the V6.4 limits.
             makeup = paragraphs[2]
-            assert '不另画眼线' in makeup and '不另画鼻影和高光亮条' in makeup and '脸和脖子的肤色衔接自然' in makeup
+            # V7.6: eyeliner only on the lash line, false lashes on the own lash roots; still no nose shadow.
+            assert '眼线只沿上睫毛根部，不外延、不上挑、不拉长眼尾' in makeup and '不另画鼻影和高光亮条' in makeup
+            assert '脸和脖子的肤色衔接自然' in makeup
             assert '比原照片白' in makeup and '比造型照白' not in makeup and '化妆' not in paragraphs[4]
             assert paragraphs[3].startswith('背景和光线：背景换成干净均匀的浅灰色纯色背景；柔和均匀的正面光')
             if hairstyle.role == 'bride':
@@ -174,11 +179,16 @@ def test_look_prompts_cover_every_hairstyle_level_and_style_and_match_docs():
                     assert part in makeup
                 assert '卧蚕：微弱提亮，不改变眼睛大小' in makeup and '修容：极轻微的光影修饰，不重塑骨骼' in makeup
                 assert '比日常妆更浓' not in makeup and '不画卧蚕' not in makeup
-                assert '眉头、眉峰、眉尾的位置和粗细不变' in makeup or level == 'light'
+                # V7.6: brows are groomed by bounded actions, never reshaped; makeup strength is written per part.
+                assert '只清理原眉主体轮廓外零散的杂毛' in makeup and '已整齐处保持原样' in makeup
+                assert '眉头、眉峰、眉尾的位置及主体粗细、弧度和倾斜角度不变' in makeup
+                for part in ('眼线：沿本人上睫毛根部', '假睫毛：在本人上睫毛根部', '不改变眼型和眼睛大小'):
+                    assert part in makeup
+                assert '不以原照的素颜或淡妆状态限制目标妆容' in makeup and '修眉' not in makeup and '标准眉' not in makeup
                 # The level's text is the docs' level table (section 8.5).
                 assert '`' + makeup.removeprefix('妆容和精修：').split('。新娘妆色：')[0] + '`' in DOC
             else:
-                assert '新娘妆色' not in makeup and '眉毛只修掉原眉轮廓以外零散的杂毛' in makeup
+                assert '新娘妆色' not in makeup and '只清理原眉主体轮廓外零散的杂毛' in makeup and '不补画、不加浓' in makeup
                 assert '`' + makeup.removeprefix('皮肤和精修：').split('。精修和妆容')[0] + '`' in DOC
     for style in STYLES:
         color = MAKEUP_COLORS[[item.id for item in MAKEUP_COLORS].index(STYLE_MAKEUP_COLORS[style['id']][0])]

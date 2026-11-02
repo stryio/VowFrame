@@ -110,7 +110,7 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         assert len(makeup_calls) == 2 and len(hair_calls) == 2
         assert all(call[0][0].stem == project['person_a']['asset_id'] for call in makeup_calls)
         makeup = makeup_calls[0][1]
-        assert '新娘化精致的影楼新娘妆' in makeup and '新娘妆色：眼影用奶咖棕和米杏色' in makeup and '新娘妆面：底妆是清透柔光的质感' in makeup
+        assert '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' in makeup and '新娘妆色：眼影用奶咖棕和米杏色' in makeup and '新娘妆面：底妆是清透柔光的质感' in makeup
         assert '发型：' not in makeup
         hair = next(call[1] for call in hair_calls if '发型：赫本高盘发，' in call[1])
         assert '不再上妆、不再提白' in hair and '新娘妆色' not in hair
@@ -213,9 +213,9 @@ def test_the_bride_look_wears_the_styles_makeup_and_the_shot_copies_it(app_facto
         batch = preview_batch(client, project['id'], request_id='makeup', style_ids=['chinese_traditional'])
         wait_batch(client, batch['id'])
         look = next(call[1] for call in app.state.stylist.calls if '新娘婚礼当天化好妆' in call[1])
-        assert '新娘化精致的影楼新娘妆' in look and '新娘妆色：眼影用暖棕、赤茶和浅金色' in look
+        assert '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' in look and '新娘妆色：眼影用暖棕、赤茶和浅金色' in look
         paragraphs = batch_tasks(client, batch['id'])[0]['prompt'].split('\n\n')
-        assert '造型照就是两人婚礼当天化好妆、做好发型后的样子' in paragraphs[1] and '新娘化精致的影楼新娘妆' not in paragraphs[1]
+        assert '造型照就是两人婚礼当天化好妆、做好发型后的样子' in paragraphs[1] and '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' not in paragraphs[1]
         assert '新娘妆色：眼影用暖棕、赤茶和浅金色，腮红用暖粉和杏红色，唇色是正红或朱砂红。' in paragraphs[2]
 
 
