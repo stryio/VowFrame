@@ -11,7 +11,7 @@ def detail(client, project_id):
     return client.get(f'/api/projects/{project_id}').json()
 
 
-def make_makeups(client, project_id, count, *, style_id='korean_minimal', request_id=None):
+def make_makeups(client, project_id, count, *, style_id='dark_studio', request_id=None):
     response = client.post(f'/api/projects/{project_id}/makeups', json={
         'client_request_id': request_id or f'makeup-{style_id}-{count}', 'person': 'a', 'style_id': style_id, 'count': count})
     assert response.status_code == 201, response.text
@@ -25,7 +25,7 @@ def makeup_state(client, project_id):
     return {item['id']: item for item in detail(client, project_id)['makeups']}
 
 
-def make_bride_looks(client, project_id, hairstyles, *, style_id='korean_minimal', request_id='hair'):
+def make_bride_looks(client, project_id, hairstyles, *, style_id='dark_studio', request_id='hair'):
     response = client.post(f'/api/projects/{project_id}/looks', json={
         'client_request_id': request_id, 'person': 'a', 'style_id': style_id,
         'items': [{'hairstyle_id': hairstyle} for hairstyle in hairstyles]})
@@ -40,26 +40,27 @@ def test_makeup_candidates_are_one_makeup_edit_each_of_the_uploaded_photo(app_fa
     with app_factory(generator=ScriptedGenerator()) as (client, app):
         project = create_project(client)
         url = f"/api/projects/{project['id']}/makeups"
-        bad = (({'person': 'b', 'style_id': 'korean_minimal', 'count': 1}, 422, 'invalid_person'),  # the groom
+        bad = (({'person': 'b', 'style_id': 'dark_studio', 'count': 1}, 422, 'invalid_style'),  # the groom's: no style
+               ({'person': 'a', 'count': 1}, 422, 'invalid_style'),                                  # the bride's: one
                ({'person': 'a', 'style_id': 'nowhere', 'count': 1}, 422, 'invalid_style'),
                ({'person': 'a', 'style_id': 'black_white', 'count': 1}, 422, 'invalid_style'))     # retired
         for body, status, code in bad:
             response = client.post(url, json={'client_request_id': code + str(body), **body})
             assert response.status_code == status and response.json()['detail']['code'] == code, response.text
-        assert client.post(url, json={'client_request_id': 'many', 'person': 'a', 'style_id': 'korean_minimal', 'count': 5}).status_code == 422
+        assert client.post(url, json={'client_request_id': 'many', 'person': 'a', 'style_id': 'dark_studio', 'count': 5}).status_code == 422
         ids = make_makeups(client, project['id'], 3)
         calls = app.state.stylist.calls
         assert len(calls) == 3 and all(len(images) == 1 and images[0].stem == project['person_a']['asset_id'] for images, _p, _a in calls)
         assert all('这一步只化妆、修整皮肤和换背景' in prompt and '发型：' not in prompt for _i, prompt, _a in calls)
-        assert '新娘妆色：眼影用奶咖棕和米杏色' in calls[0][1]
+        assert '新娘妆色：眼影用玫瑰棕和灰紫棕' in calls[0][1]
         state = makeup_state(client, project['id'])
         assert [state[makeup_id]['status'] for makeup_id in ids] == ['ready'] * 3
-        assert {state[makeup_id]['makeup_color'] for makeup_id in ids} == {'milk_tea'}
+        assert {state[makeup_id]['makeup_color'] for makeup_id in ids} == {'berry'}
         # Without scores the first one ready is selected for the style.
         assert sorted((state[makeup_id]['selected'], state[makeup_id]['selected_by']) for makeup_id in ids) == [
             (False, None), (False, None), (True, 'auto')]
         # A repeated request creates them once.
-        again = client.post(url, json={'client_request_id': 'makeup-korean_minimal-3', 'person': 'a', 'style_id': 'korean_minimal', 'count': 3})
+        again = client.post(url, json={'client_request_id': 'makeup-dark_studio-3', 'person': 'a', 'style_id': 'dark_studio', 'count': 3})
         assert again.status_code == 200 and [item['id'] for item in again.json()] == ids and len(calls) == 3
 
 
@@ -68,7 +69,7 @@ def test_bride_looks_are_hair_edits_of_the_selected_makeup(app_factory):
         project = create_project(client)
         # No makeup selected for the style yet: no hair.
         response = client.post(f"/api/projects/{project['id']}/looks", json={
-            'client_request_id': 'early', 'person': 'a', 'style_id': 'korean_minimal', 'items': [{'hairstyle_id': 'keep'}]})
+            'client_request_id': 'early', 'person': 'a', 'style_id': 'dark_studio', 'items': [{'hairstyle_id': 'keep'}]})
         assert response.status_code == 409 and response.json()['detail']['code'] == 'makeup_required'
         first, second = make_makeups(client, project['id'], 2)
         assert client.post(f'/api/makeups/{second}/select').status_code == 200
@@ -84,10 +85,10 @@ def test_bride_looks_are_hair_edits_of_the_selected_makeup(app_factory):
         assert {images[0].stem for images, _p, _a in hair_calls} == {made_up}
         looks = {look['id']: look for look in detail(client, project['id'])['looks']}
         assert {(looks[look_id]['makeup_id'], looks[look_id]['makeup_asset_id']) for look_id in ids} == {(second, made_up)}
-        assert all(looks[look_id]['status'] == 'ready' and looks[look_id]['makeup_color'] == 'milk_tea' for look_id in ids)
+        assert all(looks[look_id]['status'] == 'ready' and looks[look_id]['makeup_color'] == 'berry' for look_id in ids)
         # Another style needs its own makeup.
         response = client.post(f"/api/projects/{project['id']}/looks", json={
-            'client_request_id': 'other', 'person': 'a', 'style_id': 'french_vintage', 'items': [{'hairstyle_id': 'keep'}]})
+            'client_request_id': 'other', 'person': 'a', 'style_id': 'lakeside', 'items': [{'hairstyle_id': 'keep'}]})
         assert response.status_code == 409 and response.json()['detail']['code'] == 'makeup_required'
         # Picking another makeup changes only the looks made from now on.
         assert client.post(f'/api/makeups/{first}/select').status_code == 200
@@ -188,3 +189,140 @@ def test_the_refined_level_is_not_picked_by_likeness(app_factory):
             auto_select_makeup(conn, conn.execute('SELECT * FROM projects WHERE id=?', (project['id'],)).fetchone(), row)
         state = makeup_state(client, project['id'])
         assert (state[chosen]['selected_by'], state[other]['selected']) == ('auto', False)
+
+
+def test_another_style_reuses_a_makeup_and_its_looks_without_new_edits(app_factory):
+    """V7.21: a ready makeup of one style can be used by another, with the looks made on it, and no image is made
+    again; the shots of the other style describe the makeup the pictures show, not their own style's."""
+    from app.prompts import MAKEUP_COLOR_BY_ID, STYLE_MAKEUP_FINISH
+    from conftest import preview_batch, wait_batch
+    from test_styling import batch_tasks
+    with app_factory(generator=ScriptedGenerator()) as (client, app):
+        project = create_project(client)
+        makeup_id = make_makeups(client, project['id'], 1)[0]
+        keep, bun = make_bride_looks(client, project['id'], ['keep', 'low_bun'])
+        with app.state.db.connect(write=True) as conn:
+            # A side look of the bun, as a shot that needed it would have made.
+            row = conn.execute('SELECT * FROM looks WHERE id=?', (bun,)).fetchone()
+            conn.execute("INSERT INTO looks (id,project_id,person,role,style_id,angle,parent_look_id,hairstyle_id,hair_length,"
+                         "makeup_color,makeup_level,source_asset_id,styling_version,status,prompt,image_asset_id,created_at) "
+                         "VALUES ('side',?,?,?,?,'left',?,?,?,?,?,?,?,'ready','p',?,?)",
+                         (row['project_id'], row['person'], row['role'], row['style_id'], bun, row['hairstyle_id'], row['hair_length'],
+                          row['makeup_color'], row['makeup_level'], row['source_asset_id'], row['styling_version'],
+                          row['image_asset_id'], row['created_at']))
+        calls = len(app.state.stylist.calls)
+        state = makeup_state(client, project['id'])
+        response = client.post(f'/api/makeups/{makeup_id}/reuse', json={'style_id': 'lakeside'})
+        assert response.status_code == 200, response.text
+        reused = response.json()
+        assert reused['id'] != makeup_id and reused['style_id'] == 'lakeside' and reused['selected_by'] == 'user'
+        assert (reused['asset_id'], reused['makeup_color'], reused['makeup_style_id']) == (
+            state[makeup_id]['asset_id'], 'berry', 'dark_studio')
+        # The original stays the selected makeup of its own style.
+        assert makeup_state(client, project['id'])[makeup_id]['selected']
+        looks = detail(client, project['id'])['looks']
+        source = {look['id']: look for look in looks}
+        copies = [look for look in looks if look['style_id'] == 'lakeside']
+        assert sorted(look['hairstyle_id'] for look in copies) == ['keep', 'low_bun']
+        assert all(look['makeup_id'] == reused['id'] and look['makeup_style_id'] == 'dark_studio' and look['usable']
+                   for look in copies)
+        assert {look['asset_id'] for look in copies} == {source[keep]['asset_id'], source[bun]['asset_id']}
+        assert detail(client, project['id'])['style_looks']['lakeside']['bride'] in {look['id'] for look in copies}
+        with app.state.db.connect() as conn:
+            bun_copy = next(look['id'] for look in copies if look['hairstyle_id'] == 'low_bun')
+            side = conn.execute("SELECT * FROM looks WHERE parent_look_id=? AND angle='left'", (bun_copy,)).fetchone()
+            assert side['image_asset_id'] == row['image_asset_id'] and side['style_id'] == 'lakeside'
+        # Reusing it again adds nothing; an updo style takes only the updo.
+        assert client.post(f'/api/makeups/{makeup_id}/reuse', json={'style_id': 'lakeside'}).json()['id'] == reused['id']
+        assert client.post(f'/api/makeups/{reused["id"]}/reuse', json={'style_id': 'chinese_traditional'}).status_code == 200
+        looks = detail(client, project['id'])['looks']
+        assert sum(look['style_id'] == 'lakeside' for look in looks) == 2
+        assert [look['hairstyle_id'] for look in looks if look['style_id'] == 'chinese_traditional'] == ['low_bun']
+        assert len(app.state.stylist.calls) == calls
+        # The sample of the reusing style describes the makeup of the look it is shot from.
+        batch = preview_batch(client, project['id'], request_id='reused', style_ids=['lakeside'])
+        wait_batch(client, batch['id'])
+        paragraph = batch_tasks(client, batch['id'])[0]['prompt'].split('\n\n')[2]
+        assert MAKEUP_COLOR_BY_ID['berry'].text in paragraph and STYLE_MAKEUP_FINISH['dark_studio'] in paragraph
+        assert MAKEUP_COLOR_BY_ID['rose_bean'].text not in paragraph
+        # A new hairstyle on the reused makeup is a hair edit of its image and wears its makeup too.
+        later = make_bride_looks(client, project['id'], ['soft_waves'], style_id='lakeside', request_id='later')[0]
+        look = next(look for look in detail(client, project['id'])['looks'] if look['id'] == later)
+        assert (look['makeup_id'], look['makeup_asset_id'], look['makeup_style_id']) == (reused['id'], reused['asset_id'], 'dark_studio')
+
+
+def test_only_a_usable_makeup_can_be_reused(app_factory):
+    with app_factory(generator=ScriptedGenerator()) as (client, app):
+        project = create_project(client)
+        makeup_id = make_makeups(client, project['id'], 1)[0]
+        for body, status, code in (({'style_id': 'nowhere'}, 422, 'invalid_style'), ({'style_id': 'black_white'}, 422, 'invalid_style')):
+            response = client.post(f'/api/makeups/{makeup_id}/reuse', json=body)
+            assert response.status_code == status and response.json()['detail']['code'] == code, response.text
+        with app.state.db.connect(write=True) as conn:
+            conn.execute("UPDATE makeups SET status='failed' WHERE id=?", (makeup_id,))
+        response = client.post(f'/api/makeups/{makeup_id}/reuse', json={'style_id': 'lakeside'})
+        assert response.status_code == 409 and response.json()['detail']['code'] == 'makeup_unusable'
+
+
+def test_the_groom_is_retouched_first_and_his_hairstyles_are_hair_edits_of_it(app_factory):
+    """V7.22: the groom's look is two edits too: a retouched photo (hair unchanged, one for every style), then only
+    the hair on the selected one."""
+    from app.prompts import compose_groom_hair_prompt, compose_groom_retouch_prompt
+    with app_factory(generator=ScriptedGenerator()) as (client, app):
+        project = create_project(client)
+        url = f"/api/projects/{project['id']}/looks"
+        # No retouched photo selected yet: no hair.
+        response = client.post(url, json={'client_request_id': 'early', 'person': 'b', 'items': [{'hairstyle_id': 'keep'}]})
+        assert response.status_code == 409 and response.json()['detail']['code'] == 'makeup_required'
+        response = client.post(f"/api/projects/{project['id']}/makeups", json={'client_request_id': 'groom', 'person': 'b', 'count': 2})
+        assert response.status_code == 201, response.text
+        ids = [item['id'] for item in response.json()]
+        wait_until(lambda: makeup_state(client, project['id']), lambda state: all(state[i]['status'] == 'ready' for i in ids))
+        state = makeup_state(client, project['id'])
+        assert all((state[i]['role'], state[i]['style_id'], state[i]['makeup_color']) == ('groom', None, None) for i in ids)
+        calls = app.state.stylist.calls
+        assert [prompt for _i, prompt, _a in calls] == [compose_groom_retouch_prompt('natural')] * 2
+        assert all(images[0].stem == project['person_b']['asset_id'] for images, _p, _a in calls)
+        assert '头发保持原照片的样子' in calls[0][1] and '发型：' not in calls[0][1]
+        selected = next(i for i in ids if state[i]['selected'])
+        before = len(calls)
+        response = client.post(url, json={'client_request_id': 'hair', 'person': 'b',
+                                          'items': [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'side_part'}]})
+        assert response.status_code == 201, response.text
+        look_ids = [look['id'] for look in response.json()]
+        wait_until(lambda: detail(client, project['id'])['looks'],
+                   lambda looks: all(look['status'] == 'ready' for look in looks if look['id'] in look_ids))
+        hair_calls = calls[before:]
+        # One hair edit per look on the selected retouched photo; the retouching is not done again.
+        assert sorted(prompt for _i, prompt, _a in hair_calls) == sorted(
+            compose_groom_hair_prompt(hairstyle, 'natural') for hairstyle in ('keep', 'side_part'))
+        assert {images[0].stem for images, _p, _a in hair_calls} == {state[selected]['asset_id']}
+        looks = {look['id']: look for look in detail(client, project['id'])['looks']}
+        assert all((looks[i]['makeup_id'], looks[i]['makeup_asset_id'], looks[i]['style_id']) == (selected, state[selected]['asset_id'], None)
+                   for i in look_ids)
+        # One look serves every style, and the groom's retouched photo cannot be "reused" for a style.
+        assert client.post(f'/api/makeups/{selected}/reuse', json={'style_id': 'lakeside'}).json()['detail']['code'] == 'invalid_person'
+
+
+def test_a_refined_groom_look_on_a_retouched_photo_is_picked_by_its_score(app_factory):
+    """V7.15 kept the score from picking a refined groom look, since each was one edit that also narrowed the jaw;
+    since V7.22 his looks share one retouched photo and differ only in the hair, as the bride's do."""
+    from app.styling import auto_select
+    with app_factory(generator=ScriptedGenerator()) as (client, app):
+        project = create_project(client)
+        client.patch(f"/api/projects/{project['id']}", json={'groom_makeup_level': 'refined'})
+        response = client.post(f"/api/projects/{project['id']}/makeups", json={'client_request_id': 'groom', 'person': 'b', 'count': 1})
+        makeup_id = response.json()[0]['id']
+        wait_until(lambda: makeup_state(client, project['id']), lambda state: state[makeup_id]['status'] == 'ready')
+        response = client.post(f"/api/projects/{project['id']}/looks", json={
+            'client_request_id': 'hair', 'person': 'b', 'items': [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'side_part'}]})
+        first, second = [look['id'] for look in response.json()]
+        wait_until(lambda: detail(client, project['id'])['looks'],
+                   lambda looks: all(look['status'] == 'ready' for look in looks if look['id'] in (first, second)))
+        with app.state.db.connect(write=True) as conn:
+            conn.execute('UPDATE looks SET face_score=0.4 WHERE id=?', (first,))
+            conn.execute('UPDATE looks SET face_score=0.7 WHERE id=?', (second,))
+            row = conn.execute('SELECT * FROM looks WHERE id=?', (first,)).fetchone()
+            auto_select(conn, conn.execute('SELECT * FROM projects WHERE id=?', (project['id'],)).fetchone(), row)
+        looks = {look['id']: look for look in detail(client, project['id'])['looks']}
+        assert (looks[second]['selected'], looks[second]['selected_by']) == (True, 'auto')

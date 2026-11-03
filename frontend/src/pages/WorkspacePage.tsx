@@ -7,7 +7,7 @@ import {
   isFaceSwapped,
   isGenerating,
   type BrideHairLength, type Facing, type GroomHairLength, type Look, type LookItem, type LookOptions,
-  type Makeup, type MakeupLevel, type OutfitLook, type Person,
+  type Makeup, type MakeupLevel, type Person,
   type ProjectDetail,
   type Role,
   type Slot,
@@ -449,8 +449,8 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
     <>
       <div className="page-header">
         <p className="muted">
-          在这里选好风格、服饰和妆发，下一步试拍时会一起穿上服饰，完成场景、光线和构图，不必先单独生成服饰定妆照。
-          新娘每个风格先选妆容，再在选用的妆容上做发型；新郎做一套妆发，所有风格共用。每张妆容、每张造型各是一次付费修图。
+          在这里选好风格、服饰和妆发，下一步试拍时会一起穿上服饰，完成场景、光线和构图。
+          新娘每个风格先选妆容，再在选用的妆容上做发型；新郎先选一张修脸照，再在它上面做发型，所有风格共用。每张妆容、修脸照、造型各是一次付费修图。
           系统会自动选用候选，也可以手动更换；相似度越接近 1 越像本人。
         </p>
       </div>
@@ -490,7 +490,6 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
         <Fragment key={style.id}>
           <OutfitPicker project={project} style={style} options={options.data!} onZoom={setZoom} />
           <PersonLooks project={project} which={bride} role="bride" options={options.data!} style={style} />
-          <FinalLooks project={project} style={style} options={options.data!} />
         </Fragment>
       ))}
 
@@ -594,11 +593,13 @@ function PersonLooks({
   const [zoom, setZoom] = useState<{ src: string; caption: string } | null>(null);
   const looks = project.looks.filter((look) => look.person === which && look.style_id === (style?.id ?? null));
   const inUse = looks.find((look) => look.selected && look.usable);
-  // V7.8: a bride look of a style is a hair edit of the style's selected makeup.
-  const makeupInUse = style
-    ? project.makeups.find((makeup) => makeup.person === which && makeup.style_id === style.id && makeup.selected && makeup.usable)
-    : undefined;
-  const needsMakeup = Boolean(style) && !makeupInUse;
+  // V7.8: a bride look of a style is a hair edit of the style's selected makeup; V7.22: a groom look is a hair
+  // edit of his selected retouched photo, which every style shares.
+  const makeupInUse = project.makeups.find(
+    (makeup) => makeup.person === which && makeup.style_id === (style?.id ?? null) && makeup.selected && makeup.usable,
+  );
+  const needsMakeup = !makeupInUse;
+  const noun = role === "bride" ? "妆容" : "修脸照";
 
   // Defaults follow the stated hair length and role; reset the list when they change.
   const defaultsKey = JSON.stringify([defaults, hairstyles.map((item) => item.id)]);
@@ -632,9 +633,16 @@ function PersonLooks({
         <span className="muted">{inUse ? `选用：${lookLabel(inUse)}` : "还没有选用造型"}</span>
       </div>
 
-      {style && <MakeupPicker project={project} which={which} style={style} act={act} />}
+      <MakeupPicker
+        project={project}
+        which={which}
+        role={role}
+        style={style}
+        act={act}
+        fitsStyle={(look) => hairstyles.some((item) => item.id === look.hairstyle_id)}
+      />
 
-      {style && <h4 className="look-step-title">第二步：在选用的妆容上换发型</h4>}
+      <h4 className="look-step-title">第二步：在选用的{noun}上换发型</h4>
       <div className="look-form">
         <div className="example-grid hair-examples">
           {hairstyles.map((hairstyle) => (
@@ -670,7 +678,7 @@ function PersonLooks({
           >
             生成已勾选的 {chosen.length} 张（{chosen.length} 次修图）
           </button>
-          {needsMakeup && <span className="muted">先在上面生成并选用一张妆容</span>}
+          {needsMakeup && <span className="muted">先在上面生成并选用一张{noun}</span>}
         </div>
       </div>
 
@@ -708,12 +716,12 @@ function PersonLooks({
                   {look.face_score !== null && (
                     <span className="muted">
                       相似度 {look.face_score.toFixed(2)}
-                      {look.makeup_face_score !== null && `（化妆后 ${look.makeup_face_score.toFixed(2)}）`}
+                      {look.makeup_face_score !== null && `（${role === "bride" ? "化妆" : "修脸"}后 ${look.makeup_face_score.toFixed(2)}）`}
                     </span>
                   )}
                   {look.unusable_reason && <span className="error-text">{look.unusable_reason}</span>}
                   {makeupInUse && look.makeup_id && look.makeup_id !== makeupInUse.id && (
-                    <span className="muted">用的不是当前选用的妆容</span>
+                    <span className="muted">用的不是当前选用的{noun}</span>
                   )}
                   <div className="look-actions">
                     {look.status === "ready" && look.usable && (
@@ -729,7 +737,7 @@ function PersonLooks({
                         className="btn btn-ghost btn-sm"
                         onClick={() => generate([{ hairstyle_id: look.hairstyle_id }])}
                         disabled={submitting || needsMakeup || !hairstyles.some((item) => item.id === look.hairstyle_id)}
-                        title={style ? "同样的发型，在当前选用的妆容上再修一张（1 次修图）" : "同样的发型再修一张（1 次修图）"}
+                        title={`同样的发型，在当前选用的${noun}上再修一张（1 次修图）`}
                       >
                         再来一张
                       </button>
@@ -759,7 +767,7 @@ function PersonLooks({
                   {
                     key: "makeup",
                     assetId: viewing.makeup_asset_id,
-                    title: "化好妆（改发型之前）",
+                    title: role === "bride" ? "化好妆（改发型之前）" : "修好脸（改发型之前）",
                     subtitle: viewing.makeup_face_score !== null ? `与上传照片的相似度 ${viewing.makeup_face_score.toFixed(2)}` : "",
                     actions: [],
                   },
@@ -779,170 +787,72 @@ function PersonLooks({
   );
 }
 
-/** Optional full-body outfit references. The default workflow dresses both people in the sample itself. */
-function FinalLooks({ project, style, options }: { project: ProjectDetail; style: Style; options: LookOptions }) {
-  const outfitId = project.style_outfits[style.id];
-  const outfit = options.outfits.find((item) => item.id === outfitId);
-  const looksInUse = project.style_looks[style.id];
-  if (!outfit || !looksInUse) return null;
-  const rows = project.outfit_looks.filter((row) =>
-    row.outfit_id === outfitId && (row.look_id === looksInUse.bride || row.look_id === looksInUse.groom),
-  );
-  const selected = rows.filter((row) => row.selected && row.usable);
-  const pending = rows.filter((row) => row.status === "waiting" || row.status === "running").length;
-  const failed = rows.filter((row) => row.status === "failed" || row.status === "interrupted").length;
-  const status = rows.length === 0
-    ? "默认跳过，在样片中确认服饰"
-    : [
-        `已有 ${rows.length} 张候选`,
-        selected.length > 0 && `${selected.map((row) => ROLE_LABEL[row.role]).join("、")}已选用，新样片会参考`,
-        pending > 0 && `${pending} 张生成中`,
-        failed > 0 && `${failed} 张未成功，展开可重试`,
-      ].filter(Boolean).join("；");
-  return (
-    <details className="card outfit-details">
-      <summary>
-        <span className="outfit-details-title">服饰定妆照（可选） · {style.name} · {outfit.name}</span>
-        <span className="muted outfit-details-status">{status}</span>
-      </summary>
-      <div className="outfit-details-body">
-        <p className="muted">
-          复杂蕾丝、花裙或帽纱需要提前单独查看时，可以额外生成全身服饰定妆照，每张是一次付费修图；也可以只做新娘。
-          选用后，新样片会参考它的服饰，长相、发型和妆容仍以上面的妆发造型为准。不生成也能直接试拍。
-        </p>
-        {(["bride", "groom"] as Role[]).map((role) => (
-          <FinalLookRow key={role} project={project} role={role} lookId={looksInUse[role]} outfitId={outfitId} />
-        ))}
-      </div>
-    </details>
-  );
-}
-
-function FinalLookRow({ project, role, lookId, outfitId }: { project: ProjectDetail; role: Role; lookId: string | null; outfitId: string }) {
-  const { refresh } = useCurrentProject();
-  const toast = useToast();
-  const [submitting, setSubmitting] = useState(false);
-  const [viewing, setViewing] = useState<OutfitLook | null>(null);
-  const who = ROLE_LABEL[role];
-  const rows = project.outfit_looks.filter((row) => row.look_id === lookId && row.outfit_id === outfitId);
-  const act = async (operation: () => Promise<unknown>) => {
-    try {
-      await operation();
-      await refresh();
-    } catch (err) {
-      toast.error(err);
-    }
-  };
-  const generate = async () => {
-    if (!lookId) return;
-    setSubmitting(true);
-    await act(() => api.createOutfitLook(project.id, lookId, outfitId));
-    setSubmitting(false);
-  };
-  return (
-    <div className="makeup-picker">
-      <h4 className="look-step-title">{who}</h4>
-      <div className="look-form-actions">
-        <button className="btn btn-primary btn-sm" onClick={generate} disabled={submitting || !lookId}>
-          {rows.length > 0 ? "再生成一张" : `生成${who}服饰定妆照`}（1 次修图）
-        </button>
-        {!lookId && <span className="muted">先选用{who}的造型</span>}
-      </div>
-      {rows.length > 0 && (
-        <div className="look-grid">
-          {rows.map((row, index) => {
-            const busy = row.status === "waiting" || row.status === "running";
-            const used = row.selected && row.usable;
-            const label = `服饰定妆照 ${index + 1}`;
-            return (
-              <div key={row.id} className={`look-tile ${used ? "on" : ""}`}>
-                <div className="look-photo">
-                  {row.asset_id ? (
-                    <img src={assetUrl(row.asset_id)} alt={label} onClick={() => setViewing(row)} />
-                  ) : busy ? (
-                    <div className="overlay">
-                      <div className="spinner" />
-                      <span>{row.status === "running" ? "正在生成" : "排队中"}</span>
-                    </div>
-                  ) : (
-                    <div className="overlay">
-                      <div className="error-text">{row.error_message ?? "生成失败"}</div>
-                      <button className="btn btn-sm" onClick={() => act(() => api.retryOutfitLook(row.id))}>
-                        重试
-                      </button>
-                    </div>
-                  )}
-                  {used && <span className="status-chip selected-chip">选用中</span>}
-                </div>
-                <div className="look-body">
-                  <strong>{label}</strong>
-                  {row.unusable_reason && <span className="error-text">{row.unusable_reason}</span>}
-                  <div className="look-actions">
-                    {row.status === "ready" && row.usable && !row.selected && (
-                      <button className="btn btn-sm btn-primary" onClick={() => act(() => api.selectOutfitLook(row.id))}>
-                        选用
-                      </button>
-                    )}
-                    {!busy && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => act(() => api.deleteOutfitLook(row.id))}>
-                        删除
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {viewing?.asset_id && (
-        <CompareView
-          title={`${who} · ${viewing.outfit_name}`}
-          aligned={false}
-          onClose={() => setViewing(null)}
-          items={[
-            ...(viewing.look_asset_id
-              ? [{ key: "look", assetId: viewing.look_asset_id, title: "造型", subtitle: "长相、发型和妆容以它为准", actions: [] }]
-              : []),
-            { key: "final", assetId: viewing.asset_id, title: "服饰定妆照", subtitle: "只用来确定服饰", actions: [] },
-          ]}
-        />
-      )}
-    </div>
-  );
-}
-
 /** The bride's makeup candidates for one style (V7.8): made on the uploaded photo, hair unchanged; the selected
- * one is what the style's hair candidates are made on. */
+ * one is what the style's hair candidates are made on. V7.21: a makeup another style already has can be used here
+ * too, with the hairstyle photos made on it, without a new edit. V7.22: the groom's retouched photos (no style),
+ * which his hairstyles are made on in the same way. */
 function MakeupPicker({
   project,
   which,
+  role,
   style,
   act,
+  fitsStyle,
 }: {
   project: ProjectDetail;
   which: "a" | "b";
-  style: Style;
+  role: Role;
+  /** The bride's style; none for the groom, whose retouched photo serves every style. */
+  style?: Style;
   act: (operation: () => Promise<unknown>) => Promise<void>;
+  /** Whether a hairstyle photo can be used by this style (an updo style takes only updos). */
+  fitsStyle: (look: Look) => boolean;
 }) {
   const [count, setCount] = useState(3);
   const [submitting, setSubmitting] = useState(false);
   const [viewing, setViewing] = useState<Makeup | null>(null);
-  const makeups = project.makeups.filter((makeup) => makeup.person === which && makeup.style_id === style.id);
-  const label = (makeup: Makeup) => `妆容 ${makeups.indexOf(makeup) + 1}`;
+  const noun = role === "bride" ? "妆容" : "修脸照";
+  const styleId = style?.id ?? null;
+  const makeups = project.makeups.filter((makeup) => makeup.person === which && makeup.style_id === styleId);
+  const label = (makeup: Makeup) => `${noun} ${makeups.indexOf(makeup) + 1}`;
+  const level = role === "bride" ? project.makeup_level : project.groom_makeup_level;
   // The refined level narrows the jawline a little, so the likeness score cannot pick its best candidate (V7.10).
   const shaping = (makeup: Makeup) => makeup.makeup_level === "refined";
+  // V7.21: ready makeups of other styles, one per image, that this style does not have yet.
+  const ownImages = new Set(makeups.map((makeup) => makeup.asset_id));
+  const others: Makeup[] = [];
+  for (const makeup of style ? project.makeups : []) {
+    if (makeup.person !== which || makeup.style_id === styleId || makeup.status !== "ready" || !makeup.usable) continue;
+    if (!makeup.asset_id || ownImages.has(makeup.asset_id) || others.some((other) => other.asset_id === makeup.asset_id)) continue;
+    others.push(makeup);
+  }
+  // The hairstyle photos that come along: made on the same image in any style, usable here, one per image.
+  const hairCount = (makeup: Makeup) =>
+    new Set(
+      project.looks
+        .filter((look) => look.person === which && look.makeup_asset_id === makeup.asset_id && look.usable && fitsStyle(look))
+        .map((look) => look.asset_id),
+    ).size;
+  const [reusing, setReusing] = useState<string | null>(null);
+  const reuse = async (makeup: Makeup) => {
+    if (!style) return;
+    setReusing(makeup.id);
+    await act(() => api.reuseMakeup(makeup.id, style.id));
+    setReusing(null);
+  };
 
   const generate = async (n: number) => {
     setSubmitting(true);
-    await act(() => api.createMakeups(project.id, which, style.id, n));
+    await act(() => api.createMakeups(project.id, which, styleId, n));
     setSubmitting(false);
   };
 
   return (
     <div className="makeup-picker">
-      <h4 className="look-step-title">第一步：化妆（头发不动），挑一张最好的</h4>
-      {project.makeup_level === "refined" && (
+      <h4 className="look-step-title">
+        {role === "bride" ? "第一步：化妆（头发不动），挑一张最好的" : "第一步：修脸（头发不动，所有风格共用），挑一张最好的"}
+      </h4>
+      {level === "refined" && (
         <span className="muted">精致档会轻微收窄下颌线，相似度会比其他档低一些，系统不按相似度挑，请自己选最满意的一张。</span>
       )}
       <div className="look-form-actions">
@@ -958,7 +868,7 @@ function MakeupPicker({
           张
         </label>
         <button className="btn btn-primary btn-sm" onClick={() => generate(count)} disabled={submitting}>
-          生成妆容（{count} 次修图）
+          生成{noun}（{count} 次修图）
         </button>
       </div>
       {makeups.length > 0 && (
@@ -1001,6 +911,9 @@ function MakeupPicker({
                 </div>
                 <div className="look-body">
                   <strong>{label(makeup)}</strong>
+                  {style && makeup.makeup_style_id !== style.id && (
+                    <span className="muted">复用自「{makeup.makeup_style_name}」的妆</span>
+                  )}
                   {makeup.face_score !== null && <span className="muted">相似度 {makeup.face_score.toFixed(2)}</span>}
                   {makeup.unusable_reason && <span className="error-text">{makeup.unusable_reason}</span>}
                   <div className="look-actions">
@@ -1021,9 +934,50 @@ function MakeupPicker({
           })}
         </div>
       )}
+      {others.length > 0 && (
+        <details className="makeup-reuse">
+          <summary>从其他风格复用妆容（{others.length} 张，不花钱）</summary>
+          <span className="muted">
+            直接用已经生成好的妆容图，不再修图；这张妆容上做过的发型图也会一起带过来（本风格用不了的发型除外）。复用后拍照时按这张图的妆色和妆面来写提示词。
+          </span>
+          <div className="look-grid">
+            {others.map((makeup) => {
+              const hair = hairCount(makeup);
+              return (
+                <div key={makeup.id} className="look-tile">
+                  <div className="look-photo">
+                    <img
+                      src={assetUrl(makeup.asset_id!)}
+                      alt={`${makeup.makeup_style_name}的妆容`}
+                      onClick={() => setViewing(makeup)}
+                    />
+                  </div>
+                  <div className="look-body">
+                    <strong>来自「{makeup.makeup_style_name}」</strong>
+                    {makeup.makeup_color_name && <span className="muted">{makeup.makeup_color_name}</span>}
+                    {makeup.face_score !== null && <span className="muted">相似度 {makeup.face_score.toFixed(2)}</span>}
+                    <span className="muted">{hair > 0 ? `带 ${hair} 张发型图` : "还没有发型图"}</span>
+                    <div className="look-actions">
+                      <button className="btn btn-sm btn-primary" disabled={reusing !== null} onClick={() => reuse(makeup)}>
+                        {reusing === makeup.id ? "复用中…" : "用于本风格"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      )}
       {viewing?.asset_id && (
         <CompareView
-          title={`新娘 · ${style.name} · ${label(viewing)}`}
+          title={
+            !style
+              ? `新郎 · ${label(viewing)}`
+              : `新娘 · ${viewing.style_id === style.id ? style.name : viewing.makeup_style_name} · ${
+                  viewing.style_id === style.id ? label(viewing) : "可复用的妆容"
+                }`
+          }
           aligned
           onClose={() => setViewing(null)}
           items={[
@@ -1031,7 +985,7 @@ function MakeupPicker({
             {
               key: "makeup",
               assetId: viewing.asset_id,
-              title: label(viewing),
+              title: viewing.style_id === styleId ? label(viewing) : `来自「${viewing.makeup_style_name}」`,
               subtitle: viewing.face_score !== null ? `与上传照片的相似度 ${viewing.face_score.toFixed(2)}` : "",
               actions: [],
             },
@@ -1126,7 +1080,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
     });
     const choice = await ask({
       title: label,
-      message: `${generatedStyleIds.some((id) => styleIds.includes(id)) ? "已有的样片会保留为历史版本。" : ""}试拍会按所选服饰一起完成穿衣、场景、光线和构图，无需另做服饰定妆照；已选用的定妆照仍会作为服饰参考。使用的妆发——${lines.join("；")}。出图后请先检查人物、服饰和整体效果，满意后再拍组照。`,
+      message: `${generatedStyleIds.some((id) => styleIds.includes(id)) ? "已有的样片会保留为历史版本。" : ""}试拍会按所选服饰一起完成穿衣、场景、光线和构图。使用的妆发——${lines.join("；")}。出图后请先检查人物、服饰和整体效果，满意后再拍组照。`,
       taskCount: styleIds.length,
     });
     if (!choice) return;

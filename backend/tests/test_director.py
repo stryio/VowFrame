@@ -10,12 +10,12 @@ from app.db import Database
 
 
 def test_director_user_prompt_lists_every_variant_matching_section_7_2():
+    # cinematic_light is retired (V7.23), so its shooting direction no longer reaches the director.
     scene = director_scene_text('cinematic_light', single_variant=False)
     assert _user_prompt('高级光影', scene, 8, _shot_requirement(8), ['海边踏浪回眸', '沙滩并肩漫步']) == (
         '风格：高级光影\n'
         '服装（摄影团队已确定）：新娘穿缎面婚纱，新郎穿黑色西装。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。\n'
         '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
-        '拍摄方向（摄影团队已确定）：' + next(style['shooting'] for style in STYLES if style['id'] == 'cinematic_light') + '\n'
         '场景变体（每个镜头选其中一个，把编号填在 scene；以一个主场景为主，少量相邻场景补充，光色和空间关系连贯）：\n'
         '1. 窗格投影：上午的硬质阳光从房间一侧的窗户射入，在白色墙面、水泥地面和两人的衣服上投出清晰的窗格影子。\n'
         '2. 百叶窗条纹：阳光穿过房间一侧的百叶窗，在白色墙面、水泥地面和两人的衣服上落下斜向的条纹光影。\n'
@@ -37,7 +37,6 @@ def test_preview_reference_mode_keeps_director_in_the_first_variant():
     assert director_scene_text('cinematic_light', single_variant=True) == (
         '服装（摄影团队已确定）：新娘穿缎面婚纱，新郎穿黑色西装。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。\n'
         '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
-        '拍摄方向（摄影团队已确定）：' + next(style['shooting'] for style in STYLES if style['id'] == 'cinematic_light') + '\n'
         '场景（所有镜头都在这个场景里，scene 填 1）：上午的硬质阳光从房间一侧的窗户射入，在白色墙面、水泥地面和两人的衣服上投出清晰的窗格影子。'
     )
 

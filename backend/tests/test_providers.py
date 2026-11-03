@@ -104,9 +104,9 @@ def test_settings_switch_the_service_and_keep_the_default_model_one_it_offers(ap
         assert client.patch('/api/settings', json={'image_provider': 'elsewhere'}).status_code == 422
         # A request naming a model the service does not offer is refused.
         project = create_project(client)
-        ensure_looks(client, project['id'], ['korean_minimal'])
+        ensure_looks(client, project['id'], ['dark_studio'])
         response = client.post(f"/api/projects/{project['id']}/previews", json={
-            'client_request_id': 'sunburst', 'style_ids': ['korean_minimal'], 'model': 'gpt-image-2.5-sunburst'})
+            'client_request_id': 'sunburst', 'style_ids': ['dark_studio'], 'model': 'gpt-image-2.5-sunburst'})
         assert response.status_code == 422 and response.json()['detail']['code'] == 'invalid_model'
 
 

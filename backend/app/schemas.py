@@ -125,19 +125,18 @@ class LookCreate(InputModel):
     items: list[LookItem] = Field(min_length=1, max_length=16)
 
 
-class OutfitLookCreate(InputModel):
-    """One final look (V7.18), one paid edit of the look. The outfit must be one the look's style offers."""
-    client_request_id: str = Field(min_length=1)
-    look_id: str
-    outfit_id: str
-
-
 class MakeupCreate(InputModel):
-    """Makeup candidates of the bride for one style (V7.8): each is one paid edit of her uploaded photo."""
+    """Makeup candidates of the bride for one style (V7.8), or the groom's retouched photos (V7.22, no style): each
+    is one paid edit of the person's uploaded photo."""
     client_request_id: str = Field(min_length=1)
     person: Literal['a', 'b']
-    style_id: str
+    style_id: str | None = None
     count: int = Field(ge=1, le=4)
+
+
+class MakeupReuse(InputModel):
+    """Use a ready makeup of another style for this style too, with the looks made on it (V7.21); no new edit."""
+    style_id: str
 
 
 class RestoreCreate(InputModel):
@@ -155,6 +154,8 @@ class SettingsPatch(InputModel):
     portrait_ratio: str | None = None
     # V7.1: replaces auto_face_swap.
     auto_face_fix: Literal['split', 'ai', 'facefusion', 'off'] | None = None
+    # The AI face fix's image model; null follows the default model.
+    face_fix_model: str | None = None
     # V7.11: the image service, '88api' or 'pptoken'.
     image_provider: Literal['88api', 'pptoken'] | None = None
     # The service the AI director uses; director_model is that service's model.
@@ -182,6 +183,8 @@ class Settings(BaseModel):
     director_model: str | None
     portrait_ratio: Literal['3:4', '2:3', '9:16']
     auto_face_fix: Literal['split', 'ai', 'facefusion', 'off']
+    # Null: AI face fixes use default_model.
+    face_fix_model: str | None
     # V7.11: the image service models both services offer go to, and whether each one can be selected.
     image_provider: Literal['88api', 'pptoken']
     image_providers: list[ImageProvider]
@@ -308,14 +311,23 @@ class Look(BaseModel):
     selected_by: Literal['user', 'auto'] | None
     # V7.8: the makeup candidate the hair was done on; null for the groom's and for looks made before V7.8.
     makeup_id: str | None
+    # V7.21: the style whose colour family and finish the bride's makeup was painted in (style_id unless the look
+    # was reused from another style); null for the groom's.
+    makeup_style_id: str | None
 
 
 class Makeup(BaseModel):
-    """The bride's makeup for one style, hair unchanged (V7.8); new bride looks of the style use the selected one."""
+    """The bride's makeup for one style, hair unchanged (V7.8); new bride looks of the style use the selected one.
+    V7.22: the groom's retouched photo, hair unchanged (role 'groom', no style or colour); his new looks use it."""
     id: str
     person: Literal['a', 'b']
-    style_id: str
-    makeup_color: str
+    role: Role
+    style_id: str | None
+    # V7.21: the style whose colour family and finish it was painted in; style_id unless reused from another style.
+    makeup_style_id: str | None
+    style_name: str | None
+    makeup_style_name: str | None
+    makeup_color: str | None
     makeup_color_name: str | None
     makeup_level: MakeupLevel
     status: Literal['waiting', 'running', 'ready', 'failed', 'interrupted']
@@ -330,27 +342,6 @@ class Makeup(BaseModel):
     unusable_reason: str | None
     # Likeness to the uploaded photo, as Look.face_score.
     face_score: float | None
-    created_at: str
-
-
-class OutfitLook(BaseModel):
-    """One person's final look: their look edited into the whole person in one outfit (V7.18). New samples take the
-    clothes from the selected one; the face still comes from the look."""
-    id: str
-    person: Literal['a', 'b']
-    role: Role
-    look_id: str
-    outfit_id: str
-    outfit_name: str
-    status: Literal['waiting', 'running', 'ready', 'failed', 'interrupted']
-    error_code: str | None
-    error_message: str | None
-    asset_id: str | None
-    look_asset_id: str | None
-    selected: bool
-    selected_by: Literal['user', 'auto'] | None
-    usable: bool
-    unusable_reason: str | None
     created_at: str
 
 
@@ -438,8 +429,6 @@ class ProjectDetail(ProjectSummary):
     style_outfits: dict[str, str]
     # The bride's makeup candidates of every style (V7.8), oldest first.
     makeups: list[Makeup]
-    # Final looks (V7.18), oldest first.
-    outfit_looks: list[OutfitLook]
     # Per person, the default candidates for their stated hair length.
     default_look_items: dict[str, list[LookDefault]]
 

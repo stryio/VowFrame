@@ -14,7 +14,7 @@ _STYLE_DATA = (
         'name': '韩系极简',
         'description': '缎面主纱、黑白配色、裙摆廓形、站坐组合',
         'costume': '新娘穿有清晰收腰和饱满裙摆的白色缎面主纱，配轻透长头纱和小束浅色捧花；新郎穿黑色礼服，配黑色领结。妆容方向：细腻透亮的底妆，浅棕或粉棕色眼影，柔和的玫瑰粉唇。',
-        'look': '以主纱廓形和人物关系为重点的彩色人像：白色、浅灰与礼服黑构成干净色块，背景安静，空间留白服务于裙摆和身体线条。大面积侧前方柔光塑造肩颈、腰线和缎面的宽阔明暗，面部明亮，阴影浅但不抹平立体感；婚纱亮部保留织物纹理，黑色礼服有层次。色温中性，低至中等反差，画面清晰细腻，不额外添加颗粒或光晕。',
+        'look': '以主纱廓形和人物关系为重点的彩色人像：白色、浅灰与礼服黑构成干净色块，背景安静，空间留白服务于裙摆和身体线条。大面积柔和的侧前方散射光，照出肩颈、腰线和缎面柔和的明暗，面部受光柔和均匀，阴影浅而通透；婚纱亮部保留织物纹理，黑色礼服有层次。色温中性，低至中等反差，画面细腻，不额外添加光晕。',
         'variants': (
             ('纯色影棚', '白色的无缝背景墙与地面自然衔接，看不到转角线，旁边只放一张简约的白色木凳；大面积柔和的光从侧前方均匀照来，背景上只有很浅的明暗过渡。'),
             ('落地窗光影', '白色的空房间，一整面落地窗透进柔和的日光，在墙面和地面落下淡淡的窗格光影，墙边只有一盆姿态舒展的绿植。'),
@@ -576,7 +576,9 @@ STYLE_BY_ID = {style['id']: style for style in STYLES}
 # Retired styles (V3.20): hidden from new picks, but old works keep regenerating with their data.
 RETIRED_STYLE_IDS = frozenset({'hongkong_retro', 'city_night', 'snow_winter', 'black_white', 'daily_life', 'european_church',
                                'white_floral', 'minimal_architecture', 'hanfu', 'republic_qipao', 'vintage_interior',
-                               'northwest_desert', 'japanese_film', 'flower_field'})
+                               'northwest_desert', 'japanese_film', 'flower_field', 'korean_minimal', 'french_vintage',
+                               'forest_natural', 'new_chinese', 'snow_mountain', 'luxury_interior',
+                               'cinematic_light'})
 # Samples generated when the user picks no style: the first six active styles in the built-in order.
 DEFAULT_PREVIEW_STYLE_IDS = tuple(style['id'] for style in STYLES if style['id'] not in RETIRED_STYLE_IDS)[:6]
 
@@ -604,7 +606,7 @@ POSE_BY_ID = {pose['id']: pose for pose in POSES}
 PREVIEW_MOMENT = '镜头：两人并肩站立，新娘轻挽新郎的手臂，身体自然靠近，肩颈放松，两人开心地露齿笑着看向镜头，七分身构图，两人面部清晰。'
 GENERAL_AVOID = '网红脸、整容脸、幼态脸、五官欧美化、过度磨皮的塑料皮肤、皮肤暗沉、痘印和临时的色斑、厚重结块的底妆、面部大面积油光或汗珠、生硬的贴片状发际线、面部被遮挡、多余的人物、手部或手指畸形、人物像抠图贴在背景上、杂乱的地面和背景、影楼廉价感、过度锐化、粗糙的数码噪点、HDR 感、文字和水印'
 QUALITY_PARAGRAPH = (
-    '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境的主光、环境反射光和必要的补光具有合理的方向、色温与明暗关系，光线与所选场景一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感，保留场景本身的材质和空间层次；两人面部清晰可辨，亮度跟随场景的光线；表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；景深按镜头决定，影调、反差、色彩、颗粒与光晕按风格决定，保留亮部织物纹理和暗部层次；白色面料呈现当前光源下合理的冷暖与明暗，肤色自然，皮肤干净细腻、有真实纹理。'
+    '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境的主光、环境反射光和必要的补光具有合理的方向、色温与明暗关系，光线与所选场景一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感，保留场景本身的材质和空间层次；两人面部清晰可辨，亮度跟随场景的光线；表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；焦外自然虚化，影调柔和、细节细腻，带有轻微的胶片颗粒感；反差、色彩和光晕按风格决定，保留亮部织物纹理和暗部层次；白色面料呈现当前光源下合理的冷暖与明暗；肤色自然，皮肤干净细腻、有真实纹理，是柔和的哑光质感，只在额头、鼻梁和颧骨有很小、很柔的自然高光；光泽只属于缎面等面料，皮肤上不出现油亮反光。'
 )
 _FACE_CLEAR_SENTENCE = '两人面部清晰可辨，亮度跟随场景的光线；'
 # Atmosphere shots (back view, silhouette, tiny figures, foreground cover) do not show the faces clearly (V3.35).
@@ -1059,7 +1061,8 @@ _OUTFIT_DATA = (
 )
 OUTFITS = tuple(Outfit(*item) for item in _OUTFIT_DATA + REFERENCE_OUTFIT_DATA)
 OUTFIT_BY_ID = {item.id: item for item in OUTFITS}
-# The outfits offered per style, the default first. Retired styles have none and keep their one-line costume.
+# The outfits offered per style, the default first. Styles retired before V7.17 have none and keep their one-line
+# costume; those retired later (V7.23) keep theirs, so their existing samples refresh in the same outfit.
 STYLE_OUTFITS = {
     'korean_minimal': ('studio_satin', 'satin_a_line'),
     'french_vintage': ('city_satin_veil', 'city_light'),
@@ -1085,28 +1088,6 @@ def outfit_text(outfit_id: str) -> str:
     """What the outfit says, as the sample, the shots and the director all read it."""
     outfit = OUTFIT_BY_ID[outfit_id]
     return outfit.bride + outfit.groom + outfit.headwear
-
-
-# V7.18: after hair and makeup, one edit of a person's selected look makes their final look: the whole person in the
-# outfit. The head-and-shoulders look stays the reference for the face, whose detail a full-length picture would lose;
-# the final look only tells a shot what the clothes are.
-_OUTFIT_LOOK_KEEP = {
-    'bride': '脸、五官、表情、妆容、肤色、发型和发色都与这张照片一致，不重新化妆、不改发型、不美颜；',
-    'groom': '脸、五官、表情、肤色、发型和发色都与这张照片一致，不改发型、不美颜；',
-}
-
-
-def compose_outfit_look_prompt(role: str, outfit_id: str) -> str:
-    """Edit prompt that turns one person's selected look into their final look in this outfit (V7.18)."""
-    outfit = OUTFIT_BY_ID[outfit_id]
-    clothes = outfit.bride + outfit.headwear if role == 'bride' else outfit.groom
-    return '\n\n'.join((
-        f'这张照片是{_ROLE_NAMES[role]}婚礼当天做好造型的头肩照。把它扩展成同一个人穿下面这套服饰的全身定妆照：{_OUTFIT_LOOK_KEEP[role]}'
-        '身材比例自然真实，不刻意拉长腿、不改变头身比例。',
-        '服饰：' + clothes,
-        '画面：竖构图，从头顶到鞋完整入画，四周留少量余量；人物放松地自然站立，正面朝向镜头；背景是干净均匀的浅灰色纯色背景，柔和均匀的正面光。',
-        '避免：改变脸和五官、改变发型、增减服饰配件、裙摆或鞋子被裁切、多余的人物、文字和水印。',
-    ))
 
 
 def _clothes(style: dict) -> str:
@@ -1139,7 +1120,7 @@ def compose_look_prompt(role: str, hairstyle_id: str, level: str, *, style_id: s
                    + _IDENTITY_INVARIANTS + '发际线的主体位置、整体走向和两侧转折按第一张图里本人的样子；头部的角度和表情保持第一张图的样子。'
                    '头发按第二张图的发型重新画，不照搬第一张图里的头发。')
     hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES + _HAIR_DENSITY[role]
-    makeup = _bride_makeup(level, style_id) if role == 'bride' else '皮肤和精修：' + _GROOM_STYLING[level] + '。' + _RETOUCH_LIMITS + _CONTOUR_EXCEPTION
+    makeup = _bride_makeup(level, style_id) if role == 'bride' else _groom_retouch(level)
     return '\n\n'.join((opening, hair, makeup, _LOOK_BACKGROUND, _STYLING_AVOID))
 
 
@@ -1179,6 +1160,32 @@ def compose_bride_hair_prompt(hairstyle_id: str, level: str) -> str:
     return '\n\n'.join((opening, hair, _STYLING_AVOID))
 
 
+# V7.22: the groom's front look is two edits as well, in the bride's order: retouching (and, at the refined level,
+# his light makeup) with the background first, hair unchanged; then only the hair on the retouched photo. His
+# retouched photo has no style colours, so one serves every style, like his looks.
+def _groom_retouch(level: str) -> str:
+    return '皮肤和精修：' + _GROOM_STYLING[level] + '。' + _RETOUCH_LIMITS + _CONTOUR_EXCEPTION
+
+
+def compose_groom_retouch_prompt(level: str) -> str:
+    """First edit of a groom look (V7.22): retouching, skin and background on the uploaded photo, hair unchanged."""
+    opening = ('把这张照片修成新郎婚礼当天修整好皮肤后的样子：这一步只修整皮肤、按下面的档位精修和换背景，头发保持原照片的样子。'
+               '原照片用来确定这个人的长相：' + _IDENTITY_INVARIANTS + '头部的角度和表情保持原照片的样子。')
+    avoid = '避免：改变发型和发色、改变脸和五官、浓妆、磨皮、文字和水印。'
+    return '\n\n'.join((opening, _groom_retouch(level), _LOOK_BACKGROUND, avoid))
+
+
+def compose_groom_hair_prompt(hairstyle_id: str, level: str) -> str:
+    """Second edit of a groom look (V7.22): only the hair, on the retouched photo of the first edit."""
+    opening = ('这张照片是新郎婚礼当天修整好皮肤的样子。把他的头发改成下面的发型，这一步只改头发：'
+               '脸、五官、表情、头部角度、肤色、皮肤状态、背景、光线和衣服都保持这张照片的样子，不再提白、不再修皮肤；'
+               '已经修整好的眉毛、皮肤的干净程度和（有的话）淡妆都保持这张照片的样子。'
+               '发际线的主体边界以这张照片为准。'
+               + _IDENTITY_INVARIANTS)
+    hair = f'发型：{HAIRSTYLE_BY_KEY[("groom", hairstyle_id)].text}；{_HAIR_FINISH["groom"][level]}。' + _HAIR_RULES + _HAIR_DENSITY['groom']
+    return '\n\n'.join((opening, hair, _STYLING_AVOID))
+
+
 # Every styled shot prompt carries one of these sentences; it tells such prompts apart from older ones.
 # V4.0–V5.2 and V7.0 on: the looks wear the makeup.
 _STYLED_MARKER = '造型照就是两人婚礼当天化好妆、做好发型后的样子'
@@ -1187,18 +1194,12 @@ _BARE_STYLED_MARKER = '造型照是两人做好发型后的样子'
 
 
 _LOOK_CLOTHES_IGNORED = '造型照里的纯色背景和衣服不参考。'
-_FINAL_LOOK_RULE = ('全身定妆照只用来确定服饰的款式、颜色、面料、长度以及头纱头饰，不参考其中的脸、表情、姿态、站位、光线和背景；'
-                    '长相、发型和妆容只以造型照为准。')
 
 
-def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None,
-                               outfit_references: tuple[str, ...] = ()) -> str:
+def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None) -> str:
     labels = ['第一张图是新娘的造型照', '第二张图是新郎的造型照']
     for role, facing in side_references or ():
         labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}脸朝画面{_FACING_NAMES[facing]}侧时的造型照')
-    # V7.18: the final looks come after the head-and-shoulders looks, whose places the face fix and the swap rely on.
-    for role in outfit_references:
-        labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}穿这套服饰的全身定妆照')
     roles = '，'.join(labels) + '。'
     if with_preview:
         roles += _PREVIEW_REFERENCE_INSERTION.replace('第三张', _IMAGE_ORDINALS[len(labels)], 1)
@@ -1217,7 +1218,7 @@ def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[s
             '与「服装与风格」中的新娘妆色和新娘妆面一致。场景光线只改变合理的受光明暗与反光，不将已有婚礼妆淡化为素颜或日常淡妆。'
             '构图、景别和人物占画面比例均按「镜头」要求，不为展示妆容移动机位、放大人物或改变眼型、唇形；'
             '远景按人物实际尺寸表现妆容的综合色块与明暗关系，不要求显示近景级别的睫毛或眼影细节。'
-            + _LOOK_CLOTHES_IGNORED + (_FINAL_LOOK_RULE if outfit_references else '') + '两人体态自然舒展，不改变真实的身体比例。'
+            + _LOOK_CLOTHES_IGNORED + '两人体态自然舒展，不改变真实的身体比例。'
             '风格要求与长相冲突时，以长相为准。')
 
 
@@ -1276,19 +1277,22 @@ def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] |
 
 
 def _style_paragraph(style: dict, *, scene: int | None, hair: Hair | None = None, styled: bool = False,
-                     outfit: str | None = None) -> str:
+                     outfit: str | None = None, makeup_style: str | None = None) -> str:
     """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34).
     hair: None (prompts before V3.45) names no hairstyle. styled: hair and makeup come from the looks (V4.0, V7.0),
     so the clothes, the bride's makeup colour family (V6.0) and finish (V6.4) as a reminder of the look's makeup,
     the headwear of the updo styles (V5.0) and the visual language are written.
-    outfit: the fixed outfit of the shot (V7.17), which says the clothes and headwear; None for shots before it."""
+    outfit: the fixed outfit of the shot (V7.17), which says the clothes and headwear; None for shots before it.
+    makeup_style: the style whose makeup the bride's look wears (V7.21: a look reused from another style keeps that
+    style's colour family and finish, and the reminder must match the picture); None is the shot's own style."""
+    makeup_style = makeup_style or style['id']
     if outfit is not None:
-        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style['id']][0]]
+        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[makeup_style][0]]
         paragraph = ('服装与风格：' + outfit_text(outfit) + OUTFIT_RULE + '新娘妆色：' + color.text + '新娘妆面：' +
-                     STYLE_MAKEUP_FINISH[style['id']] + style['look'])
+                     STYLE_MAKEUP_FINISH[makeup_style] + style['look'])
     elif styled:
-        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style['id']][0]]
-        paragraph = ('服装与风格：' + _clothes(style) + '新娘妆色：' + color.text + '新娘妆面：' + STYLE_MAKEUP_FINISH[style['id']] +
+        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[makeup_style][0]]
+        paragraph = ('服装与风格：' + _clothes(style) + '新娘妆色：' + color.text + '新娘妆面：' + STYLE_MAKEUP_FINISH[makeup_style] +
                      UPDO_STYLES.get(style['id'], '') + style['look'])
     elif hair is None:
         paragraph = style['scene_prompt']
@@ -1309,15 +1313,15 @@ def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
 def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_preview: bool = False,
                     scene: int | None = 1, faces_clear: bool = True, makeup: Makeup | None = None,
                     hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                    styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+                    styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
     style = STYLE_BY_ID[style_id]
     if styled and makeup is not None:
         raise ValueError('a shot from looks takes no makeup levels: the looks wear the makeup (V7.0)')
     return '\n\n'.join((
         _aspect_paragraph(aspect_ratio),
-        _styled_identity_paragraph(with_preview, side_references, outfit_references) if styled else
+        _styled_identity_paragraph(with_preview, side_references) if styled else
         _identity_paragraph(with_preview, side_references, makeup),
-        _style_paragraph(style, scene=scene, hair=hair, styled=styled, outfit=outfit),
+        _style_paragraph(style, scene=scene, hair=hair, styled=styled, outfit=outfit, makeup_style=makeup_style),
         action,
         QUALITY_PARAGRAPH if faces_clear else ATMOSPHERE_QUALITY_PARAGRAPH,
         _avoid_paragraph(style, faces_clear=faces_clear),
@@ -1325,15 +1329,15 @@ def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_previ
 
 
 def compose_preview_prompt(style_id: str, aspect_ratio: str, *, makeup: Makeup | None = None, hair: Hair | None = None,
-                           styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+                           styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
     action = PREVIEW_MOMENT if style_id in RETIRED_STYLE_IDS else STYLE_BY_ID[style_id]['preview']
     return _compose_prompt(style_id, action, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit,
-                           outfit_references=outfit_references)
+                           makeup_style=makeup_style)
 
 
 def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with_preview: bool = False,
                          makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                         styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+                         styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
     return _compose_prompt(
         style_id,
         POSE_BY_ID[pose_id]['prompt_template'],
@@ -1344,7 +1348,7 @@ def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with
         side_references=side_references,
         styled=styled,
         outfit=outfit,
-        outfit_references=outfit_references,
+        makeup_style=makeup_style,
     )
 
 
@@ -1383,12 +1387,12 @@ def director_scene_count(style_id: str, *, single_variant: bool) -> int:
 def compose_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
                           faces_clear: bool = True, with_preview: bool = False, makeup: Makeup | None = None,
                           hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                          styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+                          styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
     if not isinstance(moment_text, str) or not moment_text.endswith('。'):
         raise ValueError('moment text must end with exactly one Chinese full stop')
     return _compose_prompt(style_id, SHOT_LABEL + moment_text, aspect_ratio, with_preview=with_preview,
                            scene=scene, faces_clear=faces_clear, makeup=makeup, hair=hair, side_references=side_references,
-                           styled=styled, outfit=outfit, outfit_references=outfit_references)
+                           styled=styled, outfit=outfit, makeup_style=makeup_style)
 
 
 def scene_from_prompt(style_id: str, prompt: str) -> int | None:
@@ -1428,21 +1432,21 @@ def _apply_identity_boost(prompt: str) -> str:
 
 def compose_identity_boost_prompt(style_id: str, pose_id: str | None, aspect_ratio: str, *, with_preview: bool = False,
                                   makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                                  styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+                                  styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
     prompt = (compose_preview_prompt(style_id, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit,
-                                     outfit_references=outfit_references) if pose_id is None else
+                                     makeup_style=makeup_style) if pose_id is None else
               compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=makeup, hair=hair,
-                                   side_references=side_references, styled=styled, outfit=outfit, outfit_references=outfit_references))
+                                   side_references=side_references, styled=styled, outfit=outfit, makeup_style=makeup_style))
     return _apply_identity_boost(prompt)
 
 
 def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
                                          with_preview: bool = False, makeup: Makeup | None = None, hair: Hair | None = None,
                                          side_references: list[tuple[str, str]] | None = None, styled: bool = False,
-                                         outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+                                         outfit: str | None = None, makeup_style: str | None = None) -> str:
     return _apply_identity_boost(compose_moment_prompt(style_id, moment_text, aspect_ratio, scene=scene, with_preview=with_preview,
-                                                       makeup=makeup, hair=hair, side_references=side_references, styled=styled, outfit=outfit,
-                                                       outfit_references=outfit_references))
+                                                       makeup=makeup, hair=hair, side_references=side_references, styled=styled,
+                                                       outfit=outfit, makeup_style=makeup_style))
 
 
 # AI face fix (V7.1, app/face_fix.py; the whole picture since V7.2). V7.4: the references are the couple's looks,

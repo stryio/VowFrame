@@ -13,7 +13,6 @@
 **一个项目可以拍多组风格**：试拍的每张样片都可以「确认样片，拍一组」，次数不限；不存在「项目唯一选中风格」。
 
 默认流程先选择服饰和妆发，在首张样片中一起完成穿衣与摄影效果，再确认样片并拍组照。
-独立服饰定妆照是折叠的可选付费功能，不是生成样片或组照的前置条件。
 更换当前服饰或妆发只影响之后新建的样片，沿用旧样片拍组仍使用该样片创建时的选择快照。
 
 ---
@@ -160,7 +159,6 @@ ProjectSummary 加上：
   "style_looks": {"korean_minimal": {"bride": "…" | null, "groom": "…" | null}, …},
   "style_outfits": {"korean_minimal": "satin_a_line", …},
   "makeups": [Makeup],
-  "outfit_looks": [OutfitLook],
   "default_look_items": {"bride": [LookItem], "groom": [LookItem]}
 }
 ```
@@ -168,7 +166,7 @@ ProjectSummary 加上：
 - `looks`（V5.0）：两人的正面造型候选（不含已删除的和侧面造型），按创建时间排列。
 - `style_looks`（V7.0，取代 `default_looks`）：每个风格生成新样片时使用的造型：新娘为这个风格选用的造型，新郎选用的造型（所有风格共用）；还没有选用时为 null。
 - `style_outfits`（V7.17）：每个在用风格的新样片穿哪套固定服饰：项目选过的，否则是这个风格的第一套。已有样片和它的成片不随选择改变。
-- `makeups`（V7.8）：新娘各个风格的妆容候选（不含已删除的），按创建时间排列。
+- `makeups`（V7.8）：新娘各个风格的妆容候选，以及（V7.22）新郎的修脸照候选（不含已删除的），按创建时间排列。每张带 `role`；新郎的 `style_id`、`makeup_color`、`style_name`、`makeup_style_id`、`makeup_style_name` 都是 `null`，所有风格共用。V7.21 起每张带 `style_name`、`makeup_style_id` 和 `makeup_style_name`：这张妆是按哪个风格的妆色和妆面画的；不是复用来的就等于它自己的风格。造型（`Look`）也带 `makeup_style_id`，新郎的为 `null`。
 - `default_look_items`：按项目里两人的头发长度给出的建议发型。新郎默认勾选全部；新娘每个风格只勾第一个适合这个风格的（docs/prompts.md 第 8.1 节）。
 
 ### Look（V5.0 造型候选；V7.0 起新娘按风格做，带妆）
@@ -209,17 +207,9 @@ ProjectSummary 加上：
 - `selected` / `selected_order`（V7.0）：每个风格只有一套选用的新娘造型，新郎只有一套；选用的为 1，其余为 null。`selected_by`（V7.5）：`user` 是用户点了「选用」，`auto` 是系统选的（有相似度分数后选最像的一套，没有分数时选第一套生成好的）；用户选过的不再自动更换。
 - `makeup_asset_id` / `makeup_face_score`（V7.5）：新娘正面造型分两次编辑，这是第一次化好妆、还没改发型的照片和它与上传照的相似度；新郎和侧面造型为 null。发型这一步失败后重试，直接从这张照片开始。`makeup_id`（V7.8）：新娘造型是在哪张妆容候选上改的发型，这时 `makeup_asset_id` 就是那张妆容的图片，`makeup_face_score` 是它的分数；V7.8 以前的新娘造型、新郎和侧面造型为 null。
 
-### OutfitLook（V7.18，页面名称：服饰定妆照）
+### OutfitLook（V7.18，V7.19 已移除）
 
-一个人的造型穿上一套服饰的全身图，是可选的付费修图。新样片用选用的这张确定服饰，长相、发型和妆容仍以 `look_id` 的造型为准。
-页面默认折叠此功能，仍在入口显示已有候选、选用、生成中和失败状态；无定妆照时样片直接使用所选服饰的文字描述完成穿衣。
-
-- `POST /projects/{id}/outfit-looks`：`{client_request_id, look_id, outfit_id}`，生成一张，返回 OutfitLook。新娘造型只能用它所属风格提供的服饰（否则 422 `invalid_outfit`）；造型不能再用时 409 `look_unusable`。
-- `POST /outfit-looks/{id}/retry`：重试失败或中断的一张。
-- `POST /outfit-looks/{id}/select`：选用。同一 `look_id` 和 `outfit_id` 只选用一张；第一张生成好的自动选用（`selected_by` 为 `auto`）。
-- `DELETE /outfit-looks/{id}`：删除候选；已拍的照片不受影响。删除选用的那张时，自动选用剩下的第一张。
-
-字段：`id`、`person`、`role`、`look_id`、`outfit_id`、`outfit_name`、`status`、`error_code`、`error_message`、`asset_id`、`look_asset_id`（它用的头肩造型图）、`selected`、`selected_by`、`usable`、`unusable_reason`、`created_at`。
+服饰定妆照的接口（`/projects/{id}/outfit-looks`、`/outfit-looks/{id}/…`）和项目详情里的 `outfit_looks` 字段已移除。服饰只按所选服饰的文字在样片中完成（docs/prompts.md V7.19）。
 
 ### Makeup（V7.8 新娘妆容候选）
 
@@ -409,7 +399,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 ### Settings
 
 ```json
-{ "default_model": "gpt-image-2", "batch_reference_mode": "prompt_only", "director_model": "gpt-6.1-sol" | null, "portrait_ratio": "3:4", "auto_face_fix": "split" | "ai" | "facefusion" | "off",
+{ "default_model": "gpt-image-2", "batch_reference_mode": "prompt_only", "director_model": "gpt-6.1-sol" | null, "portrait_ratio": "3:4", "auto_face_fix": "split" | "ai" | "facefusion" | "off", "face_fix_model": "gemini-nano-banana-2.1" | null,
   "image_provider": "88api" | "pptoken",
   "image_providers": [{"id": "88api", "name": "88API", "available": true, "reason": null}, {"id": "pptoken", "name": "PPTOKEN", "available": false, "reason": "没有配置 PPTOKEN 的密钥：…"}] }
 ```
@@ -424,6 +414,8 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | `with_preview` | `[新娘, 新郎, 该样片当前版本]`，提示词注明只参考第三张的风格、不参考其人脸和构图 |
 
 默认 `prompt_only`：样片里的人脸本身是模型的近似结果，作为参考可能让成片偏离本人长相。是否改为 `with_preview` 以实际对比为准。
+
+`face_fix_model`：AI 修脸用的生图模型，自动修脸和手动「AI 修脸」都用它；`null` 表示跟随 `default_model`。手动修脸请求里的 `model` 优先于它。切换生图服务时，若新服务不提供该模型，重置为 `null`；存储的模型已不在模型列表中时也按 `null` 处理。
 
 `auto_face_fix`（V7.1，取代 `auto_face_swap`）：生成后自动做什么，`split`（V7.13 起默认，新娘 AI 修脸后新郎 FaceFusion 换脸）、`ai`（两人都 AI 修脸）、`facefusion`（两人都 FaceFusion 换脸，FaceFusion 不可用时不生效）或 `off`（不修）。`split` 在 FaceFusion 不可用时只修新娘，设置页显示不可用原因；不会改用 AI 修新郎。已有的有效设置保留，不覆盖用户选定的模式。见下文「AI 修脸」「分人物自动修脸」「换脸修正」。
 
@@ -442,7 +434,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/health` | — | `{"ok": true, "generator": "mock" \| "88api", "model": "<当前默认模型>", "face_swap": FaceSwapStatus}` |
 | GET | `/api/models` | — | `Model[]` |
 | GET | `/api/settings` | — | `Settings` |
-| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_provider"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "split" \| "ai" \| "facefusion" \| "off", "image_provider"?: "88api" \| "pptoken"}` | `Settings`；切换服务时默认模型不是它提供的，改为它的第一个模型；服务没有配置密钥时 409 `provider_unavailable`；模型不在列表中或不是（切换后的）服务提供的时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
+| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_provider"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "split" \| "ai" \| "facefusion" \| "off", "face_fix_model"?: string \| null, "image_provider"?: "88api" \| "pptoken"}` | `Settings`；切换服务时默认模型不是它提供的，改为它的第一个模型；服务没有配置密钥时 409 `provider_unavailable`；`default_model` 或 `face_fix_model` 不在列表中或不是（切换后的）服务提供的时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
 | GET | `/api/styles` | — | `Style[]`（内置风格，固定顺序，见 docs/prompts.md 第 3 节） |
 | GET | `/api/projects` | — | `ProjectSummary[]`，按 `updated_at` 倒序 |
 | POST | `/api/projects` | `{"name"?: string}` | `ProjectDetail`（201），默认名「我的婚纱照」 |
@@ -454,10 +446,11 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/assets/{id}` | — | 图片文件 |
 | GET | `/api/look-options` | — | `{"hairstyles": [{"id", "name", "role", "lengths", "updo"}], "makeup_colors": [{"id", "name", "text"}], "styles": {style_id: {"primary", "alternates", "needs_updo"}}}`（docs/prompts.md 第 8 节） |
 | PUT | `/api/projects/{id}/style-outfits/{style_id}` | `{"outfit_id": string}` | ProjectDetail；选用这个风格新样片的服饰（V7.17），风格没有这套时 422 `invalid_outfit` |
-| POST | `/api/projects/{id}/looks` | `{"client_request_id": string, "person": "a" \| "b", "style_id"?: string, "items": [LookItem]}`（1～16 项；新娘必须给 `style_id`，新郎不能给） | `Look[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；这个编号已用于别的项目、另一个人或另一个风格时 409 `request_id_reused`）；没有这个人的正面照时 409 `photos_missing`；新娘缺少或给了无效的风格、新郎给了风格、风格已停用且项目没有它的样片时 422 `invalid_style`；发型不适合当前头发长度或这个风格（要求盘发）时 422 `invalid_hairstyle`；新娘在这个风格还没有选用的妆容时 409 `makeup_required`（V7.8） |
-| POST | `/api/projects/{id}/makeups` | `{"client_request_id": string, "person": "a" \| "b", "style_id": string, "count": 1～4}` | `Makeup[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；编号已用于别的项目、另一个人或另一个风格时 409 `request_id_reused`）；`person` 不是新娘时 422 `invalid_person`；没有正面照时 409 `photos_missing`；风格无效或已停用（且项目没有它的样片）时 422 `invalid_style` |
+| POST | `/api/projects/{id}/looks` | `{"client_request_id": string, "person": "a" \| "b", "style_id"?: string, "items": [LookItem]}`（1～16 项；新娘必须给 `style_id`，新郎不能给） | `Look[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；这个编号已用于别的项目、另一个人或另一个风格时 409 `request_id_reused`）；没有这个人的正面照时 409 `photos_missing`；新娘缺少或给了无效的风格、新郎给了风格、风格已停用且项目没有它的样片时 422 `invalid_style`；发型不适合当前头发长度或这个风格（要求盘发）时 422 `invalid_hairstyle`；新娘在这个风格还没有选用的妆容时（V7.8）、新郎还没有选用的修脸照时（V7.22）409 `makeup_required` |
+| POST | `/api/projects/{id}/makeups` | `{"client_request_id": string, "person": "a" \| "b", "style_id"?: string, "count": 1～4}` | `Makeup[]`（201；同一 `client_request_id` 再次提交返回原来的候选，200；编号已用于别的项目、另一个人或另一个风格时 409 `request_id_reused`）。新娘：每张是这个风格的妆容，必须带 `style_id`，风格无效、缺少或已停用（且项目没有它的样片）时 422 `invalid_style`。新郎（V7.22）：每张是所有风格共用的修脸照，不能带 `style_id`，带了时 422 `invalid_style`。没有正面照时 409 `photos_missing` |
 | POST | `/api/makeups/{id}/retry` | — | `Makeup`；只有 `failed` / `interrupted` 可以重试，否则 409 `makeup_not_retryable`；照片已更换或是旧版本时 409 `makeup_unusable` |
 | POST | `/api/makeups/{id}/select` | — | `Makeup`；替换这个风格原来选用的妆容，已经做好的造型不变；不能使用时 409 `makeup_unusable` |
+| POST | `/api/makeups/{id}/reuse` | `{"style_id": string}` | `Makeup`（V7.21）：把另一个风格已经生成好的新娘妆容用于 `style_id`（新郎的修脸照所有风格共用，复用它时 422 `invalid_person`），不再修图、不花钱。目标风格得到一条指向同一张图的妆容记录（已经有同一张图时直接用它，不重复添加），并成为这个风格选用的妆容（`selected_by: "user"`）；这张妆容图上做过的正面发型图（任何风格做的，按图片去重）和它们的侧面图一起复制到目标风格，目标风格不能用的发型（要求盘发的风格）跳过；目标风格的造型没有用户选过时，自动选用最像的一张。妆容不能使用时 409 `makeup_unusable`；风格无效或已停用时 422 `invalid_style` |
 | DELETE | `/api/makeups/{id}` | — | 204；隐藏候选；删掉的是选用的那张时，自动选用剩下最像的一张；用它做好的造型不变；还在生成时 409 `makeup_busy` |
 | POST | `/api/looks/{id}/retry` | — | `Look`；只有 `failed` / `interrupted` 可以重试，否则 409 `look_not_retryable`；照片已更换或是 V7.0 以前的造型时 409 `look_unusable` |
 | POST | `/api/looks/{id}/select` | — | `Look`；替换这个风格原来选用的新娘造型（新郎：替换原来选用的新郎造型）；不能用于新照片时 409 `look_unusable` |

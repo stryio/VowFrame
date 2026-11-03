@@ -337,8 +337,9 @@ def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handl
 
     def handler(request):
         calls.append(request)
-        if len(calls) <= 3:
-            return image_response()  # the two looks (V5.0): the groom's, then the bride's makeup and hair (V7.5)
+        if len(calls) <= 4:
+            # The two looks (V5.0), each two edits: the groom's retouch and hair (V7.22), the bride's makeup and hair (V7.5).
+            return image_response()
         raise httpx.ReadError(f'provider echoed {TEST_KEY}', request=request)
 
     app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
@@ -351,7 +352,7 @@ def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handl
     with caplog.at_level(logging.DEBUG):
         with TestClient(second_app, backend_options={'use_uvloop': True}) as client:
             project = create_project(client)
-            batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+            batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
             wait_batch(client, batch['id'], status='needs_attention')
             task = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
             assert task['error_code'] == 'unknown_outcome'
@@ -484,7 +485,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
             }
             assert TEST_KEY not in health.text
             project = create_project(client, role=role)
-            batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+            batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
             wait_batch(client, batch['id'])
             looks = client.get(f"/api/projects/{project['id']}").json()['previews'][0]['look_ids']
             with app.state.db.connect() as conn:
@@ -493,36 +494,37 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
                     'aspect_ratio': '3:4', 'resolution': '2K', 'provider': '88api',
                     # V5.0: the looks the sample was shot from and what each reference image is.
-                    'outfit': 'studio_satin',
+                    'outfit': 'satin_mermaid',
                     'looks': {'version': STYLING_VERSION, 'bride': looks['bride'], 'groom': looks['groom']},
                     'reference_slots': [['bride', 'front'], ['groom', 'front']],
                 }
                 assert TEST_KEY not in repr(dict(row))
                 expected = [project['person_a']['asset_id'], project['person_b']['asset_id']]
                 assert uploaded_ids(app, json.loads(row['reference_image_ids'])) == (expected if role == 'bride' else expected[::-1])
-                # The two looks come first (V5.0), each sending one photo; the shot sends the looks.
-                assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 1, 2]
-                file_names = [part[1] for part in multipart_parts(calls[3]) if part[1] is not None]
+                # The two looks come first (V5.0), each edit sending one photo; the shot sends the looks.
+                assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 1, 1, 2]
+                file_names = [part[1] for part in multipart_parts(calls[4]) if part[1] is not None]
                 ordered = json.loads(row['reference_image_ids'])
                 assert [name.split('.')[0] for name in file_names] == ordered
             assert TEST_KEY not in client.get('/api/tasks').text
-    assert len(calls) == 4
+    assert len(calls) == 5
     assert TEST_KEY not in caplog.text
     assert all(TEST_KEY not in repr(record.__dict__) for record in caplog.records)
 
 
 @pytest.mark.parametrize('failure,expected,calls_expected', [
-    # The first three requests make the two looks (V5.0; the bride's in two edits, V7.5); the fourth is the sample.
-    ('connect', 'completed', 5), ('read', 'interrupted', 4),
-    (502, 'interrupted', 4), (504, 'interrupted', 4),
-    (500, 'failed', 4), (503, 'failed', 4),
+    # The first four requests make the two looks (V5.0; the bride's in two edits, V7.5, and the groom's, V7.22); the
+    # fifth is the sample.
+    ('connect', 'completed', 6), ('read', 'interrupted', 5),
+    (502, 'interrupted', 5), (504, 'interrupted', 5),
+    (500, 'failed', 5), (503, 'failed', 5),
 ])
 def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected, calls_expected):
     calls = []
 
     def handler(request):
         calls.append(request)
-        if len(calls) == 4:
+        if len(calls) == 5:
             if isinstance(failure, int):
                 return httpx.Response(failure, text='model service error')
             exception = httpx.ConnectError if failure == 'connect' else httpx.ReadTimeout
@@ -533,7 +535,7 @@ def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected,
     with TestClient(app, backend_options={'use_uvloop': True}) as client:
         app.state.db.set_auto_face_fix('off')  # count only the shot's requests
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='completed' if expected == 'completed' else 'needs_attention')
         task = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
         assert task['status'] == expected

@@ -12,18 +12,18 @@ from app.prompts import QUALITY_PARAGRAPH, STYLE_BY_ID
 from conftest import BlockingGenerator, PNG, ScriptedGenerator, create_director_photo_batch, create_project, preview_batch, uploaded_ids, wait_batch
 
 
-def ready_preview(client, project_id, style_id='korean_minimal'):
+def ready_preview(client, project_id, style_id='dark_studio'):
     batch = preview_batch(client, project_id, request_id=f'preview-{new_id()}', style_ids=[style_id])
     wait_batch(client, batch['id'])
     return next(slot for slot in client.get(f'/api/projects/{project_id}').json()['previews']
                 if slot['style_id'] == style_id)
 
 
-def ready_preview_slot(client, project_id, style_id='korean_minimal'):
+def ready_preview_slot(client, project_id, style_id='dark_studio'):
     return next(slot for slot in client.get(f'/api/projects/{project_id}').json()['previews'] if slot['style_id'] == style_id)
 
 
-def ready_photos(client, project_id, *, style_id='korean_minimal', request_id='photos', count=4, model=None):
+def ready_photos(client, project_id, *, style_id='dark_studio', request_id='photos', count=4, model=None):
     preview = ready_preview(client, project_id, style_id)
     batch = create_director_photo_batch(client, project_id, preview['id'], request_id=request_id, count=count, model=model)
     assert batch.status_code == 201, batch.text
@@ -31,7 +31,7 @@ def ready_photos(client, project_id, *, style_id='korean_minimal', request_id='p
     return preview, client.get(f'/api/projects/{project_id}').json()['photos']
 
 
-def add_empty_photo_slot(app, project_id, batch_id, style_id='korean_minimal'):
+def add_empty_photo_slot(app, project_id, batch_id, style_id='dark_studio'):
     slot_id = new_id()
     with app.state.db.connect(write=True) as conn:
         conn.execute(
@@ -83,7 +83,7 @@ def test_identity_boost_keeps_the_looks_takes_the_style_preview_and_exact_sectio
     generator = ScriptedGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        preview, photos = ready_photos(client, project['id'], style_id='cinematic_light')
+        preview, photos = ready_photos(client, project['id'], style_id='dark_studio')
         client.patch('/api/settings', json={'batch_reference_mode': 'with_preview'})
         with_faces = next(photo for photo in photos if photo['shot_size'] != 'detail')
         response = client.post(f"/api/slots/{with_faces['id']}/regenerate", json={
@@ -109,7 +109,7 @@ def test_identity_boost_keeps_the_looks_takes_the_style_preview_and_exact_sectio
         assert paragraphs[2].endswith('光线均匀柔和，降低风格化。')
         assert paragraphs[3].endswith('，两人面部正对或接近正对镜头，面部完整、清晰、占画面较大比例。')
         assert paragraphs[4] == QUALITY_PARAGRAPH
-        assert paragraphs[5].endswith('剪影、过度高反差、侧脸、低头、头发遮挡眼睛。')
+        assert paragraphs[5].endswith('地面反光过强、画面偏黄、侧脸、低头、头发遮挡眼睛。')
         # A look made from a replaced photo no longer makes new pictures.
         client.post(f"/api/projects/{project['id']}/images", data={'person': 'a'}, files={'file': ('current.png', PNG, 'image/png')})
         refused = client.post(f"/api/slots/{with_faces['id']}/regenerate", json={'client_request_id': 'boost-again', 'mode': 'identity_boost'})
@@ -128,7 +128,7 @@ def test_identity_boost_preview_uses_representative_moment_and_missing_style_pre
         assert result.status_code == 201, result.text
         wait_batch(client, result.json()['id'])
         task = task_for_batch(client, result.json()['id'])
-        assert task['prompt'].split('\n\n')[3].startswith(STYLE_BY_ID['korean_minimal']['preview'].removesuffix('。'))
+        assert task['prompt'].split('\n\n')[3].startswith(STYLE_BY_ID['dark_studio']['preview'].removesuffix('。'))
         with app.state.db.connect() as conn:
             references = conn.execute(
                 'SELECT reference_image_ids FROM generation_tasks WHERE id=?', (task['id'],)
@@ -197,7 +197,7 @@ def test_regenerate_model_override_validation_busy_and_idempotency(app_factory):
     generator = BlockingGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        preview_batch_result = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        preview_batch_result = preview_batch(client, project['id'], style_ids=['dark_studio'])
         assert generator.started.wait(2)
         generator.release.set()
         wait_batch(client, preview_batch_result['id'])
@@ -381,7 +381,7 @@ def test_delete_running_photo_returns_busy_and_cancels_waiting_tasks(app_factory
     generator = BlockingGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        preview = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        preview = preview_batch(client, project['id'], style_ids=['dark_studio'])
         assert generator.started.wait(2)
         generator.release.set()
         wait_batch(client, preview['id'])
@@ -445,7 +445,7 @@ def test_export_zip_has_album_names_current_versions_only_and_validates_slots(ap
         with zipfile.ZipFile(io.BytesIO(export.content)) as archive:
             names = archive.namelist()
             assert len(names) == 4
-            assert names[0] == f"01_韩系极简_{photos[0]['pose_name']}.png"
+            assert names[0] == f"01_黑色影棚_{photos[0]['pose_name']}.png"
             assert all(name.endswith('.png') for name in names)
             assert archive.read(names[0]) == b'CURRENT-VERSION'
             assert all(archive.read(name) == PNG for name in names[1:])
@@ -480,19 +480,19 @@ def test_previous_generation_task_schema_migrates_without_losing_rows_or_version
         conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at) VALUES (?,?,?,?,?)',
                      (asset_id, project_id, 'projects/legacy.png', 'photo', '2026-01-01'))
         conn.execute('INSERT INTO generation_batches (id,project_id,batch_type,client_request_id,created_at,style_id) '
-                     'VALUES (?,?,?,?,?,?)', (batch_id, project_id, 'photo', 'legacy-request', '2026-01-01', 'korean_minimal'))
+                     'VALUES (?,?,?,?,?,?)', (batch_id, project_id, 'photo', 'legacy-request', '2026-01-01', 'dark_studio'))
         conn.execute('INSERT INTO photo_slots (id,project_id,batch_id,kind,style_id,created_at) VALUES (?,?,?,?,?,?)',
-                     (slot_id, project_id, batch_id, 'photo', 'korean_minimal', '2026-01-01'))
+                     (slot_id, project_id, batch_id, 'photo', 'dark_studio', '2026-01-01'))
         conn.execute(
             'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,'
             'pose_id,prompt,model_config_snapshot,output_asset_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-            (task_id, project_id, batch_id, slot_id, 'completed', '[]', 'korean_minimal', 'pose_03', 'legacy prompt',
+            (task_id, project_id, batch_id, slot_id, 'completed', '[]', 'dark_studio', 'pose_03', 'legacy prompt',
              json.dumps({'model': 'gpt-image-2'}), asset_id, '2026-01-01'),
         )
         conn.execute(
             'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,'
             'pose_id,prompt,model_config_snapshot,retry_of_task_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-            (retry_task_id, project_id, batch_id, slot_id, 'failed', '[]', 'korean_minimal', 'pose_03',
+            (retry_task_id, project_id, batch_id, slot_id, 'failed', '[]', 'dark_studio', 'pose_03',
              'legacy retry prompt', json.dumps({'model': 'gpt-image-2'}), task_id, '2026-01-02'),
         )
         conn.execute('INSERT INTO photo_versions (id,photo_slot_id,image_asset_id,generation_task_id,version_number,'

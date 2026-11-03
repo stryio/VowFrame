@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .aspect import DEFAULT_PORTRAIT_RATIO, PORTRAIT_RATIOS
-from .models import DEFAULT_MODEL
+from .models import DEFAULT_MODEL, MODELS_BY_ID
 
 
 def new_id() -> str:
@@ -17,6 +17,23 @@ def new_id() -> str:
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+# Kept apart from SCHEMA so the V7.22 upgrade can rebuild the table with the same definition.
+MAKEUPS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    person TEXT NOT NULL CHECK(person IN ('a','b')), role TEXT NOT NULL CHECK(role IN ('bride','groom')), style_id TEXT,
+    makeup_color TEXT, makeup_level TEXT NOT NULL,
+    source_asset_id TEXT NOT NULL REFERENCES image_assets(id), styling_version INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('waiting','running','ready','failed','interrupted')),
+    error_code TEXT, error_message TEXT, model TEXT, prompt TEXT NOT NULL,
+    image_asset_id TEXT REFERENCES image_assets(id), face_score REAL, selected_by TEXT,
+    client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT, makeup_style_id TEXT
+);
+"""
+MAKEUPS_INDEXES = """CREATE INDEX IF NOT EXISTS makeup_project ON makeups(project_id,person,style_id);
+CREATE INDEX IF NOT EXISTS makeup_queue ON makeups(status,created_at);
+CREATE INDEX IF NOT EXISTS makeup_request ON makeups(client_request_id);
+"""
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -127,7 +144,7 @@ CREATE TABLE IF NOT EXISTS looks (
     image_asset_id TEXT REFERENCES image_assets(id), face_score REAL, selected_order INTEGER,
     client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT,
     hair_prompt TEXT, makeup_asset_id TEXT REFERENCES image_assets(id), makeup_face_score REAL, selected_by TEXT,
-    makeup_id TEXT REFERENCES makeups(id)
+    makeup_id TEXT REFERENCES makeups(id), makeup_style_id TEXT
 );
 CREATE INDEX IF NOT EXISTS look_project ON looks(project_id,person,angle);
 CREATE INDEX IF NOT EXISTS look_queue ON looks(status,created_at);
@@ -135,21 +152,15 @@ CREATE INDEX IF NOT EXISTS look_request ON looks(client_request_id);
 -- V7.8: the bride's makeup for one style is its own candidates: the makeup edit of the uploaded photo, hair
 -- unchanged. One is selected per style (selected_by 'user' or 'auto', NULL when not selected), and every new bride
 -- look of the style is a hair edit of that made-up photo (looks.makeup_id).
-CREATE TABLE IF NOT EXISTS makeups (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    person TEXT NOT NULL CHECK(person IN ('a','b')), style_id TEXT NOT NULL,
-    makeup_color TEXT NOT NULL, makeup_level TEXT NOT NULL,
-    source_asset_id TEXT NOT NULL REFERENCES image_assets(id), styling_version INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('waiting','running','ready','failed','interrupted')),
-    error_code TEXT, error_message TEXT, model TEXT, prompt TEXT NOT NULL,
-    image_asset_id TEXT REFERENCES image_assets(id), face_score REAL, selected_by TEXT,
-    client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT
-);
-CREATE INDEX IF NOT EXISTS makeup_project ON makeups(project_id,person,style_id);
-CREATE INDEX IF NOT EXISTS makeup_queue ON makeups(status,created_at);
-CREATE INDEX IF NOT EXISTS makeup_request ON makeups(client_request_id);
--- V7.18: one person's final look: one edit of their selected look (look_id) into the whole person in one outfit. One
--- is selected per (look, outfit); it tells a sample what the clothes are, and the look keeps fixing the face.
+-- V7.21: a makeup or look can be reused by another style: the other style gets its own row on the same image
+-- (no new edit). makeup_style_id is the style whose colour family and finish the makeup was painted in; NULL
+-- means its own style_id. The bride's side looks and the shots describe her makeup by it, not by the shot's style.
+-- V7.22: the groom's look is two edits too: his retouched photo (role 'groom', style_id and makeup_color NULL,
+-- shared by every style like his looks), then the hair on it.
+""" + MAKEUPS_TABLE.format(name='makeups') + MAKEUPS_INDEXES + """
+-- V7.18: one person's final look: one edit of their selected look (look_id) into the whole person in one outfit.
+-- Retired in V7.19: nothing writes or reads it any more. It stays so existing databases keep their rows, and the
+-- pictures made with these images (recorded in their tasks' reference_image_ids) keep their files.
 CREATE TABLE IF NOT EXISTS outfit_looks (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     person TEXT NOT NULL CHECK(person IN ('a','b')), role TEXT NOT NULL CHECK(role IN ('bride','groom')),
@@ -231,6 +242,9 @@ class Database:
             add_column('looks', 'makeup_face_score REAL')
             add_column('looks', 'selected_by TEXT')
             add_column('looks', 'makeup_id TEXT REFERENCES makeups(id)')
+            add_column('looks', 'makeup_style_id TEXT')
+            add_column('makeups', 'makeup_style_id TEXT')
+            self._upgrade_makeups(connection)
             add_column('image_assets', 'source_asset_id TEXT REFERENCES image_assets(id)')
             add_column('photo_versions', 'face_scores TEXT')
             add_column('photo_versions', 'size_warning TEXT')
@@ -303,6 +317,19 @@ class Database:
                 raise sqlite3.IntegrityError('Foreign key violations found after schema upgrade')
         finally:
             connection.close()
+
+    @staticmethod
+    def _upgrade_makeups(connection: sqlite3.Connection):
+        """V7.22: makeups get a role, and the groom's have no style or colour; every older one is the bride's."""
+        columns = [row[1] for row in connection.execute('PRAGMA table_info(makeups)')]
+        if 'role' in columns:
+            return
+        connection.execute(MAKEUPS_TABLE.format(name='makeups_v722'))
+        names = ','.join(columns)
+        connection.execute(f"INSERT INTO makeups_v722 ({names},role) SELECT {names},'bride' FROM makeups")
+        connection.execute('DROP TABLE makeups')
+        connection.execute('ALTER TABLE makeups_v722 RENAME TO makeups')
+        connection.executescript(MAKEUPS_INDEXES)
 
     @staticmethod
     def _upgrade_generation_tasks(connection: sqlite3.Connection):
@@ -441,6 +468,19 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (mode,),
             )
+
+    def get_face_fix_model(self) -> str | None:
+        """The image model of AI face fixes, automatic and by hand; None follows the default model (also when the
+        stored model has left the registry)."""
+        with self.connect() as connection:
+            row = connection.execute("SELECT value FROM app_settings WHERE key='face_fix_model'").fetchone()
+        return row['value'] if row is not None and row['value'] in MODELS_BY_ID else None
+
+    def set_face_fix_model(self, model: str | None):
+        with self.connect(write=True) as connection:
+            connection.execute(
+                "INSERT INTO app_settings (key,value) VALUES ('face_fix_model',?) "
+                'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (model or '',))
 
     def get_image_provider(self) -> str:
         """The image service models both services offer go to (V7.11); 88API until Settings changes it."""

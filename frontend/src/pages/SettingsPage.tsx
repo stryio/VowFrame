@@ -28,6 +28,7 @@ export function SettingsPage() {
   const [referenceMode, setReferenceMode] = useState<BatchReferenceMode>("prompt_only");
   const [portraitRatio, setPortraitRatio] = useState<PortraitRatio>("3:4");
   const [autoFaceFix, setAutoFaceFix] = useState<AutoFaceFix>("split");
+  const [faceFixModel, setFaceFixModel] = useState<string | null>(null);
   const [directorModel, setDirectorModel] = useState("");
   const [directorProvider, setDirectorProvider] = useState<ImageProviderId>("88api");
   const [directorProviders, setDirectorProviders] = useState<ImageProvider[]>([]);
@@ -46,6 +47,7 @@ export function SettingsPage() {
         setReferenceMode(settings.batch_reference_mode);
         setPortraitRatio(settings.portrait_ratio);
         setAutoFaceFix(settings.auto_face_fix);
+        setFaceFixModel(settings.face_fix_model);
         setDirectorModel(settings.director_model ?? "");
         setDirectorProvider(settings.director_provider);
         setDirectorProviders(settings.director_providers);
@@ -83,9 +85,30 @@ export function SettingsPage() {
       } else {
         toast.info(`已切换到 ${providers.find((item) => item.id === id)?.name}，新建的任务将发给它`);
       }
+      if (faceFixModel && saved.face_fix_model === null) {
+        toast.info("新服务不提供原来的修脸模型，AI 修脸改为跟随默认模型");
+      }
       setDefaultModel(saved.default_model);
+      setFaceFixModel(saved.face_fix_model);
       setHealth((h) => (h ? { ...h, model: saved.default_model } : h));
     } catch (err) {
+      toast.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // "" in the select means: follow the default model.
+  const changeFaceFixModel = async (id: string) => {
+    const previous = faceFixModel;
+    setFaceFixModel(id || null);
+    setSaving(true);
+    try {
+      const saved = await api.updateSettings({ face_fix_model: id || null });
+      setFaceFixModel(saved.face_fix_model);
+      toast.info(saved.face_fix_model ? `AI 修脸将使用 ${saved.face_fix_model}` : "AI 修脸改为跟随默认模型");
+    } catch (err) {
+      setFaceFixModel(previous);
       toast.error(err);
     } finally {
       setSaving(false);
@@ -172,6 +195,7 @@ export function SettingsPage() {
   };
 
   const selected = models?.find((m) => m.id === defaultModel);
+  const selectedFaceFix = models?.find((m) => m.id === faceFixModel);
 
   return (
     <div className="page">
@@ -237,7 +261,7 @@ export function SettingsPage() {
               ))}
             </div>
             <span className="field-hint">
-              每张有人脸的样片和相册照片生成后自动做一次。默认（新娘 AI + 新郎 FaceFusion）：先用 AI 只修新娘，保住她的妆容和美白，每张按默认模型计费一次；再用 FaceFusion 只换新郎的脸，本地处理、不花钱，不会动新郎的发型。没有配置 FaceFusion 时只修新娘。AI 修脸会把整张图重画一遍，FaceFusion 换脸会把妆洗淡一些。照片菜单里的「AI 修脸」「换脸修正」仍是修两个人。
+              每张有人脸的样片和相册照片生成后自动做一次。默认（新娘 AI + 新郎 FaceFusion）：先用 AI 只修新娘，保住她的妆容和美白，每张按「AI 修脸模型」计费一次；再用 FaceFusion 只换新郎的脸，本地处理、不花钱，不会动新郎的发型。没有配置 FaceFusion 时只修新娘。AI 修脸会把整张图重画一遍，FaceFusion 换脸会把妆洗淡一些。照片菜单里的「AI 修脸」「换脸修正」仍是修两个人。
             </span>
           </div>
           <span className="field-label">FaceFusion 换脸</span>
@@ -313,6 +337,26 @@ export function SettingsPage() {
               ))}
             </select>
             {selected && <span className="field-hint">{selected.description}</span>}
+          </label>
+          <label className="field" style={{ maxWidth: 420 }}>
+            <span className="field-label">AI 修脸模型</span>
+            <select
+              className="input"
+              value={faceFixModel ?? ""}
+              disabled={saving}
+              onChange={(e) => changeFaceFixModel(e.target.value)}
+            >
+              <option value="">跟随默认模型（{selected?.name ?? defaultModel}）</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">
+              {selectedFaceFix ? `${selectedFaceFix.description}。` : ""}
+              生成后的自动修脸和照片菜单里的「AI 修脸」都用它；手动修脸时也可以在确认弹窗里临时换用其他模型。
+            </span>
           </label>
           <span className="field-hint">生成样片或拍组时，也可以在确认弹窗里为这一次临时换用其他模型。</span>
         </div>

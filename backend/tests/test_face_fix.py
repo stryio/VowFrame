@@ -39,7 +39,7 @@ def test_every_picture_gets_one_ai_face_fix_of_the_whole_picture_with_its_looks(
     generator = ScriptedGenerator()
     with app_factory(generator=generator, auto_face_fix='ai', concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'])
         assert client.get(f"/api/batches/{batch['id']}").json()['total'] == 2
         _shot, (images, prompt, _at) = generator.calls
@@ -77,7 +77,7 @@ def test_a_failed_fix_keeps_the_original(app_factory, mode):
     generator = ScriptedGenerator([None, GeneratorError('rejected')])
     with app_factory(generator=generator, face_swapper=ScriptedFaceSwapper(), auto_face_fix=mode, concurrency=1) as (client, _app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         assert fix_task(client, batch['id'])['error_code'] == 'rejected'
         assert not any(task['regenerate_mode'] == 'face_swap' for task in client.get('/api/tasks', params={'batch_id': batch['id']}).json())
@@ -89,11 +89,11 @@ def test_the_setting_picks_the_ai_fix_the_swap_or_nothing(app_factory):
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='off', concurrency=1) as (client, _app):
         assert client.get('/api/settings').json()['auto_face_fix'] == 'off'
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'])
         assert client.get(f"/api/batches/{batch['id']}").json()['total'] == 1
         assert client.patch('/api/settings', json={'auto_face_fix': 'facefusion'}).json()['auto_face_fix'] == 'facefusion'
-        batch = preview_batch(client, project['id'], request_id='swap', style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], request_id='swap', style_ids=['dark_studio'])
         wait_batch(client, batch['id'])
         modes = {task['regenerate_mode'] for task in client.get('/api/tasks', params={'batch_id': batch['id']}).json()}
         assert modes == {None, 'face_swap'} and swapper.calls
@@ -103,7 +103,7 @@ def test_the_setting_picks_the_ai_fix_the_swap_or_nothing(app_factory):
 def test_a_picture_can_be_fixed_by_hand_and_a_fix_starts_from_the_original(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['korean_minimal'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
         slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         original = slot['current_version']['id']
         for request_id in ('first', 'again'):
@@ -118,6 +118,30 @@ def test_a_picture_can_be_fixed_by_hand_and_a_fix_starts_from_the_original(app_f
         assert bad.status_code == 422 and bad.json()['detail']['code'] == 'invalid_model'
         batch = client.post('/api/slots/batch-action', json={'client_request_id': 'many', 'slot_ids': [slot['id']], 'action': 'face_fix'})
         assert batch.status_code == 201, batch.text
+
+
+def test_the_face_fix_model_setting_picks_the_model_of_automatic_and_manual_fixes(app_factory):
+    generator = ScriptedGenerator()
+    with app_factory(generator=generator, auto_face_fix='ai', concurrency=1) as (client, app):
+        settings = client.patch('/api/settings', json={'face_fix_model': 'gemini-nano-banana-2.1'}).json()
+        assert settings['face_fix_model'] == 'gemini-nano-banana-2.1' and settings['default_model'] == 'gpt-image-2'
+        project = create_project(client)
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        wait_batch(client, batch['id'])
+        # The shot keeps the default model; only its automatic fix uses the face-fix model.
+        assert generator.models == ['gpt-image-2', 'gemini-nano-banana-2.1']
+        slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
+        response = client.post(f"/api/slots/{slot['id']}/face-fix", json={'client_request_id': 'by-hand'})
+        wait_batch(client, response.json()['id'])
+        chosen = client.post(f"/api/slots/{slot['id']}/face-fix", json={'client_request_id': 'chosen', 'model': 'gpt-image-2.5-flare'})
+        wait_batch(client, chosen.json()['id'])
+        assert generator.models[2:] == ['gemini-nano-banana-2.1', 'gpt-image-2.5-flare']
+        assert client.patch('/api/settings', json={'face_fix_model': 'nope'}).status_code == 422
+        # PPTOKEN does not offer the Gemini model, so face fixes follow the default model again.
+        assert client.patch('/api/settings', json={'image_provider': 'pptoken'}).json()['face_fix_model'] is None
+        assert client.patch('/api/settings', json={'face_fix_model': 'gemini-nano-banana-2.1'}).status_code == 422
+        assert client.patch('/api/settings', json={'face_fix_model': 'gpt-image-2.5'}).json()['face_fix_model'] == 'gpt-image-2.5'
+        assert client.patch('/api/settings', json={'face_fix_model': None}).json()['face_fix_model'] is None
 
 
 class FallingScores(ScriptedFaceSwapper):
@@ -135,7 +159,7 @@ class FallingScores(ScriptedFaceSwapper):
 def test_a_fix_that_makes_someone_less_alike_keeps_the_original(app_factory):
     with app_factory(generator=ScriptedGenerator(), face_swapper=FallingScores(), auto_face_fix='ai', concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'])
         slot = wait_until(lambda: client.get(f"/api/projects/{project['id']}").json()['previews'][0],
                           lambda slot: slot['current_version']['version_number'] == 1)
@@ -148,7 +172,7 @@ def test_a_fix_that_makes_someone_less_alike_keeps_the_original(app_factory):
 def test_a_fix_that_keeps_the_likeness_stays(app_factory):
     with app_factory(generator=ScriptedGenerator(), face_swapper=ScriptedFaceSwapper(), auto_face_fix='ai', concurrency=1) as (client, app):
         project = create_project(client)
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['korean_minimal'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
         wait_until(lambda: client.get(f"/api/projects/{project['id']}").json()['previews'][0],
                    lambda slot: slot['current_version']['face_scores'] is not None)
         assert client.get(f"/api/projects/{project['id']}").json()['previews'][0]['current_version']['version_number'] == 2
@@ -182,7 +206,7 @@ def test_split_fixes_the_bride_by_ai_then_swaps_only_the_groom_with_facefusion(a
     generator, swapper = ScriptedGenerator(), ScoredSwapper([])
     with app_factory(generator=generator, face_swapper=swapper, auto_face_fix='split', concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_until(lambda: client.get(f"/api/batches/{batch['id']}").json(),
                    lambda batch: batch['total'] == 3 and batch['status'] == 'completed')
         modes = [task['regenerate_mode'] for task in sorted(client.get('/api/tasks', params={'batch_id': batch['id']}).json(),
@@ -210,7 +234,7 @@ def test_split_swaps_the_groom_on_the_original_when_the_fix_made_the_bride_less_
     generator, swapper = ScriptedGenerator(), ScoredSwapper([0.6, 0.5])
     with app_factory(generator=generator, face_swapper=swapper, auto_face_fix='split', concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_until(lambda: client.get(f"/api/batches/{batch['id']}").json(),
                    lambda batch: batch['total'] == 3 and batch['status'] == 'completed')
         with app.state.db.connect() as conn:
@@ -254,7 +278,7 @@ def test_split_stays_active_during_scoring_and_stopping_it_cannot_recreate_the_g
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='split', concurrency=1) as (client, _app):
         try:
             project = create_project(client)
-            batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+            batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
             assert swapper.started.wait(5)
             state = client.get(f"/api/batches/{batch['id']}").json()
             assert state['total'] == 3 and state['status'] == 'running'
@@ -277,7 +301,7 @@ def test_split_pauses_the_groom_follow_up_and_continues_it_after_a_restart(app_f
     with app_factory(generator=generator, face_swapper=swapper, auto_face_fix='split', concurrency=1,
                      data_dir=data_dir) as (client, _app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         assert generator.started.wait(5)
         client.post(f"/api/batches/{batch['id']}/pause").raise_for_status()
         generator.release.set()
@@ -304,7 +328,7 @@ def test_split_without_facefusion_uses_only_the_brides_reference_even_when_peopl
     generator = ScriptedGenerator()
     with app_factory(generator=generator, auto_face_fix='split', concurrency=1) as (client, app):
         project = create_project(client, role=role)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         assert wait_batch(client, batch['id'])['total'] == 2
         images, prompt, _at = generator.calls[-1]
         task = fix_task(client, batch['id'])
@@ -324,7 +348,7 @@ def test_split_keeps_the_chain_when_similarity_scoring_fails(app_factory):
     generator, swapper = ScriptedGenerator(), FailingScorer()
     with app_factory(generator=generator, face_swapper=swapper, auto_face_fix='split', concurrency=1) as (client, _app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         assert wait_batch(client, batch['id'])['total'] == 3
         assert len(generator.calls) == 2 and swapper.roles == [('groom',)]
 
@@ -333,7 +357,7 @@ def test_retrying_a_failed_groom_swap_does_not_repeat_the_paid_bride_fix(app_fac
     generator, swapper = ScriptedGenerator(), ScriptedFaceSwapper([FaceSwapError('face_not_found')])
     with app_factory(generator=generator, face_swapper=swapper, auto_face_fix='split', concurrency=1) as (client, _app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         swap = next(task for task in client.get('/api/tasks', params={'batch_id': batch['id']}).json()
                     if task['regenerate_mode'] == 'face_swap')
@@ -351,7 +375,7 @@ def test_manual_corrections_after_split_start_from_the_generated_picture_and_its
     generator, swapper = ScriptedGenerator(), ScoredSwapper([])
     with app_factory(generator=generator, face_swapper=swapper, auto_face_fix='split', concurrency=1) as (client, _app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'])
         slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         original = next(version for version in client.get(f"/api/slots/{slot['id']}/versions").json() if version['version_number'] == 1)

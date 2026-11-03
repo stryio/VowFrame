@@ -26,7 +26,7 @@ def test_error_mapping_and_only_safe_requests_auto_retry(app_factory, kind, stat
     generator = ScriptedGenerator([GeneratorError(kind)] * 3)
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         result = wait_batch(client, batch['id'], status='needs_attention')
         task = batch_tasks(client, batch['id'])[0]
         assert result['counts'][status] == 1
@@ -47,7 +47,7 @@ def test_safe_auto_retry_can_succeed_without_new_task(app_factory):
     generator = ScriptedGenerator([GeneratorError('not_sent'), GeneratorError('not_sent')])
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'])
         tasks = batch_tasks(client, batch['id'])
         assert len(tasks) == 1
@@ -61,7 +61,7 @@ def test_manual_retry_copies_context_and_preserves_original(app_factory, kind):
     generator = ScriptedGenerator([GeneratorError(kind)])
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         with app.state.db.connect(write=True) as conn:
             conn.execute(
@@ -147,7 +147,7 @@ def test_retrying_interrupted_task_clears_pending_recovery(app_factory):
     generator = ScriptedGenerator([GeneratorError('unknown_outcome')])
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         assert client.get(f"/api/projects/{project['id']}").json()['has_pending_recovery'] is True
         original = batch_tasks(client, batch['id'])[0]
@@ -163,7 +163,7 @@ def test_concurrent_manual_retries_only_create_one_task(app_factory):
     generator = ScriptedGenerator([GeneratorError('rejected')])
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         original = batch_tasks(client, batch['id'])[0]
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -208,7 +208,7 @@ def test_unexpected_generator_error_is_logged_and_sanitized(app_factory, caplog)
     generator = ScriptedGenerator([RuntimeError('provider internal diagnostic')])
     with app_factory(generator=generator) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         task = batch_tasks(client, batch['id'])[0]
         assert task['error_code'] == 'generation_failed'
@@ -221,11 +221,11 @@ def test_regeneration_failure_retains_previous_version(app_factory):
     generator = ScriptedGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        first = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        first = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, first['id'])
         original = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         generator.outcomes.append(GeneratorError('rejected'))
-        second = preview_batch(client, project['id'], request_id='second', style_ids=['korean_minimal'])
+        second = preview_batch(client, project['id'], request_id='second', style_ids=['dark_studio'])
         wait_batch(client, second['id'], status='needs_attention')
         current = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         assert current['current_version'] == original['current_version']
@@ -256,12 +256,12 @@ def test_version_transaction_rolls_back_on_insert_failure(app_factory):
         project = create_project(client)
         with app.state.db.connect(write=True) as conn:
             conn.execute("CREATE TRIGGER reject_version BEFORE INSERT ON photo_versions BEGIN SELECT RAISE(ABORT, 'test version failure'); END")
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         with app.state.db.connect() as conn:
             # Two people, each stored as the untouched upload plus the prepared reference, and a look each (V5.0),
-            # plus the bride's made-up step (V7.5); no generated asset.
-            assert conn.execute('SELECT COUNT(*) FROM image_assets').fetchone()[0] == 7
+            # plus the bride's made-up step (V7.5) and the groom's retouched one (V7.22); no generated asset.
+            assert conn.execute('SELECT COUNT(*) FROM image_assets').fetchone()[0] == 8
             assert conn.execute('SELECT COUNT(*) FROM photo_versions').fetchone()[0] == 0
             task = conn.execute('SELECT * FROM generation_tasks').fetchone()
             assert task['status'] == 'failed' and task['output_asset_id'] is None
@@ -334,9 +334,9 @@ def test_concurrent_versions_have_unique_monotonic_numbers(app_factory):
     generator = BlockingGenerator()
     with app_factory(generator=generator, concurrency=2) as (client, app):
         project = create_project(client)
-        first = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        first = preview_batch(client, project['id'], style_ids=['dark_studio'])
         assert generator.started.wait(2)
-        second = preview_batch(client, project['id'], request_id='second', style_ids=['korean_minimal'])
+        second = preview_batch(client, project['id'], request_id='second', style_ids=['dark_studio'])
         wait_until(lambda: len(generator.calls), lambda n: n == 2)
         generator.release.set()
         wait_batch(client, first['id'])
@@ -392,23 +392,23 @@ def test_file_is_fsynced_and_moved_before_database_completion(app_factory):
     with app_factory(concurrency=1) as (client, app):
         project = create_project(client)
         with patch('app.storage.os.fsync', side_effect=fsync), patch('app.storage.os.replace', side_effect=replace), patch.object(TaskManager, '_commit_result', new=commit):
-            batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+            batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
             wait_batch(client, batch['id'])
-        # The looks' images (the groom's, the bride's made-up step and her look, V7.5) are saved the same way before
-        # the shot itself.
-        assert events == ['fsync', 'replace', 'fsync'] * 4 + ['commit']
+        # The looks' images (each person's made-up or retouched step and their look, V7.5 / V7.22) are saved the same
+        # way before the shot itself.
+        assert events == ['fsync', 'replace', 'fsync'] * 5 + ['commit']
 
 
 def test_missing_reference_fails_without_provider_request(app_factory):
     generator = ScriptedGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        looks = ensure_looks(client, project['id'], ['korean_minimal'])['style_looks']
+        looks = ensure_looks(client, project['id'], ['dark_studio'])['style_looks']
         with app.state.db.connect() as conn:
             row = conn.execute('SELECT asset.file_path FROM looks JOIN image_assets asset ON asset.id=looks.image_asset_id '
-                               'WHERE looks.id=?', (looks['korean_minimal']['bride'],)).fetchone()
+                               'WHERE looks.id=?', (looks['dark_studio']['bride'],)).fetchone()
         asset_path(app.state.config, row['file_path']).unlink()
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'], status='needs_attention')
         assert batch_tasks(client, batch['id'])[0]['error_code'] == 'reference_missing'
         assert not generator.calls

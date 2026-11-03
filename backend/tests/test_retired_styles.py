@@ -25,7 +25,7 @@ def test_new_samples_reject_retired_styles(client_app):
 def test_existing_sample_of_a_retired_style_can_be_regenerated(app_factory):
     with app_factory(concurrency=1) as (client, app):
         project = create_project(client)
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['korean_minimal'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
         # A sample made before the style was retired: move it to a retired style.
         with app.state.db.connect(write=True) as conn:
             conn.execute("UPDATE photo_slots SET style_id='black_white' WHERE project_id=? AND kind='preview'", (project['id'],))

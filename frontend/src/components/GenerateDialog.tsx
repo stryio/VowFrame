@@ -9,6 +9,8 @@ interface GenerateRequest {
   confirmText?: string;
   /** Ask for a target shot size; `current` (if any) cannot be chosen. */
   shotChoice?: { current: StoredShotSize | null };
+  /** An AI face fix: preselect the face-fix model from Settings instead of the default model. */
+  faceFix?: boolean;
 }
 
 export interface GenerateChoice {
@@ -69,7 +71,7 @@ function GenerateDialog({
     Promise.all([api.models(), api.settings()])
       .then(([list, settings]) => {
         setModels(list);
-        setModel(settings.default_model);
+        setModel((request.faceFix && settings.face_fix_model) || settings.default_model);
       })
       .catch(() => setFailed(true));
   }, []);
@@ -142,7 +144,7 @@ function GenerateDialog({
         </label>
 
         <p className="field-hint">
-          共创建 {count} 个生成任务，会产生相应费用。默认模型可在「设置」中修改。
+          共创建 {count} 个{request.faceFix ? "修图" : "生成"}任务，会产生相应费用。{request.faceFix ? "修脸模型" : "默认模型"}可在「设置」中修改。
         </p>
 
         <div className="modal-actions">

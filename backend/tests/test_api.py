@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from app.prompts import POSES, RETIRED_STYLE_IDS, STYLES, compose_photo_prompt
+from app.prompts import DEFAULT_PREVIEW_STYLE_IDS, POSES, RETIRED_STYLE_IDS, STYLES, compose_photo_prompt
 from conftest import PNG, BlockingGenerator, create_project, ensure_looks, preview_batch, uploaded_ids, wait_batch, wait_until
 
 
@@ -30,9 +30,9 @@ def test_health_styles_and_pose_library(client_app):
     assert [s['description'] for s in styles] == [style['description'] for style in STYLES]
     assert all(set(s) == {'id', 'name', 'description', 'default_preview', 'retired'} for s in styles)
     assert [p['id'] for p in POSES] == [f'pose_{i:02d}' for i in range(1, 13)]
-    assert '两人相视而笑' in compose_photo_prompt('korean_minimal', 'pose_02', '3:4')
+    assert '两人相视而笑' in compose_photo_prompt('dark_studio', 'pose_02', '3:4')
     assert '不参考其中的人脸、长相和构图' in compose_photo_prompt(
-        'korean_minimal', 'pose_02', '3:4', with_preview=True,
+        'dark_studio', 'pose_02', '3:4', with_preview=True,
     )
 
 
@@ -89,7 +89,7 @@ def test_upload_stage_select_and_replacement_keeps_old_assets(client_app):
         assert project['stage'] == stage
         assert client.get(f"/api/assets/{project[f'person_{person}']['asset_id']}").content == PNG
     old_image = project['person_a']['asset_id']
-    batch = preview_batch(client, project_id, style_ids=['korean_minimal'])
+    batch = preview_batch(client, project_id, style_ids=['dark_studio'])
     wait_batch(client, batch['id'])
     project = client.get(f'/api/projects/{project_id}').json()
     slot = project['previews'][0]
@@ -129,7 +129,7 @@ def test_previews_complete_and_regenerate_same_slot(client_app):
         assert response.content == PNG
         assert response.headers['content-type'] == 'image/png'
     original = detail['previews'][0]
-    next_batch = preview_batch(client, project['id'], request_id='request-2', style_ids=['korean_minimal'])
+    next_batch = preview_batch(client, project['id'], request_id='request-2', style_ids=[active[0]])
     wait_batch(client, next_batch['id'])
     regenerated = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
     assert regenerated['id'] == original['id']
@@ -161,7 +161,7 @@ def test_idempotency_including_concurrent_submissions(client_app):
     client, app = client_app
     project = create_project(client)
     url = f"/api/projects/{project['id']}/previews"
-    ensure_looks(client, project['id'], [s['id'] for s in STYLES[:6]])
+    ensure_looks(client, project['id'], list(DEFAULT_PREVIEW_STYLE_IDS))
     body = {'client_request_id': 'same-request'}
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(pool.map(lambda _: client.post(url, json=body), range(4)))
@@ -169,12 +169,12 @@ def test_idempotency_including_concurrent_submissions(client_app):
     assert len({r.json()['id'] for r in responses}) == 1
     batch_id = responses[0].json()['id']
     wait_batch(client, batch_id)
-    assert client.post(url, json={'client_request_id': 'same-request', 'style_ids': ['forest_natural']}).status_code == 200
+    assert client.post(url, json={'client_request_id': 'same-request', 'style_ids': ['seaside_sunset']}).status_code == 200
     with app.state.db.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM generation_batches').fetchone()[0] == 1
         # Omitting style_ids samples the first six built-in styles.
-        assert [row[0] for row in conn.execute('SELECT style_id FROM generation_tasks ORDER BY rowid')] == [s['id'] for s in STYLES[:6]]
-    assert [s['id'] for s in client.get('/api/styles').json() if s['default_preview']] == [s['id'] for s in STYLES[:6]]
+        assert [row[0] for row in conn.execute('SELECT style_id FROM generation_tasks ORDER BY rowid')] == list(DEFAULT_PREVIEW_STYLE_IDS)
+    assert [s['id'] for s in client.get('/api/styles').json() if s['default_preview']] == list(DEFAULT_PREVIEW_STYLE_IDS)
     other = create_project(client)
     repeated = client.post(f"/api/projects/{other['id']}/previews", json={'client_request_id': 'same-request'})
     assert repeated.status_code == 200
@@ -257,7 +257,7 @@ def test_invalid_uploads_and_styles(client_app):
         assert client.patch(url, json=body).status_code == 422
     assert client.post(url + '/images', data={'person': 'a'}, files={'file': ('bad.png', b'not an image')}).status_code == 422
     assert client.post(url + '/images', data={'person': 'c'}, files={'file': ('photo.png', PNG)}).status_code == 422
-    for style_ids in ([], ['unknown'], ['korean_minimal', 'korean_minimal']):
+    for style_ids in ([], ['unknown'], ['dark_studio', 'dark_studio']):
         assert client.post(url + '/previews', json={'client_request_id': 'invalid', 'style_ids': style_ids}).status_code == 422
     assert client.post(url + '/select-style', json={'slot_id': 'missing'}).status_code in (404, 405)
 

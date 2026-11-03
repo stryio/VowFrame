@@ -111,14 +111,22 @@ export interface Look {
   selected_by: "user" | "auto" | null;
   /** V7.8: the makeup candidate the hair was done on; null for the groom's and older looks. */
   makeup_id: string | null;
+  /** V7.21: the style whose colour family and finish the bride's makeup was painted in; null for the groom's. */
+  makeup_style_id: string | null;
 }
 
 /** The bride's makeup for one style, hair unchanged (V7.8); new bride looks of the style use the selected one. */
 export interface Makeup {
   id: string;
   person: "a" | "b";
-  style_id: string;
-  makeup_color: string;
+  /** V7.22: the groom's retouched photo has no style or colour and serves every style. */
+  role: Role;
+  style_id: string | null;
+  style_name: string | null;
+  /** V7.21: the style whose colour family and finish it was painted in; style_id unless reused from another style. */
+  makeup_style_id: string | null;
+  makeup_style_name: string | null;
+  makeup_color: string | null;
   makeup_color_name: string | null;
   makeup_level: MakeupLevel;
   status: LookStatus;
@@ -132,27 +140,6 @@ export interface Makeup {
   usable: boolean;
   unusable_reason: string | null;
   face_score: number | null;
-  created_at: string;
-}
-
-/** One person's final look (V7.18): their look edited into the whole person in one outfit. New samples take the
- * clothes from the selected one; the face still comes from the look. */
-export interface OutfitLook {
-  id: string;
-  person: "a" | "b";
-  role: Role;
-  look_id: string;
-  outfit_id: string;
-  outfit_name: string;
-  status: LookStatus;
-  error_code: string | null;
-  error_message: string | null;
-  asset_id: string | null;
-  look_asset_id: string | null;
-  selected: boolean;
-  selected_by: "user" | "auto" | null;
-  usable: boolean;
-  unusable_reason: string | null;
   created_at: string;
 }
 
@@ -207,8 +194,6 @@ export interface ProjectDetail extends ProjectSummary {
   style_outfits: Record<string, string>;
   /** The bride's makeup candidates of every style (V7.8), oldest first. */
   makeups: Makeup[];
-  /** Final looks (V7.18), oldest first. */
-  outfit_looks: OutfitLook[];
   /** Per role, the default candidates for the stated hair length. */
   default_look_items: Record<Role, LookItem[]>;
 }
@@ -358,6 +343,8 @@ export interface Settings {
   director_model: string | null;
   portrait_ratio: PortraitRatio;
   auto_face_fix: AutoFaceFix;
+  /** The AI face fix's model, automatic and by hand; null follows default_model. */
+  face_fix_model: string | null;
   /** V7.11: the image service models both services offer go to. */
   image_provider: ImageProviderId;
   image_providers: ImageProvider[];
@@ -473,7 +460,8 @@ export const api = {
   unselectLook: (lookId: string) => request<Look>(`/looks/${lookId}/unselect`, { method: "POST" }),
   deleteLook: (lookId: string) => request<void>(`/looks/${lookId}`, { method: "DELETE" }),
   /** count makeup candidates of the bride for one style, one paid edit each (V7.8). */
-  createMakeups: (projectId: string, person: "a" | "b", styleId: string, count: number) =>
+  /** styleId null: the groom's retouched photos (V7.22), shared by every style. */
+  createMakeups: (projectId: string, person: "a" | "b", styleId: string | null, count: number) =>
     request<Makeup[]>(
       `/projects/${projectId}/makeups`,
       json("POST", { client_request_id: crypto.randomUUID(), person, style_id: styleId, count }),
@@ -481,15 +469,9 @@ export const api = {
   retryMakeup: (makeupId: string) => request<Makeup>(`/makeups/${makeupId}/retry`, { method: "POST" }),
   selectMakeup: (makeupId: string) => request<Makeup>(`/makeups/${makeupId}/select`, { method: "POST" }),
   deleteMakeup: (makeupId: string) => request<void>(`/makeups/${makeupId}`, { method: "DELETE" }),
-  /** One final look, one paid edit of the look (V7.18). */
-  createOutfitLook: (projectId: string, lookId: string, outfitId: string) =>
-    request<OutfitLook>(
-      `/projects/${projectId}/outfit-looks`,
-      json("POST", { client_request_id: crypto.randomUUID(), look_id: lookId, outfit_id: outfitId }),
-    ),
-  retryOutfitLook: (id: string) => request<OutfitLook>(`/outfit-looks/${id}/retry`, { method: "POST" }),
-  selectOutfitLook: (id: string) => request<OutfitLook>(`/outfit-looks/${id}/select`, { method: "POST" }),
-  deleteOutfitLook: (id: string) => request<void>(`/outfit-looks/${id}`, { method: "DELETE" }),
+  /** Use a ready makeup of another style for this style too, with its hairstyle photos; no new edit (V7.21). */
+  reuseMakeup: (makeupId: string, styleId: string) =>
+    request<Makeup>(`/makeups/${makeupId}/reuse`, json("POST", { style_id: styleId })),
   createDraft: (projectId: string, previewSlotId: string, count: number) =>
     request<MomentDraft>(
       `/projects/${projectId}/moment-drafts`,
@@ -534,12 +516,12 @@ export const api = {
     ),
   faceSwap: (slotId: string) =>
     request<Batch>(`/slots/${slotId}/face-swap`, json("POST", { client_request_id: crypto.randomUUID() })),
-  faceFix: (slotId: string) =>
-    request<Batch>(`/slots/${slotId}/face-fix`, json("POST", { client_request_id: crypto.randomUUID() })),
-  batchFaceFix: (slotIds: string[]) =>
+  faceFix: (slotId: string, model: string) =>
+    request<Batch>(`/slots/${slotId}/face-fix`, json("POST", { client_request_id: crypto.randomUUID(), model })),
+  batchFaceFix: (slotIds: string[], model: string) =>
     request<Batch>(
       "/slots/batch-action",
-      json("POST", { client_request_id: crypto.randomUUID(), slot_ids: slotIds, action: "face_fix" }),
+      json("POST", { client_request_id: crypto.randomUUID(), slot_ids: slotIds, action: "face_fix", model }),
     ),
   batchFaceSwap: (slotIds: string[]) =>
     request<Batch>(

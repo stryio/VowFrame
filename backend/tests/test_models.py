@@ -33,10 +33,10 @@ PROVIDERS = {'image_provider': '88api', 'image_providers': [
 def test_settings_patch_validation_and_persistence_across_restart(app_factory, tmp_path):
     data_dir = tmp_path / 'persistent-data'
     with app_factory(data_dir=data_dir) as (client, _):
-        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2', 'batch_reference_mode': 'prompt_only', 'director_model': None, 'portrait_ratio': '3:4', 'auto_face_fix': 'off', **PROVIDERS}
+        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2', 'batch_reference_mode': 'prompt_only', 'director_model': None, 'portrait_ratio': '3:4', 'auto_face_fix': 'off', 'face_fix_model': None, **PROVIDERS}
         assert client.patch('/api/settings', json={'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'portrait_ratio': '9:16'}).json() == {
             'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'director_model': None, 'portrait_ratio': '9:16',
-            'auto_face_fix': 'off', **PROVIDERS,
+            'auto_face_fix': 'off', 'face_fix_model': None, **PROVIDERS,
         }
         invalid = client.patch('/api/settings', json={'default_model': 'unknown-model'})
         assert invalid.status_code == 422
@@ -46,7 +46,7 @@ def test_settings_patch_validation_and_persistence_across_restart(app_factory, t
         assert landscape.json()['detail']['code'] == 'invalid_portrait_ratio'
 
     with app_factory(data_dir=data_dir) as (client, _):
-        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'director_model': None, 'portrait_ratio': '9:16', 'auto_face_fix': 'off', **PROVIDERS}
+        assert client.get('/api/settings').json() == {'default_model': 'gpt-image-2.5-flare', 'batch_reference_mode': 'with_preview', 'director_model': None, 'portrait_ratio': '9:16', 'auto_face_fix': 'off', 'face_fix_model': None, **PROVIDERS}
         assert client.get('/api/health').json()['model'] == 'gpt-image-2.5-flare'
 
 
@@ -64,7 +64,7 @@ def test_preview_model_is_returned_in_snapshot_task_and_version(app_factory):
     generator = ScriptedGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'], model='gemini-nano-banana-2.1')
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'], model='gemini-nano-banana-2.1')
         wait_batch(client, batch['id'])
         task = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
         detail = client.get(f"/api/projects/{project['id']}").json()
@@ -83,7 +83,7 @@ def test_omitted_preview_model_uses_persisted_default(app_factory):
     with app_factory(generator=generator) as (client, app):
         client.patch('/api/settings', json={'default_model': 'gpt-image-2.5-sunburst'})
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         wait_batch(client, batch['id'])
         task = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
         with app.state.db.connect() as conn:
@@ -98,7 +98,7 @@ def test_default_change_does_not_change_waiting_task_models(app_factory):
     generator = BlockingGenerator()
     with app_factory(generator=generator, concurrency=1) as (client, _):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal', 'french_vintage'], model='gpt-image-2.5-flare')
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio', 'lakeside'], model='gpt-image-2.5-flare')
         assert generator.started.wait(2)
         client.patch('/api/settings', json={'default_model': 'gemini-nano-banana-2.1'})
         generator.release.set()
@@ -112,7 +112,7 @@ def test_invalid_preview_model_is_rejected(app_factory):
     with app_factory() as (client, _):
         project = create_project(client)
         response = client.post(f"/api/projects/{project['id']}/previews", json={
-            'client_request_id': 'unknown-model', 'style_ids': ['korean_minimal'], 'model': 'unknown-model',
+            'client_request_id': 'unknown-model', 'style_ids': ['dark_studio'], 'model': 'unknown-model',
         })
         assert response.status_code == 422
         assert response.json()['detail']['code'] == 'invalid_model'
@@ -123,10 +123,10 @@ def test_legacy_snapshot_uses_current_default_and_exposes_null_model(app_factory
     with app_factory(generator=generator, concurrency=1) as (client, app):
         project = create_project(client)
         # Each style needs its bride look (V7.0); make both before the first shot blocks the only lane.
-        ensure_looks(client, project['id'], ['korean_minimal', 'french_vintage'])
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'])
+        ensure_looks(client, project['id'], ['dark_studio', 'lakeside'])
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
         assert generator.started.wait(2)
-        second = preview_batch(client, project['id'], request_id='legacy', style_ids=['french_vintage'])
+        second = preview_batch(client, project['id'], request_id='legacy', style_ids=['lakeside'])
         with app.state.db.connect(write=True) as conn:
             row = conn.execute('SELECT id,model_config_snapshot FROM generation_tasks WHERE batch_id=?', (second['id'],)).fetchone()
             snapshot = json.loads(row['model_config_snapshot'])
@@ -138,7 +138,7 @@ def test_legacy_snapshot_uses_current_default_and_exposes_null_model(app_factory
         wait_batch(client, second['id'])
         task = client.get('/api/tasks', params={'batch_id': second['id']}).json()[0]
         detail = client.get(f"/api/projects/{project['id']}").json()
-        legacy_version = next(slot['current_version'] for slot in detail['previews'] if slot['style_id'] == 'french_vintage')
+        legacy_version = next(slot['current_version'] for slot in detail['previews'] if slot['style_id'] == 'lakeside')
         assert task['model'] is None
         assert legacy_version['model'] is None
         assert generator.models == ['gpt-image-2', 'gemini-nano-banana-2.1']
@@ -148,9 +148,9 @@ def test_legacy_snapshot_uses_current_default_and_exposes_null_model(app_factory
 def test_every_registry_model_accepts_two_reference_images(app_factory, model):
     with app_factory() as (client, _):
         project = create_project(client)
-        ensure_looks(client, project['id'], ['korean_minimal'])
+        ensure_looks(client, project['id'], ['dark_studio'])
         response = client.post(f"/api/projects/{project['id']}/previews", json={
-            'client_request_id': 'model-' + model, 'style_ids': ['korean_minimal'], 'model': model,
+            'client_request_id': 'model-' + model, 'style_ids': ['dark_studio'], 'model': model,
         })
         assert response.status_code == 201
 
@@ -159,7 +159,7 @@ def test_retry_keeps_original_model_after_default_changes(app_factory):
     generator = ScriptedGenerator([GeneratorError('rejected')])
     with app_factory(generator=generator, concurrency=1) as (client, _):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['korean_minimal'], model='gpt-image-2.5-flare')
+        batch = preview_batch(client, project['id'], style_ids=['dark_studio'], model='gpt-image-2.5-flare')
         wait_batch(client, batch['id'], status='needs_attention')
         original = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
         client.patch('/api/settings', json={'default_model': 'gemini-nano-banana-2.1'})

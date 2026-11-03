@@ -22,15 +22,14 @@ from .db import BATCH_REFERENCE_MODES, new_id, utc_now
 from .face_fix import face_fix_snapshot
 from .face_swap import face_scores, face_swap_snapshot, face_swap_weight
 from .models import PROVIDERS, get_model, provider_for, provider_models
-from .prompts import OUTFITS, STYLE_OUTFITS, compose_outfit_look_prompt, DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_look_prompt, compose_bride_hair_prompt, compose_bride_makeup_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
+from .prompts import OUTFITS, STYLE_OUTFITS, DEFAULT_PREVIEW_STYLE_IDS, DETAIL_SHOT, HAIRSTYLES, HAIRSTYLE_BY_KEY, MAKEUP_COLORS, RETIRED_STYLE_IDS, POSES, POSE_BY_ID, STYLES, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLING_VERSION, UPDO_STYLES, compose_identity_boost_moment_prompt, compose_bride_hair_prompt, compose_bride_makeup_prompt, compose_groom_hair_prompt, compose_groom_retouch_prompt, compose_identity_boost_prompt, compose_moment_prompt, compose_photo_prompt, compose_preview_prompt, director_scene_count, director_scene_text, is_faceless_shot, scene_from_prompt, shot_text_from_prompt
 from .director import director_key_problem, DirectorFailed, DirectorInvalidOutput, Moment, SHOT_NAMES, SHOT_SIZES, _shot_requirement, moment_dict, validate_moment, validate_moments
-from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceFixCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Makeup, OutfitLook, OutfitLookCreate, OutfitChoice, MakeupCreate, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
+from .schemas import Batch, BatchActionCreate, ChangePoseCreate, ChangeShotCreate, ExportCreate, FaceFixCreate, FaceSwapCreate, Look, LookCreate, LookOptions, Makeup, OutfitChoice, MakeupCreate, MakeupReuse, Model, MomentDraft, MomentDraftCreate, MomentPatch, MomentRewrite, PhotoBatchCreate, PhotoSet, PreviewCreate, ProjectCreate, ProjectDetail, ProjectPatch, ProjectSummary, RegenerateCreate, RestoreCreate, Settings, SettingsPatch, Slot, Style, Task, TaskStatus, VersionDetail
 from .photo_prep import PhotoRejected
 from .storage import asset_path, image_format, save_image
-from .styling import (LOOK_PROBLEM_MESSAGES, MAKEUP_PROBLEM_MESSAGES, OUTFIT_LOOK_PROBLEM_MESSAGES, auto_select_makeup, auto_select_outfit_look,
-                      outfit_look_problem, outfit_look_response, outfit_references_of, select_outfit_look, bride_look_color, default_look_items,
+from .styling import (LOOK_PROBLEM_MESSAGES, MAKEUP_PROBLEM_MESSAGES, auto_select_makeup, bride_look_color, default_look_items,
                       fits_style, hair_length_of, look_problem, look_response, look_snapshot, makeup_level_of, makeup_problem,
-                      makeup_response, reference_slots, role_of, select_makeup, select_only, selected_makeup, style_looks, style_outfits,
+                      makeup_response, makeup_style_of, reuse_makeup, reference_slots, role_of, select_makeup, select_only, selected_makeup, style_looks, style_outfits,
                       task_face_swap_reference_ids, uploaded_asset_id)
 
 router = APIRouter(prefix='/api')
@@ -277,8 +276,6 @@ def project_response(conn, project, *, detail: bool = True):
                   style_looks=style_looks(conn, project), style_outfits=style_outfits(conn, project),
                   makeups=[makeup_response(project, row) for row in conn.execute(
                       'SELECT * FROM makeups WHERE project_id=? AND discarded_at IS NULL ORDER BY created_at,rowid', (project['id'],))],
-                  outfit_looks=[outfit_look_response(conn, project, row) for row in conn.execute(
-                      'SELECT * FROM outfit_looks WHERE project_id=? AND discarded_at IS NULL ORDER BY created_at,rowid', (project['id'],)).fetchall()],
                   default_look_items={role: [{'hairstyle_id': hairstyle} for hairstyle in default_look_items(project, role)]
                                       for role in ('bride', 'groom')})
     return result
@@ -362,9 +359,8 @@ def _parse_snapshot(value: str, slot_label: str) -> dict:
 
 
 def _build_references(project, bride_facing: str = 'front', groom_facing: str = 'front',
-                      preview_asset_id: str | None = None, *, looks=None,
-                      outfit_references: dict[str, str] | None = None) -> tuple[list[str], list[tuple[str, str]]]:
-    """Reference images in the fixed order [bride front, groom front, side photos..., final looks..., preview?],
+                      preview_asset_id: str | None = None, *, looks=None) -> tuple[list[str], list[tuple[str, str]]]:
+    """Reference images in the fixed order [bride front, groom front, side photos..., preview?],
     plus the (role, facing) of each side photo for the prompt's image-role list.
 
     looks: the (bride, groom) look rows the shot uses (V5.0); their images are the fronts. Side photos stay the
@@ -389,7 +385,6 @@ def _build_references(project, bride_facing: str = 'front', groom_facing: str = 
         if asset_id:
             references.append(asset_id)
             sides.append((role, facing))
-    references.extend((outfit_references or {}).values())
     if preview_asset_id:
         references.append(preview_asset_id)
     return references, sides
@@ -419,11 +414,9 @@ def _validate_reference_capacity(model_id: str, references: list[str]):
 
 
 def _fresh_snapshot(request: Request, model_id: str, aspect_ratio: str, looks=None,
-                    side_references: list[tuple[str, str]] = (), with_preview: bool = False, outfit: str | None = None,
-                    outfit_references: dict[str, str] | None = None) -> str:
+                    side_references: list[tuple[str, str]] = (), with_preview: bool = False, outfit: str | None = None) -> str:
     """looks: the (bride, groom) look rows of a shot (V5.0), recorded with what each reference image is.
-    outfit: the fixed outfit of the shot (V7.17), recorded so its later shots wear the same one.
-    outfit_references: {role: asset} of the final looks it wears (V7.18), recorded for the same reason."""
+    outfit: the fixed outfit of the shot (V7.17), recorded so its later shots wear the same one."""
     snapshot = dict(request.app.state.config.model_config_snapshot)
     snapshot['model'] = model_id
     snapshot['aspect_ratio'] = aspect_ratio
@@ -431,11 +424,9 @@ def _fresh_snapshot(request: Request, model_id: str, aspect_ratio: str, looks=No
     snapshot['provider'] = provider_for(get_model(model_id), request.app.state.db.get_image_provider())
     if looks is not None:
         snapshot['looks'] = look_snapshot(looks[0]['id'], looks[1]['id'])
-        snapshot['reference_slots'] = reference_slots(list(side_references), with_preview, len(outfit_references or ()))
+        snapshot['reference_slots'] = reference_slots(list(side_references), with_preview)
     if outfit is not None:
         snapshot['outfit'] = outfit
-    if outfit_references:
-        snapshot['outfit_references'] = outfit_references
     return json.dumps(snapshot, ensure_ascii=False)
 
 
@@ -454,14 +445,6 @@ def _source_outfit(source, slot_label: str) -> str | None:
     """The fixed outfit of the picture a new shot starts from (V7.17): a set wears its sample's outfit, whatever the
     project has chosen since. None for pictures before outfits, whose shots keep the style's one-line costume."""
     return _parse_snapshot(source['model_config_snapshot'], slot_label).get('outfit')
-
-
-def _source_outfit_references(source, slot_label: str, with_preview: bool) -> dict[str, str]:
-    """The final looks a new shot takes from the picture it starts from (V7.18). A shot with the sample as a reference
-    already sees the clothes in it, so it takes none and the model gets fewer pictures to weigh."""
-    if with_preview:
-        return {}
-    return _parse_snapshot(source['model_config_snapshot'], slot_label).get('outfit_references') or {}
 
 
 def _source_looks(conn, project, source, slot_label: str):
@@ -628,10 +611,11 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
     # source picture's looks (V5.0); only 'same' replays the old prompt and reference images as they were.
     looks = _source_looks(conn, project, source, slot_label)
     outfit = _source_outfit(source, slot_label)
+    # V7.21: the makeup reminder follows the makeup the bride's look wears, which may be another style's.
+    makeup_style = makeup_style_of(looks[0])
     batch_reference_mode = request.app.state.db.get_batch_reference_mode()
     with_preview = slot['kind'] == 'photo' and batch_reference_mode == 'with_preview'
-    outfit_references = _source_outfit_references(source, slot_label, with_preview)
-    references, side_references = _build_references(project, looks=looks, outfit_references=outfit_references)
+    references, side_references = _build_references(project, looks=looks)
     if with_preview:
         references.append(_style_preview_reference(conn, project['id'], style_id, slot_label))
 
@@ -642,17 +626,16 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         pose_id = source['pose_id']
         prompt = (compose_identity_boost_moment_prompt(style_id, shot_text_from_prompt(source['prompt']), aspect_ratio,
                                                        scene=scene_from_prompt(style_id, source['prompt']), with_preview=with_preview,
-                                                       styled=True, outfit=outfit, outfit_references=tuple(outfit_references))
+                                                       styled=True, outfit=outfit, makeup_style=makeup_style)
                   if source['moment_shot_size'] else compose_identity_boost_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview,
-                                                                                   styled=True, outfit=outfit, outfit_references=tuple(outfit_references)))
+                                                                                   styled=True, outfit=outfit, makeup_style=makeup_style))
         regenerate_mode = 'identity_boost'
     elif action == 'change_pose':
         if slot['kind'] != 'photo':
             error(409, 'slot_not_ready', f'{slot_label}不是相册作品，不能更换动作')
         if source['moment_title'] is None and selected_pose is not None:
             pose_id = selected_pose
-            prompt = compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, styled=True, outfit=outfit,
-                                          outfit_references=tuple(outfit_references))
+            prompt = compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, styled=True, outfit=outfit, makeup_style=makeup_style)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = None, None
         else:
@@ -670,10 +653,9 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
             aspect_ratio = _shot_ratio(request, moment.orientation)
             references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing,
                                                                _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None,
-                                                               looks=looks, outfit_references=outfit_references)
+                                                               looks=looks)
             prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=moment.scene, faces_clear=moment.faces_clear,
-                                           with_preview=with_preview, side_references=side_references, styled=True, outfit=outfit,
-                                           outfit_references=tuple(outfit_references))
+                                           with_preview=with_preview, side_references=side_references, styled=True, outfit=outfit, makeup_style=makeup_style)
             regenerate_mode = 'change_pose'
             moment_title, moment_shot_size = moment.title, moment.shot_size
     elif action == 'change_shot':
@@ -691,12 +673,11 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         pose_id = None
         references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing,
                                                            _style_preview_reference(conn, project['id'], style_id, slot_label) if with_preview else None,
-                                                           looks=looks, outfit_references=outfit_references)
+                                                           looks=looks)
         # Changing the shot size keeps the scene and whether it is an atmosphere shot.
         prompt = compose_moment_prompt(style_id, moment.text, aspect_ratio, scene=scene_from_prompt(style_id, source['prompt']),
                                        faces_clear=not is_faceless_shot(source['prompt']),
-                                       with_preview=with_preview, side_references=side_references, styled=True, outfit=outfit,
-                                       outfit_references=tuple(outfit_references))
+                                       with_preview=with_preview, side_references=side_references, styled=True, outfit=outfit, makeup_style=makeup_style)
         regenerate_mode = 'change_shot'
         moment_title, moment_shot_size = moment.title, moment.shot_size
     else:
@@ -711,7 +692,7 @@ def _prepare_slot_action(conn, slot, project, action: str, explicit_model: str |
         'moment_title': locals().get('moment_title', source['moment_title']),
         'moment_shot_size': locals().get('moment_shot_size', source['moment_shot_size']),
         'references': json.dumps(references, ensure_ascii=False), 'prompt': prompt,
-        'snapshot': _fresh_snapshot(request, model_id, aspect_ratio, looks, side_references, with_preview, outfit, outfit_references),
+        'snapshot': _fresh_snapshot(request, model_id, aspect_ratio, looks, side_references, with_preview, outfit),
         'regenerate_mode': regenerate_mode,
     }
 
@@ -772,7 +753,8 @@ def _prepare_face_swap_spec(conn, slot, project, request: Request, *, slot_label
 def _prepare_face_fix_spec(conn, slot, project, request: Request, *, slot_label: str, explicit_model: str | None) -> dict:
     """An AI face fix (V7.1) of the slot's picture: likeness from the picture's own looks (V7.4), in its own frame."""
     input_task = _face_fix_input(conn, slot, project, slot_label=slot_label, what='AI 修脸')
-    model_id = explicit_model or request.app.state.db.get_default_model()
+    db = request.app.state.db
+    model_id = explicit_model or db.get_face_fix_model() or db.get_default_model()
     if get_model(model_id) is None or (explicit_model is not None and not _offered(request, explicit_model)):
         invalid_model()
     references = _parse_json_list(input_task['reference_image_ids'], slot_label)[:2]
@@ -842,7 +824,7 @@ def _settings_response(request: Request) -> dict:
     db = request.app.state.db
     return {'default_model': db.get_default_model(), 'batch_reference_mode': db.get_batch_reference_mode(),
             'director_model': db.get_director_model(), 'portrait_ratio': db.get_portrait_ratio(),
-            'auto_face_fix': db.get_auto_face_fix(), 'image_provider': db.get_image_provider(),
+            'auto_face_fix': db.get_auto_face_fix(), 'face_fix_model': db.get_face_fix_model(), 'image_provider': db.get_image_provider(),
             'image_providers': [{'id': provider, 'name': name, 'available': _provider_problem(request, provider) is None,
                                  'reason': _provider_problem(request, provider)} for provider, name in PROVIDERS.items()],
             'director_provider': db.get_director_provider(),
@@ -868,6 +850,9 @@ def patch_settings(body: SettingsPatch, request: Request):
     provider_after = provider or db.get_image_provider()
     if model is not None and (get_model(model) is None or provider_after not in get_model(model).providers):
         invalid_model()
+    face_fix_model = changes.get('face_fix_model')
+    if face_fix_model is not None and (get_model(face_fix_model) is None or provider_after not in get_model(face_fix_model).providers):
+        invalid_model()
     if provider is not None:
         db.set_image_provider(provider)
         # The default model must be one the service offers: keep it if it does, else the service's first one.
@@ -875,6 +860,11 @@ def patch_settings(body: SettingsPatch, request: Request):
             db.set_default_model(provider_models(provider)[0].id)
     if model is not None:
         db.set_default_model(model)
+    if 'face_fix_model' in changes:
+        db.set_face_fix_model(face_fix_model)
+    elif provider is not None and db.get_face_fix_model() and provider not in get_model(db.get_face_fix_model()).providers:
+        # A face-fix model the new service does not offer goes back to following the default model.
+        db.set_face_fix_model(None)
     mode = changes.get('batch_reference_mode')
     if mode is not None:
         if mode not in BATCH_REFERENCE_MODES:
@@ -961,30 +951,28 @@ def create_looks(project_id: str, body: LookCreate, request: Request, response: 
                 error(422, 'invalid_hairstyle', '这个发型不适合当前的头发长度，请换一个')
             if style_id is not None and not fits_style(role, item.hairstyle_id, length, style_id):
                 error(422, 'invalid_hairstyle', f'「{STYLE_BY_ID[style_id]["name"]}」需要盘发，请换一个盘发发型')
-        makeup = None
-        if role == 'bride':
-            # V7.8: every bride look of a style is a hair edit of the style's selected makeup.
-            makeup = selected_makeup(conn, project, style_id)
-            if makeup is None:
-                error(409, 'makeup_required', f'请先为「{STYLE_BY_ID[style_id]["name"]}」生成并选用一张妆容，再做发型')
-        color = makeup['makeup_color'] if makeup is not None else None
+        # V7.8: every bride look of a style is a hair edit of the style's selected makeup; V7.22: every groom look is
+        # a hair edit of his selected retouched photo.
+        makeup = selected_makeup(conn, project, role, style_id)
+        if makeup is None:
+            error(409, 'makeup_required', f'请先为「{STYLE_BY_ID[style_id]["name"]}」生成并选用一张妆容，再做发型' if role == 'bride'
+                  else '请先为新郎生成并选用一张修脸照，再做发型')
+        color = makeup['makeup_color']
         model_id = request.app.state.db.get_default_model()
         now, ids = utc_now(), []
         for item in body.items:
             look_id = new_id()
             # V7.5: a bride look is two edits, makeup then hair; since V7.8 the makeup is the selected candidate's,
-            # so the look only pays for the hair edit. Its prompt records the makeup prompt. The groom's stays one edit.
-            if makeup is not None:
-                prompt, hair_prompt = makeup['prompt'], compose_bride_hair_prompt(item.hairstyle_id, level)
-            else:
-                prompt, hair_prompt = compose_look_prompt(role, item.hairstyle_id, level), None
+            # so the look only pays for the hair edit. Its prompt records the makeup prompt. V7.22: the groom's too.
+            hair_prompt = (compose_bride_hair_prompt if role == 'bride' else compose_groom_hair_prompt)(item.hairstyle_id, level)
+            prompt = makeup['prompt']
             conn.execute(
                 'INSERT INTO looks (id,project_id,person,role,style_id,angle,hairstyle_id,hair_length,makeup_color,makeup_level,'
                 'source_asset_id,styling_version,status,model,prompt,hair_prompt,client_request_id,created_at,'
-                "makeup_id,makeup_asset_id,makeup_face_score) VALUES (?,?,?,?,?,'front',?,?,?,?,?,?,'waiting',?,?,?,?,?,?,?,?)",
+                "makeup_id,makeup_asset_id,makeup_face_score,makeup_style_id) VALUES (?,?,?,?,?,'front',?,?,?,?,?,?,'waiting',?,?,?,?,?,?,?,?,?)",
                 (look_id, project_id, body.person, role, style_id, item.hairstyle_id, length, color, level, source,
                  STYLING_VERSION, model_id, prompt, hair_prompt, body.client_request_id, now,
-                 *((makeup['id'], makeup['image_asset_id'], makeup['face_score']) if makeup is not None else (None, None, None))))
+                 makeup['id'], makeup['image_asset_id'], makeup['face_score'], makeup['makeup_style_id']))
             ids.append(look_id)
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
         result = [look_response(project, _get_look(conn, look_id)) for look_id in ids]
@@ -1061,7 +1049,8 @@ def _get_makeup(conn, makeup_id: str):
 def create_makeups(project_id: str, body: MakeupCreate, request: Request, response: Response):
     """Makeup candidates of the bride for one style (V7.8): each is one paid edit of her uploaded photo, hair
     unchanged. The most similar one is selected unless the user picks one, and new bride looks of the style are
-    hair edits of the selected one."""
+    hair edits of the selected one. V7.22: the groom's retouched photos (no style; one serves every style) work the
+    same way for his looks."""
     with request.app.state.db.connect(write=True) as conn:
         project = get_project(conn, project_id)
         existing = conn.execute('SELECT * FROM makeups WHERE client_request_id=? ORDER BY rowid', (body.client_request_id,)).fetchall()
@@ -1071,21 +1060,26 @@ def create_makeups(project_id: str, body: MakeupCreate, request: Request, respon
                 error(409, 'request_id_reused', '这个请求编号已经用于另一组妆容，请刷新后重试')
             response.status_code = 200
             return [makeup_response(project, row) for row in existing]
-        if role_of(project, body.person) != 'bride':
-            error(422, 'invalid_person', '只有新娘按风格化妆；新郎的造型一次做好')
+        role = role_of(project, body.person)
         source = project[f'person_{body.person}_image_id']
         if not source:
             error(409, 'photos_missing', '请先上传这个人的照片')
-        _check_bride_style(conn, project_id, body.style_id)
-        level = makeup_level_of(project, 'bride')
-        prompt, color = compose_bride_makeup_prompt(level, body.style_id), bride_look_color(body.style_id)
+        level = makeup_level_of(project, role)
+        if role == 'bride':
+            _check_bride_style(conn, project_id, body.style_id)
+            prompt, color = compose_bride_makeup_prompt(level, body.style_id), bride_look_color(body.style_id)
+        else:
+            # V7.22: the groom's retouched photo serves every style, like his looks.
+            if body.style_id is not None:
+                error(422, 'invalid_style', '新郎的修脸照所有风格共用，不需要指定风格')
+            prompt, color = compose_groom_retouch_prompt(level), None
         model_id = request.app.state.db.get_default_model()
         now, ids = utc_now(), [new_id() for _ in range(body.count)]
         for makeup_id in ids:
             conn.execute(
-                'INSERT INTO makeups (id,project_id,person,style_id,makeup_color,makeup_level,source_asset_id,styling_version,'
-                "status,model,prompt,client_request_id,created_at) VALUES (?,?,?,?,?,?,?,?,'waiting',?,?,?,?)",
-                (makeup_id, project_id, body.person, body.style_id, color, level, source, STYLING_VERSION, model_id, prompt,
+                'INSERT INTO makeups (id,project_id,person,role,style_id,makeup_color,makeup_level,source_asset_id,styling_version,'
+                "status,model,prompt,client_request_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,'waiting',?,?,?,?)",
+                (makeup_id, project_id, body.person, role, body.style_id, color, level, source, STYLING_VERSION, model_id, prompt,
                  body.client_request_id, now))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
         result = [makeup_response(project, _get_makeup(conn, makeup_id)) for makeup_id in ids]
@@ -1123,6 +1117,24 @@ def select_makeup_route(makeup_id: str, request: Request):
         return makeup_response(project, _get_makeup(conn, makeup_id))
 
 
+@router.post('/makeups/{makeup_id}/reuse', response_model=Makeup)
+def reuse_makeup_route(makeup_id: str, body: MakeupReuse, request: Request):
+    """Use this makeup for another style too (V7.21): no new edit; the looks made on it come along, except the
+    hairstyles the style cannot use. It becomes the style's selected makeup."""
+    with request.app.state.db.connect(write=True) as conn:
+        makeup = _get_makeup(conn, makeup_id)
+        project = get_project(conn, makeup['project_id'])
+        if makeup['role'] != 'bride':
+            error(422, 'invalid_person', '新郎的修脸照所有风格共用，不需要复用')
+        problem = makeup_problem(project, makeup)
+        if problem is not None:
+            error(409, 'makeup_unusable', MAKEUP_PROBLEM_MESSAGES[problem])
+        _check_bride_style(conn, project['id'], body.style_id)
+        target_id = reuse_makeup(conn, project, makeup, body.style_id)
+        conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), project['id']))
+        return makeup_response(project, _get_makeup(conn, target_id))
+
+
 @router.delete('/makeups/{makeup_id}', status_code=204)
 def delete_makeup(makeup_id: str, request: Request):
     """Hide a candidate; looks already made on it keep its image. Deleting the selected one selects the most
@@ -1133,92 +1145,6 @@ def delete_makeup(makeup_id: str, request: Request):
             error(409, 'makeup_busy', '这张妆容还在生成，请等它完成后再删除')
         conn.execute('UPDATE makeups SET discarded_at=?,selected_by=NULL WHERE id=?', (utc_now(), makeup_id))
         auto_select_makeup(conn, get_project(conn, makeup['project_id']), makeup)
-    return Response(status_code=204)
-
-
-def _get_outfit_look(conn, outfit_look_id: str):
-    row = conn.execute('SELECT * FROM outfit_looks WHERE id=? AND discarded_at IS NULL', (outfit_look_id,)).fetchone()
-    if row is None:
-        error(404, 'outfit_look_not_found', '最终造型不存在')
-    return row
-
-
-@router.post('/projects/{project_id}/outfit-looks', response_model=OutfitLook, status_code=201)
-def create_outfit_look(project_id: str, body: OutfitLookCreate, request: Request, response: Response):
-    """One person's final look (V7.18): one paid edit of their look into the whole person in this outfit."""
-    with request.app.state.db.connect(write=True) as conn:
-        project = get_project(conn, project_id)
-        existing = conn.execute('SELECT * FROM outfit_looks WHERE client_request_id=?', (body.client_request_id,)).fetchone()
-        if existing is not None:
-            if existing['project_id'] != project_id or existing['look_id'] != body.look_id or existing['outfit_id'] != body.outfit_id:
-                error(409, 'request_id_reused', '这个请求编号已经用于另一张最终造型，请刷新后重试')
-            response.status_code = 200
-            return outfit_look_response(conn, project, existing)
-        look = _usable_look_of_either_role(conn, project, body.look_id)
-        # A bride look belongs to one style; the groom's serves every style, and so any outfit in use.
-        offered = STYLE_OUTFITS.get(look['style_id'], ()) if look['role'] == 'bride' else {
-            outfit for outfits in STYLE_OUTFITS.values() for outfit in outfits}
-        if body.outfit_id not in offered:
-            error(422, 'invalid_outfit', '这套造型的风格没有这套服饰')
-        row_id, now = new_id(), utc_now()
-        conn.execute(
-            'INSERT INTO outfit_looks (id,project_id,person,role,look_id,outfit_id,source_asset_id,status,model,prompt,client_request_id,created_at) '
-            "VALUES (?,?,?,?,?,?,?,'waiting',?,?,?,?)",
-            (row_id, project_id, look['person'], look['role'], look['id'], body.outfit_id, look['source_asset_id'],
-             request.app.state.db.get_default_model(), compose_outfit_look_prompt(look['role'], body.outfit_id), body.client_request_id, now))
-        conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
-        result = outfit_look_response(conn, project, _get_outfit_look(conn, row_id))
-    request.app.state.task_manager.notify()
-    return result
-
-
-def _usable_look_of_either_role(conn, project, look_id: str):
-    look = conn.execute("SELECT * FROM looks WHERE id=? AND project_id=? AND angle='front' AND discarded_at IS NULL",
-                        (look_id, project['id'])).fetchone()
-    if look is None:
-        error(422, 'invalid_look', '这套造型不存在')
-    problem = look_problem(project, look)
-    if problem is not None:
-        error(409, 'look_unusable', LOOK_PROBLEM_MESSAGES[problem])
-    return look
-
-
-@router.post('/outfit-looks/{outfit_look_id}/retry', response_model=OutfitLook)
-def retry_outfit_look(outfit_look_id: str, request: Request):
-    with request.app.state.db.connect(write=True) as conn:
-        row = _get_outfit_look(conn, outfit_look_id)
-        if row['status'] not in ('failed', 'interrupted'):
-            error(409, 'outfit_look_not_retryable', '只有失败或中断的最终造型可以重试')
-        project = get_project(conn, row['project_id'])
-        _usable_look_of_either_role(conn, project, row['look_id'])
-        conn.execute("UPDATE outfit_looks SET status='waiting',error_code=NULL,error_message=NULL,finished_at=NULL WHERE id=?", (outfit_look_id,))
-        result = outfit_look_response(conn, project, _get_outfit_look(conn, outfit_look_id))
-    request.app.state.task_manager.notify()
-    return result
-
-
-@router.post('/outfit-looks/{outfit_look_id}/select', response_model=OutfitLook)
-def select_outfit_look_route(outfit_look_id: str, request: Request):
-    """New samples take their clothes from this one. Samples already made keep the one they wore."""
-    with request.app.state.db.connect(write=True) as conn:
-        row = _get_outfit_look(conn, outfit_look_id)
-        project = get_project(conn, row['project_id'])
-        problem = outfit_look_problem(conn, project, row)
-        if problem is not None:
-            error(409, 'outfit_look_unusable', OUTFIT_LOOK_PROBLEM_MESSAGES[problem])
-        select_outfit_look(conn, row)
-        return outfit_look_response(conn, project, _get_outfit_look(conn, outfit_look_id))
-
-
-@router.delete('/outfit-looks/{outfit_look_id}', status_code=204)
-def delete_outfit_look(outfit_look_id: str, request: Request):
-    """Hide a candidate; pictures already shot keep its image. Deleting the selected one selects the first of the rest."""
-    with request.app.state.db.connect(write=True) as conn:
-        row = _get_outfit_look(conn, outfit_look_id)
-        if row['status'] in ('waiting', 'running'):
-            error(409, 'outfit_look_busy', '这张最终造型还在生成，请等它完成后再删除')
-        conn.execute('UPDATE outfit_looks SET discarded_at=?,selected_by=NULL WHERE id=?', (utc_now(), outfit_look_id))
-        auto_select_outfit_look(conn, get_project(conn, row['project_id']), row)
     return Response(status_code=204)
 
 
@@ -1400,11 +1326,10 @@ def create_previews(project_id: str, body: PreviewCreate, request: Request, resp
         preview_ratio = _shot_ratio(request, 'portrait')
         for style_id in style_ids:
             looks = pairs[style_id]
-            outfit_references = outfit_references_of(conn, project, looks, outfits.get(style_id))
-            references, _ = _build_references(project, looks=looks, outfit_references=outfit_references)
+            references, _ = _build_references(project, looks=looks)
             if len(references) > model.max_reference_images:
                 error(422, 'invalid_model', '所选模型支持的参考照片数量不足')
-            snapshot = _fresh_snapshot(request, model_id, preview_ratio, looks, outfit=outfits.get(style_id), outfit_references=outfit_references)
+            snapshot = _fresh_snapshot(request, model_id, preview_ratio, looks, outfit=outfits.get(style_id))
             slot = conn.execute("SELECT id FROM photo_slots WHERE project_id=? AND kind='preview' AND style_id=?", (project_id, style_id)).fetchone()
             slot_id = slot['id'] if slot else new_id()
             if slot is None:
@@ -1412,7 +1337,8 @@ def create_previews(project_id: str, body: PreviewCreate, request: Request, resp
             conn.execute(
                 'INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
                 (new_id(), project_id, batch_id, slot_id, 'waiting', json.dumps(references), style_id,
-                 compose_preview_prompt(style_id, preview_ratio, styled=True, outfit=outfits.get(style_id), outfit_references=tuple(outfit_references)), snapshot, utc_now()),
+                 compose_preview_prompt(style_id, preview_ratio, styled=True, outfit=outfits.get(style_id),
+                                        makeup_style=makeup_style_of(looks[0])), snapshot, utc_now()),
             )
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))
         result = batch_response(conn, get_batch(conn, batch_id))
@@ -1552,15 +1478,13 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
         preview_source = _slot_source_task(conn, preview)
         looks = _source_looks(conn, project, preview_source, f'「{STYLE_BY_ID[preview["style_id"]]["name"]}」样片')
         outfit = _source_outfit(preview_source, f'「{STYLE_BY_ID[preview["style_id"]]["name"]}」样片')
-        outfit_references = _source_outfit_references(preview_source, f'「{STYLE_BY_ID[preview["style_id"]]["name"]}」样片', mode == 'with_preview')
         preview_asset = None
         if mode == 'with_preview':
             preview_asset = conn.execute('SELECT image_asset_id FROM photo_versions WHERE id=?', (preview_version,)).fetchone()['image_asset_id']
         prepared_references = []
         offending_shots = []
         for moment in moments:
-            references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing, preview_asset, looks=looks,
-                                                                outfit_references=outfit_references)
+            references, side_references = _build_references(project, moment.bride_facing, moment.groom_facing, preview_asset, looks=looks)
             prepared_references.append((references, side_references))
             if len(references) > model.max_reference_images:
                 offending_shots.append(moment.title)
@@ -1571,13 +1495,13 @@ def create_photo_batch(project_id: str, body: PhotoBatchCreate, request: Request
         conn.execute('INSERT INTO generation_batches (id,project_id,batch_type,client_request_id,created_at,style_id,reference_preview_version_id) VALUES (?,?,?,?,?,?,?)', (batch_id, project_id, 'photo', body.client_request_id, now, preview['style_id'], preview_version))
         for moment, (references, side_references) in zip(moments, prepared_references):
             aspect_ratio = _shot_ratio(request, moment.orientation)
-            snapshot = _fresh_snapshot(request, model_id, aspect_ratio, looks, side_references, mode == 'with_preview', outfit, outfit_references)
+            snapshot = _fresh_snapshot(request, model_id, aspect_ratio, looks, side_references, mode == 'with_preview', outfit)
             slot_id, task_id = new_id(), new_id()
             conn.execute('INSERT INTO photo_slots (id,project_id,batch_id,kind,style_id,pose_id,pose_name,shot_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)', (slot_id, project_id, batch_id, 'photo', preview['style_id'], None, moment.title, moment.shot_size, utc_now()))
             prompt = compose_moment_prompt(preview['style_id'], moment.text, aspect_ratio, scene=moment.scene,
                                            faces_clear=moment.faces_clear, with_preview=mode == 'with_preview',
                                            side_references=side_references, styled=True, outfit=outfit,
-                                           outfit_references=tuple(outfit_references))
+                                           makeup_style=makeup_style_of(looks[0]))
             conn.execute('INSERT INTO generation_tasks (id,project_id,batch_id,target_slot_id,status,reference_image_ids,style_id,pose_id,moment_title,moment_shot_size,prompt,model_config_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (task_id, project_id, batch_id, slot_id, 'waiting', json.dumps(references), preview['style_id'], None, moment.title, moment.shot_size, prompt, snapshot, utc_now()))
         conn.execute('UPDATE moment_drafts SET used_by_batch_id=?,updated_at=? WHERE id=?', (batch_id, now, body.draft_id))
         conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, project_id))

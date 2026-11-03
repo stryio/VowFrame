@@ -8,7 +8,7 @@ from conftest import PNG, create_director_photo_batch, create_project, preview_b
 
 
 def ready_preview(client, project_id):
-    batch = preview_batch(client, project_id, style_ids=['korean_minimal'])
+    batch = preview_batch(client, project_id, style_ids=['dark_studio'])
     wait_batch(client, batch['id'])
     return client.get(f'/api/projects/{project_id}').json()['previews'][0]
 
@@ -54,7 +54,7 @@ def test_twenty_photo_batch_uses_director_moments_and_photo_set_aggregation(clie
         )]
     assert len({task['moment_title'] for task in prompts}) == 20
     assert detail['photo_sets'] == [{
-        'style_id': 'korean_minimal', 'style_name': '韩系极简', 'slot_count': 20,
+        'style_id': 'dark_studio', 'style_name': '黑色影棚', 'slot_count': 20,
         'completed_count': 20, 'batch_ids': [batch['id']],
     }]
 
@@ -67,14 +67,14 @@ def test_photo_sets_group_repeated_style_and_second_style(client_app):
     wait_batch(client, first['id'])
     second = create_director_photo_batch(client, project['id'], first_preview['id'], request_id='style-one-b').json()
     wait_batch(client, second['id'])
-    second_preview_batch = preview_batch(client, project['id'], request_id='second-style-preview', style_ids=['french_vintage'])
+    second_preview_batch = preview_batch(client, project['id'], request_id='second-style-preview', style_ids=['lakeside'])
     wait_batch(client, second_preview_batch['id'])
-    french_preview = next(s for s in client.get(f"/api/projects/{project['id']}").json()['previews'] if s['style_id'] == 'french_vintage')
+    french_preview = next(s for s in client.get(f"/api/projects/{project['id']}").json()['previews'] if s['style_id'] == 'lakeside')
     third = create_director_photo_batch(client, project['id'], french_preview['id'], request_id='style-two').json()
     wait_batch(client, third['id'])
     sets = client.get(f"/api/projects/{project['id']}").json()['photo_sets']
     assert [(item['style_id'], item['slot_count'], item['batch_ids']) for item in sets] == [
-        ('korean_minimal', 8, [first['id'], second['id']]), ('french_vintage', 4, [third['id']]),
+        ('dark_studio', 8, [first['id'], second['id']]), ('lakeside', 4, [third['id']]),
     ]
 
 

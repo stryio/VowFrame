@@ -7,7 +7,7 @@ from conftest import ScriptedGenerator, create_project, preview_batch, wait_batc
 
 
 def ready_preview(client, project_id):
-    batch = preview_batch(client, project_id, style_ids=['korean_minimal'])
+    batch = preview_batch(client, project_id, style_ids=['dark_studio'])
     wait_batch(client, batch['id'])
     return client.get(f'/api/projects/{project_id}').json()['previews'][0]
 

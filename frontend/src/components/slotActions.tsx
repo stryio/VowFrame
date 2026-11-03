@@ -80,16 +80,18 @@ export function useSlotActions(onChanged: () => Promise<void> | void) {
   // One paid edit of the whole picture (V7.2); the original stays in history.
   const faceFix = async (slots: Slot[]) => {
     if (slots.length === 0) return false;
-    const ok = await confirm({
+    const choice = await ask({
       title: slots.length === 1 ? "AI 修脸" : `AI 修脸 ${slots.length} 张`,
-      message: `用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致，构图和光线保持不变。每张照片修一次，共 ${slots.length} 次修图，按默认模型计费；原图保留在历史版本中。`,
+      message: "用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致，构图和光线保持不变。每张照片修一次，原图保留在历史版本中。",
+      taskCount: slots.length,
       confirmText: "开始修脸",
+      faceFix: true,
     });
-    if (!ok) return false;
+    if (!choice) return false;
     setBusy(true);
     try {
-      if (slots.length === 1) await api.faceFix(slots[0].id);
-      else await api.batchFaceFix(slots.map((s) => s.id));
+      if (slots.length === 1) await api.faceFix(slots[0].id, choice.model);
+      else await api.batchFaceFix(slots.map((s) => s.id), choice.model);
       toast.info(`已开始 AI 修脸 ${slots.length} 张，原图保留在历史版本中`);
       await onChanged();
       return true;

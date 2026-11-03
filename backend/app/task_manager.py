@@ -17,7 +17,7 @@ from .api88 import size_problem
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
 from .storage import asset_path, save_image
-from .styling import (auto_select, auto_select_makeup, auto_select_outfit_look, find_side_look, task_face_swap_reference_ids,
+from .styling import (auto_select, auto_select_makeup, find_side_look, makeup_style_of, task_face_swap_reference_ids,
                       uploaded_asset_id)
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class TaskManager:
             conn.execute("UPDATE generation_tasks SET status='held' WHERE status='waiting' AND batch_id IN "
                          '(SELECT id FROM generation_batches WHERE paused_at IS NOT NULL)')
             # Look candidates: one still being edited may have been charged; queued ones never started.
-            for table, noun in (('looks', '造型'), ('makeups', '妆容'), ('outfit_looks', '最终造型')):
+            for table, noun in (('looks', '造型'), ('makeups', '妆容')):
                 conn.execute(f"UPDATE {table} SET status='interrupted',error_code='interrupted_by_restart',error_message=?,finished_at=? "
                              "WHERE status='running'", (f'后端重启时这张{noun}还在生成，结果无法确认，可能已经扣费。重试可能产生额外费用', utc_now()))
                 conn.execute(f"UPDATE {table} SET status='failed',error_code='not_started',error_message=?,finished_at=? "
@@ -164,12 +164,6 @@ class TaskManager:
                     look = self._claim_candidate('looks')
                     if look is not None:
                         job = asyncio.create_task(self._execute_look(look), name=f"look-{look['id']}")
-                        self._jobs.add(job)
-                        job.add_done_callback(lambda completed: self._job_done(completed, self._jobs))
-                        continue
-                    outfit_look = self._claim_candidate('outfit_looks')
-                    if outfit_look is not None:
-                        job = asyncio.create_task(self._execute_outfit_look(outfit_look), name=f"outfit-look-{outfit_look['id']}")
                         self._jobs.add(job)
                         job.add_done_callback(lambda completed: self._job_done(completed, self._jobs))
                         continue
@@ -361,7 +355,7 @@ class TaskManager:
             if None in paths:
                 raise FileNotFoundError(f'Photo to style missing for task {task["id"]}')
             prompt = compose_look_prompt(parent['role'], parent['hairstyle_id'], parent['makeup_level'],
-                                         style_id=parent['style_id'], facing=angle)
+                                         style_id=makeup_style_of(parent), facing=angle)
             started = time.monotonic()
             logger.info('Side look request started model=%s task_id=%s role=%s angle=%s', model, task['id'], parent['role'], angle)
             content = await asyncio.to_thread(self.stylist.generate_image, paths, prompt, model, STYLING_ASPECT_RATIO)
@@ -376,11 +370,11 @@ class TaskManager:
                              "VALUES (?,?,?,'styled',?,?)", (asset_id, task['project_id'], relative_path, now, source_id))
                 conn.execute(
                     'INSERT INTO looks (id,project_id,person,role,style_id,angle,parent_look_id,hairstyle_id,hair_length,makeup_color,'
-                    'makeup_level,source_asset_id,styling_version,status,model,prompt,image_asset_id,created_at,finished_at) '
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ready',?,?,?,?,?)",
+                    'makeup_level,source_asset_id,styling_version,status,model,prompt,image_asset_id,created_at,finished_at,makeup_style_id) '
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,?)",
                     (new_id(), task['project_id'], parent['person'], parent['role'], parent['style_id'], angle, parent_id, parent['hairstyle_id'],
                      parent['hair_length'], parent['makeup_color'], parent['makeup_level'], source_id, parent['styling_version'],
-                     model, prompt, asset_id, now, now))
+                     model, prompt, asset_id, now, now, parent['makeup_style_id']))
             return asset_id
 
     def _size_warning(self, content: bytes, model: str, aspect_ratio: str, what: str) -> str | None:
@@ -412,7 +406,8 @@ class TaskManager:
     async def _execute_look(self, look: dict):
         """Edit an uploaded photo into a look candidate the user asked for, kept as it comes back (V7.0).
 
-        The groom's look is one edit (hair and grooming). The bride's front look is two (V7.5): makeup, skin and
+        Looks made before V7.22 for the groom are one edit (hair and grooming); since then his front look is two, as
+        the bride's, on his selected retouched photo. The bride's front look is two (V7.5): makeup, skin and
         background on the uploaded photo, then only the hair on that made-up photo; a retry after a failed hair edit
         starts from the saved made-up photo. Since V7.8 the made-up photo is the style's selected makeup candidate,
         given to the look when it is created, so the look itself is only the hair edit. Likeness scores then pick the
@@ -495,13 +490,15 @@ class TaskManager:
             conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (utc_now(), look['project_id']))
 
     async def _execute_makeup(self, makeup: dict):
-        """Edit the bride's uploaded photo into a makeup candidate for one style, hair unchanged (V7.8); the most
-        similar one of the style is then picked unless the user picked one."""
+        """Edit the bride's uploaded photo into a makeup candidate for one style, hair unchanged (V7.8), or the
+        groom's into a retouched photo for every style (V7.22); the most similar one of its group is then picked
+        unless the user picked one."""
         model = makeup['model'] or self.db.get_default_model() or DEFAULT_MODEL
         with self.db.connect() as conn:
             source = self._asset_file(conn, makeup['source_asset_id'])
         if source is None:
-            self._fail_look(makeup, 'reference_missing', '新娘的照片文件缺失或无法读取，请重新上传后重试', table='makeups')
+            who = '新娘' if makeup['role'] == 'bride' else '新郎'
+            self._fail_look(makeup, 'reference_missing', f'{who}的照片文件缺失或无法读取，请重新上传后重试', table='makeups')
             return
         try:
             content = await self._look_edit(makeup, [source], makeup['prompt'], model, 'makeup')
@@ -528,37 +525,6 @@ class TaskManager:
             logger.exception('Unexpected makeup failure for makeup %s', makeup['id'])
             self._fail_look(makeup, 'generation_failed', '妆容生成失败，请稍后重试', table='makeups')
 
-    async def _execute_outfit_look(self, row: dict):
-        """Edit a person's look into their final look: the whole person in one outfit (V7.18)."""
-        model = row['model'] or self.db.get_default_model() or DEFAULT_MODEL
-        with self.db.connect() as conn:
-            look = conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (row['look_id'],)).fetchone()
-            source = self._asset_file(conn, look['image_asset_id']) if look else None
-        if source is None:
-            self._fail_look(row, 'reference_missing', '这套造型的图片缺失，请重新生成造型后再做最终造型', table='outfit_looks')
-            return
-        try:
-            content = await self._look_edit(row, [source], row['prompt'], model, 'outfit')
-            asset_id = await self._save_look_image(row, content)
-            now = utc_now()
-            with self.db.connect(write=True) as conn:
-                conn.execute("UPDATE outfit_looks SET status='ready',image_asset_id=?,model=?,error_code=NULL,error_message=NULL,"
-                             "finished_at=? WHERE id=? AND status='running'", (asset_id, model, now, row['id']))
-                conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, row['project_id']))
-                ready = conn.execute("SELECT * FROM outfit_looks WHERE id=? AND status='ready'", (row['id'],)).fetchone()
-                project = conn.execute('SELECT * FROM projects WHERE id=?', (row['project_id'],)).fetchone()
-                if ready is not None:
-                    auto_select_outfit_look(conn, project, ready)
-            self._rate_limit_count = 0
-        except GeneratorError as error:
-            self._candidate_edit_failed('outfit_looks', row, error)
-        except OSError:
-            logger.exception('Final look storage failed for %s', row['id'])
-            self._fail_look(row, 'storage_error', f'图片保存失败，请检查存储空间及目录权限：{self.config.data_dir}', table='outfit_looks')
-        except Exception:
-            logger.exception('Unexpected final look failure for %s', row['id'])
-            self._fail_look(row, 'generation_failed', '最终造型生成失败，请稍后重试', table='outfit_looks')
-
     async def _execute_makeup_scoring(self, makeup_ids: list[str]):
         """Likeness of each makeup candidate to the uploaded photo; the scores pick the most similar makeup of its
         style unless the user picked one."""
@@ -571,18 +537,19 @@ class TaskManager:
                     target = self._asset_file(conn, makeup['image_asset_id']) if makeup and makeup['image_asset_id'] else None
                     if source is not None and target is not None:
                         items.append(ScoreItem(source, source, target))
-                        scored.append(makeup_id)
+                        scored.append((makeup_id, makeup['role']))
             if not items:
                 return
             scores = await asyncio.to_thread(self.swapper.score, items)
             with self.db.connect(write=True) as conn:
-                for makeup_id, value in zip(scored, scores):
-                    if value is not None and value.get('bride') is not None:
-                        conn.execute('UPDATE makeups SET face_score=? WHERE id=? AND face_score IS NULL', (value['bride'], makeup_id))
+                for (makeup_id, role), value in zip(scored, scores):
+                    # One person per picture: the face of the other gender is not found (V7.22: the groom's too).
+                    if value is not None and value.get(role) is not None:
+                        conn.execute('UPDATE makeups SET face_score=? WHERE id=? AND face_score IS NULL', (value[role], makeup_id))
                         # Looks made on it before it was scored show its score too.
                         conn.execute('UPDATE looks SET makeup_face_score=? WHERE makeup_id=? AND makeup_face_score IS NULL',
-                                     (value['bride'], makeup_id))
-                for makeup_id in scored:
+                                     (value[role], makeup_id))
+                for makeup_id, _role in scored:
                     makeup = conn.execute('SELECT * FROM makeups WHERE id=?', (makeup_id,)).fetchone()
                     project = conn.execute('SELECT * FROM projects WHERE id=?', (makeup['project_id'],)).fetchone()
                     if project is not None:
@@ -978,7 +945,7 @@ class TaskManager:
                     (new_id(), task['project_id'], task['batch_id'], task['target_slot_id'], follow_up_status,
                      json.dumps(json.loads(task['reference_image_ids'])[:2]),
                      task['style_id'], task['pose_id'], task['moment_title'], task['moment_shot_size'],
-                     face_fix_snapshot(self.db.get_default_model() or DEFAULT_MODEL,
+                     face_fix_snapshot(self.db.get_face_fix_model() or self.db.get_default_model() or DEFAULT_MODEL,
                                        self._snapshot(task).get('aspect_ratio') or self.config.aspect_ratio,
                                        bride_only=follow_up == 'face_fix_bride'),
                      version_id, now),

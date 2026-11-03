@@ -366,7 +366,7 @@ def test_atmosphere_shots_get_their_own_quality_and_drop_conflicting_avoid_terms
         assert atmosphere[:4] == normal[:4]
         assert is_faceless_shot('\n\n'.join(atmosphere)) and not is_faceless_shot('\n\n'.join(normal))
     # Atmosphere shots stored with an older quality paragraph are still recognised.
-    older = '\n\n'.join(atmosphere).replace('皮肤干净细腻、有真实纹理。', '皮肤保留真实质感。')
+    older = '\n\n'.join(atmosphere).replace('皮肤干净细腻、有真实纹理', '皮肤保留真实质感')
     assert older != '\n\n'.join(atmosphere) and is_faceless_shot(older)
     # The word alone in the shot does not count.
     assert not is_faceless_shot(compose_moment_prompt('seaside_sunset', '逆光拍摄，不拍剪影。', '3:4', scene=1))
