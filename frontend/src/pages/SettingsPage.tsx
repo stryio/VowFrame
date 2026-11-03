@@ -29,6 +29,8 @@ export function SettingsPage() {
   const [portraitRatio, setPortraitRatio] = useState<PortraitRatio>("3:4");
   const [autoFaceFix, setAutoFaceFix] = useState<AutoFaceFix>("split");
   const [directorModel, setDirectorModel] = useState("");
+  const [directorProvider, setDirectorProvider] = useState<ImageProviderId>("88api");
+  const [directorProviders, setDirectorProviders] = useState<ImageProvider[]>([]);
   const [savedDirector, setSavedDirector] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -45,6 +47,8 @@ export function SettingsPage() {
         setPortraitRatio(settings.portrait_ratio);
         setAutoFaceFix(settings.auto_face_fix);
         setDirectorModel(settings.director_model ?? "");
+        setDirectorProvider(settings.director_provider);
+        setDirectorProviders(settings.director_providers);
         setSavedDirector(settings.director_model);
       })
       .catch(() => setFailed(true));
@@ -130,6 +134,22 @@ export function SettingsPage() {
       toast.info("画幅比例已更新，之后新生成的照片将使用它");
     } catch (err) {
       setPortraitRatio(previous);
+      toast.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Each service remembers its own model, so switching also brings that model back.
+  const changeDirectorProvider = async (id: ImageProviderId) => {
+    setSaving(true);
+    try {
+      const saved = await api.updateSettings({ director_provider: id });
+      setDirectorProvider(saved.director_provider);
+      setSavedDirector(saved.director_model);
+      setDirectorModel(saved.director_model ?? "");
+      toast.info(`AI 导演已切换到 ${directorProviders.find((item) => item.id === id)?.name}`);
+    } catch (err) {
       toast.error(err);
     } finally {
       setSaving(false);
@@ -312,11 +332,34 @@ export function SettingsPage() {
           <p className="field-hint">
             拍组和换动作、换景别时，由这个文字模型设计每张照片的镜头：机位、构图、光线和动作瞬间。只发送风格和场景文字，不发送照片。
           </p>
+          <div className="field">
+            <span className="field-label">文字模型服务（使用单独的密钥，和生图服务互不影响）</span>
+            <div className="shot-switch" role="group" aria-label="AI 导演的文字模型服务">
+              {directorProviders.map((item) => (
+                <button
+                  key={item.id}
+                  className={`shot-pill ${directorProvider === item.id ? "active" : ""}`}
+                  disabled={saving || directorProvider === item.id || !item.available}
+                  title={item.reason ?? undefined}
+                  onClick={() => changeDirectorProvider(item.id)}
+                >
+                  {item.name}
+                </button>
+              ))}
+            </div>
+            {directorProviders
+              .filter((item) => item.reason)
+              .map((item) => (
+                <span key={item.id} className="field-hint">
+                  {item.reason}
+                </span>
+              ))}
+          </div>
           <div style={{ display: "flex", gap: 8, maxWidth: 520 }}>
             <input
               className="input"
               style={{ flex: 1 }}
-              placeholder="88API 上的文字模型名称，例如 gpt-6.1-sol"
+              placeholder={directorProvider === "pptoken" ? "PPTOKEN 上的文字模型名称，例如 gpt-6.1-sol" : "88API 上的文字模型名称，例如 gpt-6.1-sol"}
               value={directorModel}
               disabled={saving}
               onChange={(e) => setDirectorModel(e.target.value)}

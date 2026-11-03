@@ -19,6 +19,8 @@ from app.prompts import (
     GROOM_HAIR_LENGTHS,
     Hair,
     MAKEUP_LEVELS,
+    PREVIEW_MOMENT,
+    RETIRED_STYLE_IDS,
     Makeup,
     compose_preview_prompt,
     compose_look_prompt,
@@ -244,6 +246,22 @@ def test_preview_and_legacy_poses_use_the_first_variant_and_director_shots_their
         assert scene_from_prompt(style['id'], boosted) == last
 
 
+def test_active_samples_have_distinct_documented_shots_and_respect_the_requested_aspect():
+    active = [style for style in STYLES if style['id'] not in RETIRED_STYLE_IDS]
+    assert len({style['preview'] for style in active}) == len(active)
+    for style in active:
+        assert style['preview'] in DOC and style['shooting'] in DOC
+        for ratio, orientation in [('3:4', '竖构图'), ('4:3', '横构图')]:
+            paragraphs = compose_preview_prompt(style['id'], ratio, styled=True).split('\n\n')
+            assert paragraphs[0].startswith(orientation)
+            assert paragraphs[3] == style['preview'] and paragraphs[3] != PREVIEW_MOMENT
+            assert '竖版' not in paragraphs[3] and '横版' not in paragraphs[3]
+            # A single image never receives the instructions for arranging an entire set.
+            assert style['shooting'] not in '\n\n'.join(paragraphs)
+    for style_id in RETIRED_STYLE_IDS:
+        assert compose_preview_prompt(style_id, '3:4').split('\n\n')[3] == PREVIEW_MOMENT
+
+
 def test_preview_reference_is_inserted_after_groom_sentence_and_keeps_identity_rules():
     identity = compose_photo_prompt(
         'korean_minimal', 'pose_01', '3:4', with_preview=True,
@@ -348,7 +366,7 @@ def test_atmosphere_shots_get_their_own_quality_and_drop_conflicting_avoid_terms
         assert atmosphere[:4] == normal[:4]
         assert is_faceless_shot('\n\n'.join(atmosphere)) and not is_faceless_shot('\n\n'.join(normal))
     # Atmosphere shots stored with an older quality paragraph are still recognised.
-    older = '\n\n'.join(atmosphere).replace('皮肤干净细腻、有自然的光泽。', '皮肤保留真实质感。')
+    older = '\n\n'.join(atmosphere).replace('皮肤干净细腻、有真实纹理。', '皮肤保留真实质感。')
     assert older != '\n\n'.join(atmosphere) and is_faceless_shot(older)
     # The word alone in the shot does not count.
     assert not is_faceless_shot(compose_moment_prompt('seaside_sunset', '逆光拍摄，不拍剪影。', '3:4', scene=1))

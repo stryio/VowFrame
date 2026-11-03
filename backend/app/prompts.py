@@ -3,14 +3,18 @@
 import re
 from typing import NamedTuple
 
+from .reference_styles import REFERENCE_OUTFIT_DATA, REFERENCE_STYLES
+
 
 _STYLE_DATA = (
     {
         'id': 'korean_minimal',
+        'shooting': '主纱肖像。情绪从容、亲密、轻快，浅笑和自然露齿笑随互动变化。用一人坐一人站、肩线错落、身体轻靠和裙摆铺展形成轮廓；全身展示主纱，半身承接亲密表情。以同一个影棚或窗边空间为主，改变人物关系和机位，不靠增加家具变化。',
+        'preview': '镜头：50mm 镜头，平视，全身。新娘坐在白色木凳上，新郎站在她身侧稍后方，两人靠近，肩线形成高低。裙摆顺着坐姿向画面下方自然展开，裙摆最外缘、两人的鞋和头顶都完整入画，四周各留少量背景与地面，不把裙摆顶到画框边缘。侧前方柔光照出缎面褶皱与礼服层次。新娘轻握新郎垂下的手，笑着看向镜头，新郎微微向她靠近，放松地看向镜头。',
         'name': '韩系极简',
-        'description': '纯色影棚、落地窗光、白色纱帘、简约花束',
-        'costume': '新娘穿简约的白色缎面婚纱，新郎穿黑色西装。妆容方向：韩式水光肌，浅棕或粉棕色眼影，珊瑚或水粉色的唇。',
-        'look': '韩式高端人像的干净克制，白色与浅灰的室内空间，只摆一两件简约的家具或花艺，大面积留白；柔和通透的大面积自然光，色温中性，阴影浅而干净，画面像精修的人物肖像。',
+        'description': '缎面主纱、黑白配色、裙摆廓形、站坐组合',
+        'costume': '新娘穿有清晰收腰和饱满裙摆的白色缎面主纱，配轻透长头纱和小束浅色捧花；新郎穿黑色礼服，配黑色领结。妆容方向：细腻透亮的底妆，浅棕或粉棕色眼影，柔和的玫瑰粉唇。',
+        'look': '以主纱廓形和人物关系为重点的彩色人像：白色、浅灰与礼服黑构成干净色块，背景安静，空间留白服务于裙摆和身体线条。大面积侧前方柔光塑造肩颈、腰线和缎面的宽阔明暗，面部明亮，阴影浅但不抹平立体感；婚纱亮部保留织物纹理，黑色礼服有层次。色温中性，低至中等反差，画面清晰细腻，不额外添加颗粒或光晕。',
         'variants': (
             ('纯色影棚', '白色的无缝背景墙与地面自然衔接，看不到转角线，旁边只放一张简约的白色木凳；大面积柔和的光从侧前方均匀照来，背景上只有很浅的明暗过渡。'),
             ('落地窗光影', '白色的空房间，一整面落地窗透进柔和的日光，在墙面和地面落下淡淡的窗格光影，墙边只有一盆姿态舒展的绿植。'),
@@ -22,10 +26,12 @@ _STYLE_DATA = (
     },
     {
         'id': 'french_vintage',
+        'shooting': '城市里的婚礼散步。情绪明快、自在，笑容由走动、回头和交谈带出。让路缘、建筑转角、街道纵深参与动作；一人在前一人在后、斜向行走与回头连接视线，环境保持可辨。以一段街道及邻近街角为主，不安排每张跨越不同地点，不在车流中摆拍。',
+        'preview': '镜头：35mm 镜头，略低于平视，全身。两人沿梧桐街道靠建筑一侧的步道斜向走近，新娘领先半步，新郎在她侧后方，牵着的手形成斜线；两人占画面主要部分，头顶留出建筑和枝叶。侧向日光同时照亮人物与路面，身后保留树影。新娘回头看向镜头自然露齿笑，新郎被她带着迈出一步，笑着看向镜头。',
         'name': '城市街拍',
-        'description': '梧桐街道、咖啡馆街角、斑马线、城市天台',
-        'costume': '新娘穿简约利落的缎面轻婚纱，新郎穿深色西装。妆容方向：干净的奶油肌，暖棕色眼影，玫瑰豆沙色的唇。',
-        'look': '现代摩登的城市纪实感，浅灰白色与灰褐色的历史建筑、梧桐树和干净的街道，色温中性，明亮柔和的自然光，像都市爱情电影里的一个瞬间；街道整洁，没有杂乱的招牌、车辆和行人。',
+        'description': '梧桐街道、建筑线条、牵手行走、都市纪实',
+        'costume': '新娘穿线条利落的白色缎面轻婚纱，配轻透长头纱和小束白色捧花；新郎穿白色礼服上衣和黑色西裤，配黑色领结。妆容方向：干净的奶油肌，暖棕色眼影，玫瑰豆沙色的唇。',
+        'look': '阳光下的都市婚礼纪实，浅灰石材、黑白礼服、梧桐深绿和少量天空蓝形成克制而清晰的色彩。侧向日光在建筑和路面留下明确的明暗，人物经过同一片阳光或开放阴影，衣料、头纱与地面受光连贯；保留石材纹理和阴影层次，不把街道均匀提亮。中等反差，肤色自然，细微胶片颗粒，环境仍可辨认；街道整洁、有生活气息，建筑和路面线条参与构图。',
         'variants': (
             ('梧桐街道', '上海老城区安静的梧桐街道，两侧是浅灰白色与灰褐色的老洋房，立面有精致的窗框和铁艺阳台，高大的梧桐树枝在路面上方交织，街道干净；上午的阳光透过树叶在路面落下清晰的光影。'),
             ('咖啡馆街角', '干净优雅的街角，一间白色外墙的咖啡馆，落地玻璃窗、深色遮阳篷，门口只摆着一张小圆桌和两把椅子，石砖路面整洁；上午的侧光在墙面上投下柔和的影子。'),
@@ -37,21 +43,25 @@ _STYLE_DATA = (
     },
     {
         'id': 'forest_natural',
+        'shooting': '林间婚礼后的散步。情绪轻快、亲密，既有交谈后的笑，也有安静靠近。利用侧逆光、树干前后层次和草地明暗，安排牵手走动、停步回望与相依；服装有头纱时可表现透光和轻微飘动。以同一片林间空地及相邻小径为主，保持时段和光向连贯。',
+        'preview': '镜头：50mm 镜头，平视，全身。两人从林间草地斜向走近，新娘在前半步，新郎在她侧后方，身体略微朝向彼此，牵着的手放松地垂在腰侧；从两人头顶到鞋与裙摆外缘完整入画，脚下留出一小段受光草地，四周是深绿树丛。侧后方阳光勾出衣料与头发亮边，正面承接天空散射光。两人刚交谈完，新娘回望镜头露齿笑，新郎也转向镜头笑着跟上。',
         'name': '森林森系',
-        'description': '林间草地、森林光影、白桦林、林中小径',
-        'costume': '新娘穿轻纱婚纱，头戴不遮挡额头的小花环，新郎穿浅灰色西装。妆容方向：粉嫩的色调，浅粉色眼影，蜜桃色腮红，水润的粉色唇。',
-        'look': '清新通透的森林空气感，嫩绿、墨绿与白色的配色，色温中性，阳光透过树冠形成有方向的柔和光束；林地干净整齐，草地短而平整、是春夏季节鲜嫩的青绿色，没有杂草、杂乱的灌木和落枝。',
+        'description': '深绿树林、透光长纱、侧逆光、林间散步',
+        'costume': '新娘穿白色修身蕾丝婚纱，配轻透长头纱、小型花饰和自然垂落的花束；新郎穿白色礼服上衣和黑色西裤，配黑色领结。妆容方向：通透有光泽的底妆，蜜桃色腮红，柔和的珊瑚粉唇。',
+        'look': '林间婚礼后的轻快散步，深绿树冠、鲜绿受光草地和白色蕾丝形成有层次的绿色与白色对比。低角度侧后方阳光穿过枝叶，勾出头发、肩线和透光织物的亮边，正面由开阔天空与草地反射光自然照明；树林深处保留暗部，不把所有树叶提成浅绿。肤色不染绿，白纱透光却保留纹理，中等反差、细微胶片颗粒和少量高光柔晕；草地整洁，树木疏密自然，保留真实林间纵深。',
         'variants': (
-            ('林间草地', '高大的树木围出一片平整的林间空地，地面是短而整齐的绿草，四周的树干笔直、间距疏朗，背景是层层后退的绿色树林；阳光从侧后方透过树冠，在草地上形成柔和的光束和轮廓光。'),
-            ('森林光影', '树木间距较宽的明亮森林，地面是整齐的草地和少量苔藓，背景的树干层层延伸形成绿色纵深；清晨的光束从树冠间斜射下来，空气里有淡淡的薄雾。'),
-            ('白桦林', '疏密有致的白桦树林，银白色的树干带着细细的黑色纹理，地面是平整的浅绿色草地，背景干净明亮；阳光透过树梢洒下来。'),
-            ('林中小径', '一条干净的浅色石板小径穿过树林，两侧是整齐的草地和笔直的树干，小径向树林深处延伸形成纵深；光线从树冠间透下，路面明亮。'),
-            ('林间花艺', '林间空地中央只摆着一组低矮精致的白色花艺，周围是平整的草地和高大的树木；柔和的散射光。'),
+            ('林间草地', '同一片林间空地，近处是整洁平缓的草地，几棵枝形舒展的树围出开口，背景是层层后退的深绿色树林；下午低角度阳光从侧后方穿过树冠，照亮人物边缘和几片草地，天空与草地反射光柔和地照着正面，远处树丛落在阴影里。'),
+            ('森林光影', '同一片林间空地靠近树冠开口的一侧，地面是整洁草地，背景的树干交错后退；下午侧后方日光穿过枝叶，在地面形成几片连贯的亮区，人物站在亮区边缘，正面由天空散射光照明。'),
+            ('白桦林', '疏密自然的白桦林边缘，银白树干带着细黑纹理，脚下是平缓的绿色草地，身后树丛层层变暗；下午阳光从林外侧后方照来，树干、人物和草地的受光方向一致。'),
+            ('林中小径', '同一片林间空地旁的一条浅色小径，低矮草地围着小径，两侧树枝形成自然框景；下午的侧后方日光落在弯道和人物肩后，小径深处逐渐沉入树林阴影。'),
+            ('林间花艺', '同一片林间空地边缘，一棵树旁放着一组自然疏朗的白色花艺，周围是整洁草地，背景是深绿树丛；下午阳光从侧后方穿过树叶，白花、人物与草地的亮部相互呼应。'),
         ),
-        'avoid': '树叶斑驳阴影落在脸上、杂乱的灌木和落枝、过曝、画面偏绿、画面偏黄',
+        'avoid': '树叶硬影横跨面部、杂乱的灌木和落枝、白纱过曝、荧光绿、肤色染绿、全画面泛黄',
     },
     {
         'id': 'seaside_sunset',
+        'shooting': '有海风的海岸婚礼。情绪自由、亲密，以并肩走动、迎风停步和短暂拥抱表现，笑容自然变化。低机位与开阔横向画面交替，海平线避开头颈，利用潮线和浪花引导视线。以同一段海岸为主；日落场景才使用晚霞色，不把日间海岸统一染成橙黄。',
+        'preview': '镜头：35mm 镜头，低机位，全身。两人沿湿润沙面斜向走近，新娘一手轻提裙摆，另一手牵着新郎，重心随步伐自然变化；海平线落在肩线以下，两人占画面主要部分，侧边留出浪花。上午阳光照亮礼服与沙面，海水反光柔和。新娘朝镜头开心地笑，新郎笑着跟上，衣料随海风轻动。',
         'name': '海岸海岛',
         'description': '蔚蓝海岸、海边悬崖、礁石海湾',
         'costume': '新娘穿轻盈飘逸的婚纱，配一条长头纱；新郎穿浅色西装。妆容方向：通透有光泽的底妆，香槟色细闪眼影，珊瑚色的腮红和唇。',
@@ -67,6 +77,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'chinese_traditional',
+        'shooting': '端庄而有温度的中式婚礼。标准照沉稳喜庆，互动从牵手、挽臂、靠近和相视浅笑展开，热闹程度适中。用宫门中轴、回廊纵深与红黑色块衬托服饰；全身与亲密半身交替。让服装纹样成为细节重点，不额外堆满灯笼或添加服装中没有的头饰。',
+        'preview': '镜头：50mm 镜头，平视，全身。两人站在红墙宫门前，新娘略靠前，新郎在身侧半步，身体轻轻靠近；裙摆与脚下完整入画，墙面斜影留在一侧。侧向日光照亮衣料绣纹，也落在青砖地上。新娘轻挽新郎手臂，两人放松地看向镜头，带喜悦的微笑，手臂和肩颈舒展。',
         'name': '中式国风',
         'description': '红墙宫门、府邸庭院、雕花窗棂、木回廊',
         'costume': '新娘穿红色金绣秀禾服，头饰简洁、不遮挡额头和脸型；新郎穿中式长袍马褂。妆容方向：端庄的中式新娘妆，暖棕色眼影，正红色的唇。',
@@ -81,6 +93,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'cinematic_light',
+        'shooting': '光影塑形的人像。情绪沉静、亲密、从容，不追求每张都笑。用身体转折、前后错位和墙面投影组织画面，半身与全身交替；光影图案避开面部关键区域。选一个主要光影方案，以距离和姿态变化完成一组，保留暗部层次，不把侧光补成平光。',
+        'preview': '镜头：85mm 镜头，平视，半身。新娘位于画面右侧稍前，新郎从左后方靠近，两人的肩线错开，墙上留一片窗格投影。侧方日光照亮两人的面部与衣料，投影延伸到身后墙面。新郎轻握新娘腰侧，新娘一手自然搭在他手上，两人从容地看向镜头，带很浅的笑意。',
         'name': '高级光影',
         'description': '光影塑形、明暗对比、背景简洁',
         'costume': '新娘穿缎面婚纱，新郎穿黑色西装。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。',
@@ -96,6 +110,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'new_chinese',
+        'shooting': '园林里的东方婚礼。情绪温柔、安静而亲密，笑容含蓄自然。以月洞门、窗棂或水面形成框景，人物线条与园林曲线呼应；并肩、错身回望和牵手停步交替。以一个庭院及相邻廊下为主，保留素雅色彩，不套用热闹喜嫁的道具和动作。',
+        'preview': '镜头：50mm 镜头，平视，全身。两人在月洞门前并肩停步，新娘略靠前，新郎在她侧后方；圆形门洞框住两人的肩线，裙摆和青石路完整入画，门后竹影形成纵深。散射天光同时照亮人物、白墙和小池。新娘轻握新郎的手，两人靠近，温柔地看向镜头浅笑。',
         'name': '新中式园林',
         'description': '江南园林、宋式庭院、月洞门、禅意空间',
         'costume': '新娘穿白色缎面婚纱，现代的修身廓形，领口是简洁的中式小立领，胸前点缀一两颗盘扣和淡雅的同色刺绣；新郎穿剪裁利落的黑色西装，配白衬衫。妆容方向：温润的底妆，浅棕色眼影，砖红或豆沙红的唇。',
@@ -210,6 +226,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'snow_mountain',
+        'shooting': '雪峰下的婚礼。情绪开阔、坚定而亲密。用低机位突出人物与雪峰的关系，近处草甸、中间人物、远处山体构成层次；大环境画面与有身体接触的近景交替。全身表现拖尾，远景保留天地尺度，面部可见镜头不把人缩成小点。',
+        'preview': '镜头：35mm 镜头，低机位，全身。两人牵手站在甘海子草甸上，新娘略在前，裙摆沿草地向画面下方铺展；人物占主要画幅，雪峰从两人肩后升起，峰顶留在画面内。上午侧前方阳光同时照出衣料、草甸与山体明暗。两人身体自然靠近，迎着镜头轻松微笑。',
         'name': '玉龙雪山',
         'description': '云南玉龙雪山、甘海子、蓝月谷、云杉坪',
         'costume': '新娘穿简约的白色缎面婚纱，配长拖尾和长头纱；新郎穿黑色西装。妆容方向：白皙透亮的底妆，粉色腮红，玫瑰豆沙色的唇。',
@@ -225,6 +243,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'lawn_floral',
+        'shooting': '草坪上的婚礼仪式。情绪明朗、喜悦、自然，正式合影与仪式结束后的轻松互动交替。花艺拱门用于框景，通道用于行走，花艺靠近人物但不遮挡；用站坐或前后关系变化构图。以同一处仪式区域为主，不为变化每张重新布景。',
+        'preview': '镜头：50mm 镜头，平视，全身。两人站在花艺拱门开口前，新娘略靠前，新郎侧身靠近，拱门弧线从两侧围合，裙摆与脚下草地完整入画。柔和天光同时照亮人物、白花和青绿草地。新娘轻挽新郎的手臂，两人刚说完一句悄悄话，朝镜头露出自然的笑。',
         'name': '草坪花艺',
         'description': '花艺拱门、仪式通道、古树、白色纱幔',
         'costume': '新娘穿简约的白色缎面婚纱，配一条长头纱；新郎穿黑色西装。妆容方向：柔和的粉棕色眼影，蜜桃色腮红，玫瑰粉色的唇。',
@@ -253,6 +273,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'french_estate',
+        'shooting': '庄园里的古典婚礼。情绪从容、优雅、亲密，安静的对视与轻松浅笑为主。利用石阶、建筑对称和绿篱线条衬托蕾丝与拖尾，安排前后错位、侧身相依和缓步行走。以庄园主楼周边为主，暖色石材保留本色，肤色与白纱不过度泛黄。',
+        'preview': '镜头：85mm 镜头，平视，全身。两人站在庄园主楼前的草坪边缘，新娘靠前，新郎在侧后方轻握她的手；建筑窗线在背景中有秩序地排列，裙摆与头纱自然延展，四周保留适量草坪。柔和侧向日光照出蕾丝和石材纹理。两人放松地看向镜头，带从容亲密的浅笑。',
         'name': '法式庄园',
         'description': '古典庄园、修剪花园、玫瑰庭院、露台、玻璃花房',
         'costume': '新娘穿复古蕾丝长袖婚纱和长头纱，新郎穿深色西装。妆容方向：法式复古妆，暖棕色眼影，雾面质感的红唇。',
@@ -283,6 +305,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'luxury_interior',
+        'shooting': '古典室内的正式婚礼。情绪庄重、亲密而喜悦，合影从容，互动细腻。利用楼梯高低、石柱前后与裙摆轮廓组织人物，环境有纵深但不过分抢占画幅。以同一座大堂及楼梯区域为主，高窗主光与场景装饰灯色温关系自然，暗部和灯光保留细节。',
+        'preview': '镜头：50mm 镜头，平视，全身。新娘站在大堂旋转楼梯最低一级，新郎站在她身旁的地面，裙摆顺台阶自然铺展；两人靠近形成肩线高低，石柱与楼梯弧线在身后延伸。高窗日光照亮衣料和石阶，吊灯只作背景点缀。新郎轻扶新娘的手，两人朝镜头露出从容的微笑。',
         'name': '酒店教堂',
         'description': '酒店大堂、宫廷楼梯、教堂通道、婚礼礼堂',
         'costume': '新娘穿长拖尾的白色缎面婚纱和长头纱，新郎穿黑色礼服。妆容方向：精致典雅的妆面，香槟色细闪眼影，玫瑰红色的唇。',
@@ -298,6 +322,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'lakeside',
+        'shooting': '湖岸边的轻盈婚礼。情绪安静、自在、亲密，微笑与交谈后的轻快笑容交替。用岸线和倒影延展画面，避免湖面分割头颈，人物前后错位与并肩行走交替。以同一段湖岸为主，湖面反光与礼服明暗连贯，蓝绿色不过度饱和。',
+        'preview': '镜头：50mm 镜头，平视，全身。两人沿洱海草岸斜向走近，新娘在前半步，一手轻提裙摆，另一手牵着新郎；人物占主要画幅，湖面在肩线以下延伸，远山留在画面上部。上午侧光照出衣料褶皱，湖面反光柔和。两人刚交谈完，一起回望镜头，笑容轻松自然。',
         'name': '湖畔洱海',
         'description': '洱海湖岸、水上栈桥、湖边花艺、镜面湖泊',
         'costume': '新娘穿轻盈的缎面婚纱，配一条长头纱；新郎穿浅灰色西装。妆容方向：通透的底妆，浅棕色眼影，珊瑚粉色的唇。',
@@ -327,6 +353,8 @@ _STYLE_DATA = (
     },
     {
         'id': 'dark_studio',
+        'shooting': '黑色影棚里的雕塑感人像。情绪沉稳、亲密、从容，以安静的视线和轻微笑意为主。用肩线错落、身体转折与相依形成轮廓，半身表现关系，全身表现鱼尾线条；不强制走动、转圈或大笑。始终保留黑背景，用主光和轮廓光的层次区分黑礼服与背景。',
+        'preview': '镜头：85mm 镜头，平视，七分身。新娘在画面右侧靠前，新郎在她左后方贴近，两人的肩线与身体朝向略微错开；头顶留少量黑色空间。侧前方主光塑造面部和缎面明暗，身后轮廓光分离头发与肩线。新郎轻环新娘腰侧，新娘放松地搭住他的手，两人沉静地看向镜头，带微微笑意。',
         'name': '黑色影棚',
         'description': '哑光黑背景、侧光塑形、轮廓光、雕塑感明暗',
         'costume': '新娘穿白色缎面婚纱，新郎穿黑色高定礼服。妆容方向：有光泽的底妆，深棕色眼影，浓郁的正红唇。',
@@ -537,6 +565,8 @@ _HAIR = {
         'groom': {'buzz': BUZZ_HAIR, 'short': '利落的纹理短发，梳理整齐', 'medium': '整齐的三七分，干净利落'},
     },
 }
+_STYLE_DATA += REFERENCE_STYLES
+_HAIR.update({style['id']: _HAIR[style['hair_template']] for style in REFERENCE_STYLES})
 for _style in _STYLE_DATA:
     _style['hair'] = _HAIR[_style['id']]
     # Image prompts name the costume and visual language; the concrete variant is written into each shot.
@@ -570,11 +600,11 @@ POSES = tuple(
 )
 POSE_BY_ID = {pose['id']: pose for pose in POSES}
 
+# Retired styles retain the old sample; every active style defines its own representative shot (V7.19).
 PREVIEW_MOMENT = '镜头：两人并肩站立，新娘轻挽新郎的手臂，身体自然靠近，肩颈放松，两人开心地露齿笑着看向镜头，七分身构图，两人面部清晰。'
 GENERAL_AVOID = '网红脸、整容脸、幼态脸、五官欧美化、过度磨皮的塑料皮肤、皮肤暗沉、痘印和临时的色斑、厚重结块的底妆、面部大面积油光或汗珠、生硬的贴片状发际线、面部被遮挡、多余的人物、手部或手指畸形、人物像抠图贴在背景上、杂乱的地面和背景、影楼廉价感、过度锐化、粗糙的数码噪点、HDR 感、文字和水印'
 QUALITY_PARAGRAPH = (
-    '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境处在同一光源下，受光方向、色温和明暗一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感：地面没有杂物，背景里没有杂乱无章的元素；'
-    '两人面部清晰可辨，亮度跟随场景的光线；表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；焦外自然虚化，影调柔和、细节细腻，带有轻微的胶片颗粒感；白平衡准确，白色呈现干净的白；色彩处理统一，皮肤干净细腻、有自然的光泽。'
+    '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境的主光、环境反射光和必要的补光具有合理的方向、色温与明暗关系，光线与所选场景一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感，保留场景本身的材质和空间层次；两人面部清晰可辨，亮度跟随场景的光线；表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；景深按镜头决定，影调、反差、色彩、颗粒与光晕按风格决定，保留亮部织物纹理和暗部层次；白色面料呈现当前光源下合理的冷暖与明暗，肤色自然，皮肤干净细腻、有真实纹理。'
 )
 _FACE_CLEAR_SENTENCE = '两人面部清晰可辨，亮度跟随场景的光线；'
 # Atmosphere shots (back view, silhouette, tiny figures, foreground cover) do not show the faces clearly (V3.35).
@@ -915,6 +945,7 @@ STYLE_MAKEUP_COLORS = {
     'hanfu': ('soft_pink', ('classic_red', 'rose_bean')),
     'northwest_desert': ('terracotta', ('milk_tea',)),
 }
+STYLE_MAKEUP_COLORS.update({style['id']: style['makeup'] for style in REFERENCE_STYLES})
 # Each style's makeup finish (V6.4): base, eye shadow, lip surface and where the blush sits, never a colour (the
 # colours are its STYLE_MAKEUP_COLORS family), so styles with the same colours still look different.
 STYLE_MAKEUP_FINISH = {
@@ -946,6 +977,7 @@ STYLE_MAKEUP_FINISH = {
     'hanfu': '底妆是温润柔缎的质感；眼影柔雾细腻，不画戏剧化的眼妆；唇面柔缎；腮红在脸颊中部小范围晕开。',
     'northwest_desert': '底妆是控油柔缎的质感；眼影柔雾，层次清楚；唇面柔雾；腮红从脸颊中部向外柔和晕开。',
 }
+STYLE_MAKEUP_FINISH.update({style['id']: style['finish'] for style in REFERENCE_STYLES})
 # Styles whose bride needs an updo (a bride with short hair keeps her own); their headwear is added in the shot,
 # on top of the look's hairstyle, since adding things works through the edit endpoint and changing hair does not.
 UPDO_STYLES = {
@@ -976,6 +1008,18 @@ _VEIL_WAIST = '头纱与头饰：新娘配单层纯白色薄纱头纱，长度�
 _VEIL_LONG = '头纱与头饰：新娘配单层纯白色薄纱长头纱，长度至脚踝，边缘素净无花边，从后脑向背后垂落；不另加头饰，不改变造型照的发型。'
 _NO_VEIL = '头纱与头饰：新娘不配头纱和头饰，不改变造型照的发型。'
 _OUTFIT_DATA = (
+    ('studio_satin', '主纱缎面蓬裙',
+     '新娘穿纯白色厚缎主纱。浅心形抹胸领口，无肩带、无袖，上身有整齐的斜向收褶，胸腰合体，腰线在自然腰部。裙身从腰部展开成饱满的A字，内有轻裙撑，前摆及地，后摆长约一米。厚缎形成宽阔柔和的反光和大褶，裙身素净；不加蕾丝、亮片和立体花饰。',
+     '新郎穿纯黑色两件套礼服：单排一粒扣戗驳领上衣和同色直筒西裤，主体是哑光羊毛，驳领是黑色缎面；内搭白色翻领长袖衬衫，佩戴黑色缎面领结，配黑色系带皮鞋。左驳领别一枚小型白花胸花，不配马甲和口袋巾。',
+     '头纱与配饰：新娘配单层纯白色薄纱长头纱，长度至脚踝，素净窄边，从后脑垂落；戴小型珍珠耳钉，不另加头饰，不改变造型照的发型。捧花由白色洋桔梗、少量浅粉玫瑰与细绿枝组成，小束自然手绑，不遮挡上身。'),
+    ('forest_lace_veil', '森系蕾丝长纱',
+     '新娘穿纯白色修身蕾丝婚纱。微弧抹胸领口，无肩带、无袖，领缘有细小的蕾丝波边；上身和臀部合体，腰线在自然腰部，裙身至大腿中部以下逐渐展开，前摆及地，后摆长约七十厘米。衣身覆细腻的平面小花连枝蕾丝，内有不透底白色里衬；不加亮片、水钻和立体大花。',
+     '新郎穿纯白色羊毛礼服上衣，单排一粒扣黑色缎面戗驳领，配黑色直筒西裤；内搭白色翻领长袖衬衫，佩戴黑色领结，配黑色系带皮鞋。左驳领别一小枝白花与绿叶，不配马甲和口袋巾。',
+     '头纱与配饰：新娘配单层纯白色薄纱长头纱，长度约一米八，素净无蕾丝边，从后脑垂落；发髻旁别两朵小型白花，不戴花环，不改变造型照的发型。捧花以白色洋桔梗、少量浅粉玫瑰和细叶绿枝组成，轮廓疏朗，绿枝略微垂落，不做圆球花束。'),
+    ('city_satin_veil', '街拍缎面长纱',
+     '新娘穿纯白色轻缎婚纱。浅方领，两条窄肩带，无袖；上身合体，腰线在自然腰部，裙身沿身体自然垂落，膝下略微展开，前摆及地，后摆形成约三十厘米的短拖尾。面料细腻、光泽柔和；整件无蕾丝、刺绣、珠片和立体花饰。配纯白色细跟鞋。',
+     '新郎穿纯白色羊毛礼服上衣，单排一粒扣、同色缎面青果领，配黑色直筒西裤；内搭白色翻领长袖衬衫，佩戴黑色缎面领结，配黑色系带皮鞋。左胸别一枚小型白花胸花，不配马甲和口袋巾。',
+     '头纱与配饰：新娘配单层纯白色薄纱长头纱，长度约一米五，素净窄边，从后脑垂落；戴小型珍珠耳钉，不另加头饰，不改变造型照的发型。捧花是小束白色马蹄莲和细长绿叶，用素白缎带束起，不加文字和吊牌。'),
     ('satin_a_line', '缎面A字婚纱',
      '新娘穿干净的纯白色缎面A字婚纱，底色不偏黄。平直抹胸领口，无肩带、无袖。上身合体，腰线在自然腰部，不加腰带。裙身从腰部向下逐渐展开，前摆及地，后摆比前摆长约半米，形成短拖尾。缎面平整细腻、有柔和光泽，腰下只有少量宽褶；整件无蕾丝、刺绣、珠片和立体花饰。',
      _BLACK_SUIT, _VEIL_WAIST),
@@ -1013,13 +1057,13 @@ _OUTFIT_DATA = (
      '新娘穿干净的纯白色缎面公主蓬蓬裙婚纱，底色不偏黄。平直抹胸领口，无肩带、无袖。上身是紧身胸衣式的合体剪裁，腰线在自然腰部明显收紧。裙身从腰部展开成饱满的钟形，内有裙撑，前摆及地，后摆比前摆长约一米。缎面平整，上身点缀疏朗的细小珍珠；裙身无蕾丝和亮片。',
      _TUX, _VEIL_LONG),
 )
-OUTFITS = tuple(Outfit(*item) for item in _OUTFIT_DATA)
+OUTFITS = tuple(Outfit(*item) for item in _OUTFIT_DATA + REFERENCE_OUTFIT_DATA)
 OUTFIT_BY_ID = {item.id: item for item in OUTFITS}
 # The outfits offered per style, the default first. Retired styles have none and keep their one-line costume.
 STYLE_OUTFITS = {
-    'korean_minimal': ('satin_a_line',),
-    'french_vintage': ('city_light',),
-    'forest_natural': ('forest_lace',),
+    'korean_minimal': ('studio_satin', 'satin_a_line'),
+    'french_vintage': ('city_satin_veil', 'city_light'),
+    'forest_natural': ('forest_lace_veil', 'forest_lace'),
     'seaside_sunset': ('flowing_chiffon',),
     'chinese_traditional': ('xiuhe',),
     'cinematic_light': ('satin_mermaid',),
@@ -1031,6 +1075,7 @@ STYLE_OUTFITS = {
     'luxury_interior': ('ball_gown',),
     'lakeside': ('flowing_chiffon',),
 }
+STYLE_OUTFITS.update({style['id']: style['outfits'] for style in REFERENCE_STYLES})
 OUTFIT_RULE = ('整组照片都穿这一套服饰，不换装、不增减配件；款式、面料底色、领口、袖型、纹样类型和分布、裙摆和拖尾长度，以及头纱和头饰都保持一致。'
                '衣褶、遮挡、透视和受光明暗随镜头自然变化；服饰只表现当前镜头实际可见的部分，不为展示服饰改变景别、机位或姿态；'
                '远景按实际比例表现轮廓和色块，不强求近景级别的纹样细节。')
@@ -1040,6 +1085,28 @@ def outfit_text(outfit_id: str) -> str:
     """What the outfit says, as the sample, the shots and the director all read it."""
     outfit = OUTFIT_BY_ID[outfit_id]
     return outfit.bride + outfit.groom + outfit.headwear
+
+
+# V7.18: after hair and makeup, one edit of a person's selected look makes their final look: the whole person in the
+# outfit. The head-and-shoulders look stays the reference for the face, whose detail a full-length picture would lose;
+# the final look only tells a shot what the clothes are.
+_OUTFIT_LOOK_KEEP = {
+    'bride': '脸、五官、表情、妆容、肤色、发型和发色都与这张照片一致，不重新化妆、不改发型、不美颜；',
+    'groom': '脸、五官、表情、肤色、发型和发色都与这张照片一致，不改发型、不美颜；',
+}
+
+
+def compose_outfit_look_prompt(role: str, outfit_id: str) -> str:
+    """Edit prompt that turns one person's selected look into their final look in this outfit (V7.18)."""
+    outfit = OUTFIT_BY_ID[outfit_id]
+    clothes = outfit.bride + outfit.headwear if role == 'bride' else outfit.groom
+    return '\n\n'.join((
+        f'这张照片是{_ROLE_NAMES[role]}婚礼当天做好造型的头肩照。把它扩展成同一个人穿下面这套服饰的全身定妆照：{_OUTFIT_LOOK_KEEP[role]}'
+        '身材比例自然真实，不刻意拉长腿、不改变头身比例。',
+        '服饰：' + clothes,
+        '画面：竖构图，从头顶到鞋完整入画，四周留少量余量；人物放松地自然站立，正面朝向镜头；背景是干净均匀的浅灰色纯色背景，柔和均匀的正面光。',
+        '避免：改变脸和五官、改变发型、增减服饰配件、裙摆或鞋子被裁切、多余的人物、文字和水印。',
+    ))
 
 
 def _clothes(style: dict) -> str:
@@ -1119,10 +1186,19 @@ _STYLED_MARKER = '造型照就是两人婚礼当天化好妆、做好发型后�
 _BARE_STYLED_MARKER = '造型照是两人做好发型后的样子'
 
 
-def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None) -> str:
+_LOOK_CLOTHES_IGNORED = '造型照里的纯色背景和衣服不参考。'
+_FINAL_LOOK_RULE = ('全身定妆照只用来确定服饰的款式、颜色、面料、长度以及头纱头饰，不参考其中的脸、表情、姿态、站位、光线和背景；'
+                    '长相、发型和妆容只以造型照为准。')
+
+
+def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None,
+                               outfit_references: tuple[str, ...] = ()) -> str:
     labels = ['第一张图是新娘的造型照', '第二张图是新郎的造型照']
     for role, facing in side_references or ():
         labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}脸朝画面{_FACING_NAMES[facing]}侧时的造型照')
+    # V7.18: the final looks come after the head-and-shoulders looks, whose places the face fix and the swap rely on.
+    for role in outfit_references:
+        labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}穿这套服饰的全身定妆照')
     roles = '，'.join(labels) + '。'
     if with_preview:
         roles += _PREVIEW_REFERENCE_INSERTION.replace('第三张', _IMAGE_ORDINALS[len(labels)], 1)
@@ -1141,7 +1217,7 @@ def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[s
             '与「服装与风格」中的新娘妆色和新娘妆面一致。场景光线只改变合理的受光明暗与反光，不将已有婚礼妆淡化为素颜或日常淡妆。'
             '构图、景别和人物占画面比例均按「镜头」要求，不为展示妆容移动机位、放大人物或改变眼型、唇形；'
             '远景按人物实际尺寸表现妆容的综合色块与明暗关系，不要求显示近景级别的睫毛或眼影细节。'
-            '造型照里的纯色背景和衣服不参考。两人体态自然舒展，不改变真实的身体比例。'
+            + _LOOK_CLOTHES_IGNORED + (_FINAL_LOOK_RULE if outfit_references else '') + '两人体态自然舒展，不改变真实的身体比例。'
             '风格要求与长相冲突时，以长相为准。')
 
 
@@ -1162,7 +1238,7 @@ def _aspect_paragraph(aspect_ratio: str) -> str:
     return f'横构图，{aspect_ratio} 比例的写实婚纱照。'
 
 
-_IMAGE_ORDINALS = ('第一张', '第二张', '第三张', '第四张', '第五张')
+_IMAGE_ORDINALS = ('第一张', '第二张', '第三张', '第四张', '第五张', '第六张', '第七张')
 _ROLE_NAMES = {'bride': '新娘', 'groom': '新郎'}
 _FACING_NAMES = {'left': '左', 'right': '右'}
 
@@ -1233,13 +1309,13 @@ def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
 def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_preview: bool = False,
                     scene: int | None = 1, faces_clear: bool = True, makeup: Makeup | None = None,
                     hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                    styled: bool = False, outfit: str | None = None) -> str:
+                    styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
     style = STYLE_BY_ID[style_id]
     if styled and makeup is not None:
         raise ValueError('a shot from looks takes no makeup levels: the looks wear the makeup (V7.0)')
     return '\n\n'.join((
         _aspect_paragraph(aspect_ratio),
-        _styled_identity_paragraph(with_preview, side_references) if styled else
+        _styled_identity_paragraph(with_preview, side_references, outfit_references) if styled else
         _identity_paragraph(with_preview, side_references, makeup),
         _style_paragraph(style, scene=scene, hair=hair, styled=styled, outfit=outfit),
         action,
@@ -1249,13 +1325,15 @@ def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_previ
 
 
 def compose_preview_prompt(style_id: str, aspect_ratio: str, *, makeup: Makeup | None = None, hair: Hair | None = None,
-                           styled: bool = False, outfit: str | None = None) -> str:
-    return _compose_prompt(style_id, PREVIEW_MOMENT, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit)
+                           styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+    action = PREVIEW_MOMENT if style_id in RETIRED_STYLE_IDS else STYLE_BY_ID[style_id]['preview']
+    return _compose_prompt(style_id, action, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit,
+                           outfit_references=outfit_references)
 
 
 def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with_preview: bool = False,
                          makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                         styled: bool = False, outfit: str | None = None) -> str:
+                         styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
     return _compose_prompt(
         style_id,
         POSE_BY_ID[pose_id]['prompt_template'],
@@ -1266,6 +1344,7 @@ def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with
         side_references=side_references,
         styled=styled,
         outfit=outfit,
+        outfit_references=outfit_references,
     )
 
 
@@ -1286,10 +1365,12 @@ def director_scene_text(style_id: str, *, single_variant: bool, outfit: str | No
     # The costume lets the director plan veil, skirt and train moments only where they exist (V3.36).
     costume = outfit_text(outfit) if outfit is not None else style['costume']
     lines = ['服装（摄影团队已确定）：' + costume, '视觉语言（摄影团队已确定）：' + style['look']]
+    if style_id not in RETIRED_STYLE_IDS:
+        lines.append('拍摄方向（摄影团队已确定）：' + style['shooting'])
     if single_variant:
         lines.append('场景（所有镜头都在这个场景里，scene 填 1）：' + style['variants'][0][1])
     else:
-        lines.append('场景变体（每个镜头选其中一个，把编号填在 scene；整组尽量用到不同的变体）：')
+        lines.append('场景变体（每个镜头选其中一个，把编号填在 scene；以一个主场景为主，少量相邻场景补充，光色和空间关系连贯）：')
         lines.extend(f'{index}. {name}：{text}' for index, (name, text) in enumerate(style['variants'], 1))
     return '\n'.join(lines)
 
@@ -1302,12 +1383,12 @@ def director_scene_count(style_id: str, *, single_variant: bool) -> int:
 def compose_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
                           faces_clear: bool = True, with_preview: bool = False, makeup: Makeup | None = None,
                           hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                          styled: bool = False, outfit: str | None = None) -> str:
+                          styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
     if not isinstance(moment_text, str) or not moment_text.endswith('。'):
         raise ValueError('moment text must end with exactly one Chinese full stop')
     return _compose_prompt(style_id, SHOT_LABEL + moment_text, aspect_ratio, with_preview=with_preview,
                            scene=scene, faces_clear=faces_clear, makeup=makeup, hair=hair, side_references=side_references,
-                           styled=styled, outfit=outfit)
+                           styled=styled, outfit=outfit, outfit_references=outfit_references)
 
 
 def scene_from_prompt(style_id: str, prompt: str) -> int | None:
@@ -1347,19 +1428,21 @@ def _apply_identity_boost(prompt: str) -> str:
 
 def compose_identity_boost_prompt(style_id: str, pose_id: str | None, aspect_ratio: str, *, with_preview: bool = False,
                                   makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                                  styled: bool = False, outfit: str | None = None) -> str:
-    prompt = (compose_preview_prompt(style_id, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit) if pose_id is None else
+                                  styled: bool = False, outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
+    prompt = (compose_preview_prompt(style_id, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit,
+                                     outfit_references=outfit_references) if pose_id is None else
               compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=makeup, hair=hair,
-                                   side_references=side_references, styled=styled, outfit=outfit))
+                                   side_references=side_references, styled=styled, outfit=outfit, outfit_references=outfit_references))
     return _apply_identity_boost(prompt)
 
 
 def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
                                          with_preview: bool = False, makeup: Makeup | None = None, hair: Hair | None = None,
                                          side_references: list[tuple[str, str]] | None = None, styled: bool = False,
-                                         outfit: str | None = None) -> str:
+                                         outfit: str | None = None, outfit_references: tuple[str, ...] = ()) -> str:
     return _apply_identity_boost(compose_moment_prompt(style_id, moment_text, aspect_ratio, scene=scene, with_preview=with_preview,
-                                                       makeup=makeup, hair=hair, side_references=side_references, styled=styled, outfit=outfit))
+                                                       makeup=makeup, hair=hair, side_references=side_references, styled=styled, outfit=outfit,
+                                                       outfit_references=outfit_references))
 
 
 # AI face fix (V7.1, app/face_fix.py; the whole picture since V7.2). V7.4: the references are the couple's looks,

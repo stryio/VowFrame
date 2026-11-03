@@ -1959,6 +1959,14 @@ button.status-chip {
 .looks-card { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
 .looks-header { display: flex; align-items: baseline; gap: 12px; }
 .looks-header h3 { font-size: 15px; }
+.outfit-details { padding: 18px 22px; }
+.outfit-details > summary { cursor: pointer; }
+.outfit-details > summary:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 6px; border-radius: 2px; }
+.outfit-details-title { font-weight: 600; }
+.outfit-details-status { display: block; margin-top: 4px; font-size: 12px; }
+.outfit-details-body { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.planner-sample { display: flex; align-items: center; gap: 14px; }
+.planner-sample img { width: 64px; height: 86px; object-fit: cover; flex-shrink: 0; border-radius: var(--radius-sm); }
 .look-form { display: flex; flex-direction: column; gap: 8px; }
 .makeup-picker { display: flex; flex-direction: column; gap: 10px; }
 .look-step-title { font-size: 14px; font-weight: 600; }

@@ -13,6 +13,7 @@ from app.config import load_config
 from app.face_swap import (HELPER_PATH, FaceFusionSwapper, FaceSources, FaceSwapError, FaceSwapResult,
                            MockFaceSwapper, create_face_swapper, face_swap_applied_snapshot, face_swap_snapshot)
 from app.task_manager import TaskManager
+from app.prompts import STYLE_BY_ID
 from app.storage import asset_path
 from facefusion_helper.swap import _cuda_face_swapper_used, _face_turn, _facing, _run, _scores, _similarity
 from conftest import PNG, BlockingGenerator, ScriptedGenerator, create_project, preview_batch, uploaded_ids, wait_batch, wait_until
@@ -549,7 +550,7 @@ def test_actions_on_a_swapped_image_start_from_its_generation_prompt(app_factory
         wait_batch(client, boost.json()['id'])
         tasks = client.get('/api/tasks', params={'batch_id': boost.json()['id']}).json()
         boost_task = next(task for task in tasks if task['regenerate_mode'] == 'identity_boost')
-        assert boost_task['prompt'].split('\n\n')[3].startswith('镜头：两人并肩站立')
+        assert boost_task['prompt'].split('\n\n')[3].startswith(STYLE_BY_ID['korean_minimal']['preview'].removesuffix('。'))
         assert generator.calls[-1][1] == boost_task['prompt']
         # The boosted image is swapped again automatically.
         assert {task['regenerate_mode'] for task in tasks} == {'identity_boost', 'face_swap'}

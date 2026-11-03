@@ -18,7 +18,7 @@ that made-up photo, so its hair candidates differ only in the hair. V7.5–V7.7 
 
 A shot task records its looks in its model snapshot:
     'looks': {'version': STYLING_VERSION, 'bride': look id, 'groom': look id}
-    'reference_slots': one [role, angle] per reference image, null for a sample reference
+    'reference_slots': one [role, angle] per reference image, null for a final look or a sample reference
 The task's reference images hold the front looks from the start; a side photo the shot needs is replaced by its
 side look (derived from the side photo and the front look) when the task runs, so a replay ('same') reuses
 exactly the images the original used.
@@ -28,7 +28,7 @@ automatic styling is retired.
 """
 
 from .face_swap import face_swap_reference_ids
-from .prompts import (FACE_SHAPING_LEVELS, HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLE_OUTFITS, STYLES, STYLING_VERSION,
+from .prompts import (FACE_SHAPING_LEVELS, HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, OUTFIT_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLE_OUTFITS, STYLES, STYLING_VERSION,
                       UPDO_STYLES)
 
 # Order of face_swap_reference_ids().
@@ -253,14 +253,86 @@ def style_outfits(conn, project) -> dict[str, str]:
             for style_id, outfits in STYLE_OUTFITS.items()}
 
 
+OUTFIT_LOOK_PROBLEM_MESSAGES = {
+    'unavailable': '这张最终造型不存在或已删除',
+    'not_ready': '这张最终造型还没有生成好',
+    'look_unusable': '它用的造型已经不能再用于新照片，请重新选用造型后再生成',
+}
+
+
+def outfit_look_problem(conn, project, row) -> str | None:
+    """Why a final look (V7.18) cannot be used for a new sample; None when it can."""
+    if row['discarded_at'] is not None:
+        return 'unavailable'
+    if row['status'] != 'ready' or row['image_asset_id'] is None:
+        return 'not_ready'
+    look = conn.execute('SELECT * FROM looks WHERE id=?', (row['look_id'],)).fetchone()
+    if look is None or look['discarded_at'] is not None or look_problem(project, look) is not None:
+        return 'look_unusable'
+    return None
+
+
+def _outfit_look_candidates(conn, row) -> list:
+    return conn.execute('SELECT * FROM outfit_looks WHERE look_id=? AND outfit_id=? AND discarded_at IS NULL ORDER BY rowid',
+                        (row['look_id'], row['outfit_id'])).fetchall()
+
+
+def select_outfit_look(conn, row, by: str = 'user'):
+    """Use this final look for its look and outfit. by: as select_only."""
+    conn.execute('UPDATE outfit_looks SET selected_by=NULL WHERE look_id=? AND outfit_id=?', (row['look_id'], row['outfit_id']))
+    conn.execute('UPDATE outfit_looks SET selected_by=? WHERE id=?', (by, row['id']))
+
+
+def auto_select_outfit_look(conn, project, row):
+    """The first usable final look is used until the user picks one. It is not chosen by likeness: its face is never
+    used, since the shot takes the face from the head-and-shoulders look."""
+    rows = [item for item in _outfit_look_candidates(conn, row) if outfit_look_problem(conn, project, item) is None]
+    if rows and not any(item['selected_by'] is not None for item in rows):
+        select_outfit_look(conn, rows[0], 'auto')
+
+
+def selected_outfit_look(conn, project, look_id: str, outfit_id: str):
+    row = conn.execute('SELECT * FROM outfit_looks WHERE look_id=? AND outfit_id=? AND selected_by IS NOT NULL AND discarded_at IS NULL '
+                       'ORDER BY rowid DESC LIMIT 1', (look_id, outfit_id)).fetchone()
+    return row if row is not None and outfit_look_problem(conn, project, row) is None else None
+
+
+def outfit_references_of(conn, project, looks, outfit_id: str | None) -> dict[str, str]:
+    """{role: image asset} of the selected final looks for these (bride, groom) looks and this outfit (V7.18). A person
+    without one is simply absent: the final look is an optional step, and the shot then has only the outfit's text."""
+    if outfit_id is None:
+        return {}
+    result = {}
+    for role, look in zip(('bride', 'groom'), looks):
+        row = selected_outfit_look(conn, project, look['id'], outfit_id)
+        if row is not None:
+            result[role] = row['image_asset_id']
+    return result
+
+
+def outfit_look_response(conn, project, row) -> dict:
+    problem = outfit_look_problem(conn, project, row)
+    look = conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (row['look_id'],)).fetchone()
+    return {
+        'id': row['id'], 'person': row['person'], 'role': row['role'], 'look_id': row['look_id'], 'outfit_id': row['outfit_id'],
+        'outfit_name': OUTFIT_BY_ID[row['outfit_id']].name, 'status': row['status'], 'error_code': row['error_code'],
+        'error_message': row['error_message'], 'asset_id': row['image_asset_id'], 'look_asset_id': look['image_asset_id'],
+        'selected': row['selected_by'] is not None, 'selected_by': row['selected_by'], 'usable': problem is None,
+        'unusable_reason': OUTFIT_LOOK_PROBLEM_MESSAGES[problem] if problem not in (None, 'not_ready') else None,
+        'created_at': row['created_at'],
+    }
+
+
 def look_snapshot(bride_look_id: str, groom_look_id: str) -> dict:
     return {'version': STYLING_VERSION, 'bride': bride_look_id, 'groom': groom_look_id}
 
 
-def reference_slots(side_references: list[tuple[str, str]], with_preview: bool) -> list:
-    """[role, angle] for each image of app.api._build_references, in its fixed order."""
+def reference_slots(side_references: list[tuple[str, str]], with_preview: bool, outfit_reference_count: int = 0) -> list:
+    """[role, angle] for each image of app.api._build_references, in its fixed order. A final look (V7.18) is no face
+    source, so like a sample it has no slot, and side looks and face swaps leave it alone."""
     slots = [['bride', 'front'], ['groom', 'front']]
     slots.extend([role, facing] for role, facing in side_references)
+    slots.extend([None] * outfit_reference_count)
     if with_preview:
         slots.append(None)
     return slots

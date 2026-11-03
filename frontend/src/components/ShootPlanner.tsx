@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   api,
   ApiError,
+  assetUrl,
   ORIENTATION_LABEL,
   ORIENTATIONS,
   SHOT_LABEL,
@@ -19,7 +20,7 @@ const PHOTO_COUNTS = [4, 8, 12, 20];
 type Phase = "setup" | "writing" | "review" | "shooting";
 
 /**
- * "用这个风格拍一组": the AI director writes N moments (cheap text call), the user
+ * After sample approval, the AI director writes N moments (cheap text call), the user
  * reviews / swaps / edits them, and only then are the paid image tasks created.
  */
 export function ShootPlanner({
@@ -133,6 +134,13 @@ export function ShootPlanner({
 
         {(phase === "setup" || phase === "writing") && (
           <>
+            <div className="notice planner-sample">
+              {preview.current_version && <img src={assetUrl(preview.current_version.asset_id)} alt={`${preview.style_name}：本组使用的样片`} />}
+              <p>
+                请确认这张样片的人物、服饰和整体效果。本组沿用它创建时的服饰与妆发选择。
+                想更换服饰或妆发，请先关闭，回到工作台修改并重新试拍。
+              </p>
+            </div>
             <div className="field">
               <span className="field-label">生成数量</span>
               <div className="count-options">

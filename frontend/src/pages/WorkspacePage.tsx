@@ -7,7 +7,7 @@ import {
   isFaceSwapped,
   isGenerating,
   type BrideHairLength, type Facing, type GroomHairLength, type Look, type LookItem, type LookOptions,
-  type Makeup, type MakeupLevel, type Person,
+  type Makeup, type MakeupLevel, type OutfitLook, type Person,
   type ProjectDetail,
   type Role,
   type Slot,
@@ -66,7 +66,7 @@ export function WorkspacePage() {
       <div className="page-header">
         <div>
           <h1>婚纱工作台</h1>
-          <p>先选风格、做好两人的造型，再试拍样片，喜欢哪种风格就用它拍一组，可以拍多组。</p>
+          <p>选好风格、服饰和两人的妆发，试拍时一起穿上服饰；看过样片，满意后再拍一组。</p>
         </div>
         <div className="stepper">
           <button className={`step ${step === "upload" ? "active" : "done"}`} onClick={() => setStep("upload")}>
@@ -449,9 +449,9 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
     <>
       <div className="page-header">
         <p className="muted">
-          新娘每个风格分两步：先在上传的照片上化妆（妆色和妆面按风格配，头发不动），可以一次生成几张挑一张；
-          再在选用的那张妆容上换发型，这个风格的发型候选都用同一张妆容，只有头发不同。新郎做一套，所有风格共用，发型和精修一次做好。
-          每张妆容、每张造型都是一次付费修图，背景换成纯色。最像本人的自动选用，可以换。相似度越接近 1 越像本人，偏低的建议再来一张。
+          在这里选好风格、服饰和妆发，下一步试拍时会一起穿上服饰，完成场景、光线和构图，不必先单独生成服饰定妆照。
+          新娘每个风格先选妆容，再在选用的妆容上做发型；新郎做一套妆发，所有风格共用。每张妆容、每张造型各是一次付费修图。
+          系统会自动选用候选，也可以手动更换；相似度越接近 1 越像本人。
         </p>
       </div>
 
@@ -482,7 +482,7 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
             );
           })}
         </div>
-        <span className="muted">示例图里是虚构的模特，用来看这个风格固定的服饰、场景和光线。</span>
+        <span className="muted">示例图里是虚构的模特，用来看风格的服饰、场景和光线；提供多套服饰的风格可以在下面更换。</span>
       </div>
       {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
 
@@ -490,6 +490,7 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
         <Fragment key={style.id}>
           <OutfitPicker project={project} style={style} options={options.data!} onZoom={setZoom} />
           <PersonLooks project={project} which={bride} role="bride" options={options.data!} style={style} />
+          <FinalLooks project={project} style={style} options={options.data!} />
         </Fragment>
       ))}
 
@@ -499,7 +500,7 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
         </button>
         {!ready && <span className="muted">请选用新郎的造型和至少一个风格的新娘造型</span>}
         <button className="btn btn-primary btn-lg" disabled={!ready} onClick={onNext}>
-          下一步：试拍风格 →
+          下一步：穿上服饰试拍 →
         </button>
       </div>
     </>
@@ -534,7 +535,7 @@ function OutfitPicker({
     <div className="card style-picker">
       <div className="style-picker-header">
         <h3>{style.name}：选择服饰</h3>
-        <span className="muted">换服饰后，新生成的样片才穿新服饰；已有样片和它的成片不变</span>
+        <span className="muted">选好后在下一步样片里一起穿上，无需先生成定妆照。更换服饰只影响新样片，已有样片和组照保持原样。</span>
       </div>
       <div className="example-grid style-examples">
         {ids.map((id) => {
@@ -778,6 +779,139 @@ function PersonLooks({
   );
 }
 
+/** Optional full-body outfit references. The default workflow dresses both people in the sample itself. */
+function FinalLooks({ project, style, options }: { project: ProjectDetail; style: Style; options: LookOptions }) {
+  const outfitId = project.style_outfits[style.id];
+  const outfit = options.outfits.find((item) => item.id === outfitId);
+  const looksInUse = project.style_looks[style.id];
+  if (!outfit || !looksInUse) return null;
+  const rows = project.outfit_looks.filter((row) =>
+    row.outfit_id === outfitId && (row.look_id === looksInUse.bride || row.look_id === looksInUse.groom),
+  );
+  const selected = rows.filter((row) => row.selected && row.usable);
+  const pending = rows.filter((row) => row.status === "waiting" || row.status === "running").length;
+  const failed = rows.filter((row) => row.status === "failed" || row.status === "interrupted").length;
+  const status = rows.length === 0
+    ? "默认跳过，在样片中确认服饰"
+    : [
+        `已有 ${rows.length} 张候选`,
+        selected.length > 0 && `${selected.map((row) => ROLE_LABEL[row.role]).join("、")}已选用，新样片会参考`,
+        pending > 0 && `${pending} 张生成中`,
+        failed > 0 && `${failed} 张未成功，展开可重试`,
+      ].filter(Boolean).join("；");
+  return (
+    <details className="card outfit-details">
+      <summary>
+        <span className="outfit-details-title">服饰定妆照（可选） · {style.name} · {outfit.name}</span>
+        <span className="muted outfit-details-status">{status}</span>
+      </summary>
+      <div className="outfit-details-body">
+        <p className="muted">
+          复杂蕾丝、花裙或帽纱需要提前单独查看时，可以额外生成全身服饰定妆照，每张是一次付费修图；也可以只做新娘。
+          选用后，新样片会参考它的服饰，长相、发型和妆容仍以上面的妆发造型为准。不生成也能直接试拍。
+        </p>
+        {(["bride", "groom"] as Role[]).map((role) => (
+          <FinalLookRow key={role} project={project} role={role} lookId={looksInUse[role]} outfitId={outfitId} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function FinalLookRow({ project, role, lookId, outfitId }: { project: ProjectDetail; role: Role; lookId: string | null; outfitId: string }) {
+  const { refresh } = useCurrentProject();
+  const toast = useToast();
+  const [submitting, setSubmitting] = useState(false);
+  const [viewing, setViewing] = useState<OutfitLook | null>(null);
+  const who = ROLE_LABEL[role];
+  const rows = project.outfit_looks.filter((row) => row.look_id === lookId && row.outfit_id === outfitId);
+  const act = async (operation: () => Promise<unknown>) => {
+    try {
+      await operation();
+      await refresh();
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+  const generate = async () => {
+    if (!lookId) return;
+    setSubmitting(true);
+    await act(() => api.createOutfitLook(project.id, lookId, outfitId));
+    setSubmitting(false);
+  };
+  return (
+    <div className="makeup-picker">
+      <h4 className="look-step-title">{who}</h4>
+      <div className="look-form-actions">
+        <button className="btn btn-primary btn-sm" onClick={generate} disabled={submitting || !lookId}>
+          {rows.length > 0 ? "再生成一张" : `生成${who}服饰定妆照`}（1 次修图）
+        </button>
+        {!lookId && <span className="muted">先选用{who}的造型</span>}
+      </div>
+      {rows.length > 0 && (
+        <div className="look-grid">
+          {rows.map((row, index) => {
+            const busy = row.status === "waiting" || row.status === "running";
+            const used = row.selected && row.usable;
+            const label = `服饰定妆照 ${index + 1}`;
+            return (
+              <div key={row.id} className={`look-tile ${used ? "on" : ""}`}>
+                <div className="look-photo">
+                  {row.asset_id ? (
+                    <img src={assetUrl(row.asset_id)} alt={label} onClick={() => setViewing(row)} />
+                  ) : busy ? (
+                    <div className="overlay">
+                      <div className="spinner" />
+                      <span>{row.status === "running" ? "正在生成" : "排队中"}</span>
+                    </div>
+                  ) : (
+                    <div className="overlay">
+                      <div className="error-text">{row.error_message ?? "生成失败"}</div>
+                      <button className="btn btn-sm" onClick={() => act(() => api.retryOutfitLook(row.id))}>
+                        重试
+                      </button>
+                    </div>
+                  )}
+                  {used && <span className="status-chip selected-chip">选用中</span>}
+                </div>
+                <div className="look-body">
+                  <strong>{label}</strong>
+                  {row.unusable_reason && <span className="error-text">{row.unusable_reason}</span>}
+                  <div className="look-actions">
+                    {row.status === "ready" && row.usable && !row.selected && (
+                      <button className="btn btn-sm btn-primary" onClick={() => act(() => api.selectOutfitLook(row.id))}>
+                        选用
+                      </button>
+                    )}
+                    {!busy && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => act(() => api.deleteOutfitLook(row.id))}>
+                        删除
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {viewing?.asset_id && (
+        <CompareView
+          title={`${who} · ${viewing.outfit_name}`}
+          aligned={false}
+          onClose={() => setViewing(null)}
+          items={[
+            ...(viewing.look_asset_id
+              ? [{ key: "look", assetId: viewing.look_asset_id, title: "造型", subtitle: "长相、发型和妆容以它为准", actions: [] }]
+              : []),
+            { key: "final", assetId: viewing.asset_id, title: "服饰定妆照", subtitle: "只用来确定服饰", actions: [] },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
 /** The bride's makeup candidates for one style (V7.8): made on the uploaded photo, hair unchanged; the selected
  * one is what the style's hair candidates are made on. */
 function MakeupPicker({
@@ -992,7 +1126,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
     });
     const choice = await ask({
       title: label,
-      message: `${generatedStyleIds.some((id) => styleIds.includes(id)) ? "已有的样片会保留为历史版本。" : ""}使用的造型——${lines.join("；")}。`,
+      message: `${generatedStyleIds.some((id) => styleIds.includes(id)) ? "已有的样片会保留为历史版本。" : ""}试拍会按所选服饰一起完成穿衣、场景、光线和构图，无需另做服饰定妆照；已选用的定妆照仍会作为服饰参考。使用的妆发——${lines.join("；")}。出图后请先检查人物、服饰和整体效果，满意后再拍组照。`,
       taskCount: styleIds.length,
     });
     if (!choice) return;
@@ -1039,12 +1173,13 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
     <>
       <div className="page-header">
         <p className="muted">
-          每种风格先生成 1 张样片，用这个风格选用的新娘造型和新郎造型拍，妆容照着造型照。喜欢哪种，就点「用这个风格拍一组」；
-          可以拍多种风格，也可以同一风格多拍几组。要换造型，回到「风格与造型」选用另一套，再重新生成样片。
+          每种风格先试拍 1 张：按选好的妆发和服饰，一起完成穿衣、场景、光线和构图。
+          放大检查人物是否像本人、服饰是否合适、整体效果是否满意，再点「确认样片，拍一组」。
+          要换服饰或妆发，回到「风格与造型」修改后重新试拍；已有样片及用它拍的组照会保留原来的选择。每种风格都可以拍多组。
         </p>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-ghost" onClick={onBack}>
-            ← 修改造型
+            ← 修改服饰与妆发
           </button>
           <button className="btn" onClick={() => (selecting ? exitSelecting() : setSelecting(true))}>
             {selecting ? "退出对比选择" : "对比样片"}
@@ -1219,7 +1354,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
                 .join(" · "),
               actions: [
                 {
-                  label: shot > 0 ? "再拍一组" : "用这个风格拍一组",
+                  label: shot > 0 ? "再拍一组" : "确认样片，拍一组",
                   primary: true,
                   onSelect: () => {
                     setComparing(false);
@@ -1364,6 +1499,7 @@ function PreviewCard({
           {style.description}
         </p>
         <FaceScore scores={version?.face_scores} />
+        {version?.size_warning && <span className="error-text">尺寸不符：{version.size_warning}</span>}
         {looks && looks.some((item) => item.assetId) && (
           <div className="styled-row">
             {looks.map(({ role, assetId, label }) =>
@@ -1393,7 +1529,7 @@ function PreviewCard({
             onClick={() => slot && onShoot(slot)}
             disabled={!version || busy}
           >
-            {shotCount > 0 ? "再拍一组" : "用这个风格拍一组"}
+            {shotCount > 0 ? "再拍一组" : "确认样片，拍一组"}
           </button>
         </div>
       </div>

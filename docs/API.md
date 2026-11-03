@@ -10,7 +10,11 @@
 
 本阶段范围：项目、上传、风格样片、按风格拍组（批量生成）、相册（单张/多选重生、加强长相重试、换动作、换景别、AI 修脸、换脸修正、历史版本与恢复、删除、ZIP 下载）、任务与批次控制。
 
-**一个项目可以拍多组风格**：试拍的每张样片都可以「用这个风格拍一组」，次数不限；不存在「项目唯一选中风格」。
+**一个项目可以拍多组风格**：试拍的每张样片都可以「确认样片，拍一组」，次数不限；不存在「项目唯一选中风格」。
+
+默认流程先选择服饰和妆发，在首张样片中一起完成穿衣与摄影效果，再确认样片并拍组照。
+独立服饰定妆照是折叠的可选付费功能，不是生成样片或组照的前置条件。
+更换当前服饰或妆发只影响之后新建的样片，沿用旧样片拍组仍使用该样片创建时的选择快照。
 
 ---
 
@@ -58,6 +62,7 @@
 
 - `model`：生成该版本的任务所用模型（取自任务的模型配置快照）；换脸版本为实际处理人物所用模型，两人都换时为「新娘/新郎」，如 `hyperswap_1c_256/hyperswap_1b_256`；V7.13 只换新郎时只记录新郎的模型，如 `hyperswap_1b_256`（2026-10-28 之前的换脸版本为 `hyperswap_1a_256/hyperswap_1c_256`）；模拟生成或无法确定时为 null。既有版本仍按其创建时的快照显示。
 - `source_version_id`：换脸版本的来源版本（换脸时输入的那个版本）；其他版本为 null。
+- `size_warning`：服务商返回的尺寸和请求不同时的说明，例如 `要求 1536×2048，实际 1086×1448`；相同或不比较（Gemini、模拟生成）时为 null。换脸版本沿用来源版本的值。
 - `face_scores`：新娘、新郎各自与生成该版本所用正脸照的人脸相似度（FaceFusion ArcFace 余弦相似度，保留 3 位小数，PRD 4.6）。某人为 null 表示画面里没找到这个人的脸；整个字段为 null 表示尚未测量（FaceFusion 不可用、细节特写、或排队中）。
   - 测量时机：换脸任务在同一次 FaceFusion 调用里测量换脸前后两张图，换脸前的分数写到来源版本（来源版本已有分数时保留原值）；没有排队换脸的生成版本，在换脸通道空闲时单独测量（每次最多 20 张）。后端启动时为所有尚未测量的版本补算。测量失败只记日志，不重试，下次启动再试。
 
@@ -155,6 +160,7 @@ ProjectSummary 加上：
   "style_looks": {"korean_minimal": {"bride": "…" | null, "groom": "…" | null}, …},
   "style_outfits": {"korean_minimal": "satin_a_line", …},
   "makeups": [Makeup],
+  "outfit_looks": [OutfitLook],
   "default_look_items": {"bride": [LookItem], "groom": [LookItem]}
 }
 ```
@@ -202,6 +208,18 @@ ProjectSummary 加上：
 - `status` 为 `failed` 时，`error_code` 是生成失败的原因（与镜头任务相同）。V6.x 的 `look_no_face`、`look_face_lost`、`mask_editor_missing`、`face_model_missing`、`face_model_runtime_missing` 不再出现，旧记录里可能还留着。
 - `selected` / `selected_order`（V7.0）：每个风格只有一套选用的新娘造型，新郎只有一套；选用的为 1，其余为 null。`selected_by`（V7.5）：`user` 是用户点了「选用」，`auto` 是系统选的（有相似度分数后选最像的一套，没有分数时选第一套生成好的）；用户选过的不再自动更换。
 - `makeup_asset_id` / `makeup_face_score`（V7.5）：新娘正面造型分两次编辑，这是第一次化好妆、还没改发型的照片和它与上传照的相似度；新郎和侧面造型为 null。发型这一步失败后重试，直接从这张照片开始。`makeup_id`（V7.8）：新娘造型是在哪张妆容候选上改的发型，这时 `makeup_asset_id` 就是那张妆容的图片，`makeup_face_score` 是它的分数；V7.8 以前的新娘造型、新郎和侧面造型为 null。
+
+### OutfitLook（V7.18，页面名称：服饰定妆照）
+
+一个人的造型穿上一套服饰的全身图，是可选的付费修图。新样片用选用的这张确定服饰，长相、发型和妆容仍以 `look_id` 的造型为准。
+页面默认折叠此功能，仍在入口显示已有候选、选用、生成中和失败状态；无定妆照时样片直接使用所选服饰的文字描述完成穿衣。
+
+- `POST /projects/{id}/outfit-looks`：`{client_request_id, look_id, outfit_id}`，生成一张，返回 OutfitLook。新娘造型只能用它所属风格提供的服饰（否则 422 `invalid_outfit`）；造型不能再用时 409 `look_unusable`。
+- `POST /outfit-looks/{id}/retry`：重试失败或中断的一张。
+- `POST /outfit-looks/{id}/select`：选用。同一 `look_id` 和 `outfit_id` 只选用一张；第一张生成好的自动选用（`selected_by` 为 `auto`）。
+- `DELETE /outfit-looks/{id}`：删除候选；已拍的照片不受影响。删除选用的那张时，自动选用剩下的第一张。
+
+字段：`id`、`person`、`role`、`look_id`、`outfit_id`、`outfit_name`、`status`、`error_code`、`error_message`、`asset_id`、`look_asset_id`（它用的头肩造型图）、`selected`、`selected_by`、`usable`、`unusable_reason`、`created_at`。
 
 ### Makeup（V7.8 新娘妆容候选）
 
@@ -396,7 +414,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
   "image_providers": [{"id": "88api", "name": "88API", "available": true, "reason": null}, {"id": "pptoken", "name": "PPTOKEN", "available": false, "reason": "没有配置 PPTOKEN 的密钥：…"}] }
 ```
 
-`image_provider`（V7.11）：生图服务，默认 `88api`。妆容、造型、样片、成片和 AI 修脸的修图请求发给它（AI 导演的文字模型仍走 88API）。请求按模型分发：选中的服务提供这个模型就发给它，否则发给唯一提供它的服务（例如切换前排队的 Sunburst 任务、重放旧任务）。`image_providers` 列出每个服务能否选择：PPTOKEN 要在 `config.local.json` 里填 `pptoken_api_key`（地址 `pptoken_base_url`，默认 `https://api.pptoken.cc`），模拟生图模式下都可选。PPTOKEN 与 88API 用同一个客户端：`/v1/images/edits`、同一套尺寸和同一套结果判断，日志里记为 `PPTOKEN`。镜头任务的模型快照记录 `provider`。
+`image_provider`（V7.11）：生图服务，默认 `88api`。妆容、造型、样片、成片和 AI 修脸的修图请求发给它（AI 导演用 `director_provider` 单独设置）。请求按模型分发：选中的服务提供这个模型就发给它，否则发给唯一提供它的服务（例如切换前排队的 Sunburst 任务、重放旧任务）。`image_providers` 列出每个服务能否选择：PPTOKEN 要在 `config.local.json` 里填 `pptoken_api_key`（地址 `pptoken_base_url`，默认 `https://api.pptoken.cc`），模拟生图模式下都可选。PPTOKEN 与 88API 用同一个客户端：`/v1/images/edits`、同一套尺寸和同一套结果判断，日志里记为 `PPTOKEN`。镜头任务的模型快照记录 `provider`。
 
 `batch_reference_mode`（PRD 3.3）：
 
@@ -411,7 +429,9 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 
 `portrait_ratio`：竖版比例，`3:4`（默认）、`2:3` 或 `9:16`；横版使用同一比例横过来（`4:3`、`3:2`、`16:9`）。样片固定为竖版；拍组按每个镜头的 `orientation` 选择。首次启动时取 `config.local.json` 的 `aspect_ratio`（是这三个值之一时），之后以设置为准。只影响之后新建的任务；重新生成、加强长相、换景别沿用原任务快照中的比例。
 
-`director_model`：AI 导演使用的 88API 文字模型名称（任意 `/v1/chat/completions` 可用的模型，由用户填写）。首次启动时取 `config.local.json` 的 `director_model`，没有则为 null。为 null 时拍组和换动作不可用（409 `director_not_configured`）。模拟生图模式下使用模拟导演，不需要配置。
+`director_provider`：AI 导演的文字模型服务，`88api`（默认）或 `pptoken`，和 `image_provider` 互不影响；密钥也分开，读 `config.local.json` 的 `director_api_key` 和 `director_pptoken_api_key`。缺密钥的服务在 `director_providers` 里 `available` 为 false，切换时返回 409 `provider_unavailable`。
+
+`director_model`：AI 导演在当前服务上使用的文字模型名称（任意 `/v1/chat/completions` 可用的模型，由用户填写）；每个服务各记一个，PPTOKEN 默认 `gpt-6.1-sol`。首次启动时取 `config.local.json` 的 `director_model`，没有则为 null。为 null 时拍组和换动作不可用（409 `director_not_configured`）。模拟生图模式下使用模拟导演，不需要配置。
 
 ---
 
@@ -422,7 +442,7 @@ Seedream 暂不支持：它的本地参考图每次只能传 1 张，而每个�
 | GET | `/api/health` | — | `{"ok": true, "generator": "mock" \| "88api", "model": "<当前默认模型>", "face_swap": FaceSwapStatus}` |
 | GET | `/api/models` | — | `Model[]` |
 | GET | `/api/settings` | — | `Settings` |
-| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "split" \| "ai" \| "facefusion" \| "off", "image_provider"?: "88api" \| "pptoken"}` | `Settings`；切换服务时默认模型不是它提供的，改为它的第一个模型；服务没有配置密钥时 409 `provider_unavailable`；模型不在列表中或不是（切换后的）服务提供的时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
+| PATCH | `/api/settings` | `{"default_model"?: string, "batch_reference_mode"?: string, "director_provider"?: string, "director_model"?: string \| null, "portrait_ratio"?: string, "auto_face_fix"?: "split" \| "ai" \| "facefusion" \| "off", "image_provider"?: "88api" \| "pptoken"}` | `Settings`；切换服务时默认模型不是它提供的，改为它的第一个模型；服务没有配置密钥时 409 `provider_unavailable`；模型不在列表中或不是（切换后的）服务提供的时 422 `invalid_model`，参考方式无效时 422 `invalid_reference_mode`，竖版比例无效时 422 `invalid_portrait_ratio`，`director_model` 为空字符串时 422 `invalid_director_model` |
 | GET | `/api/styles` | — | `Style[]`（内置风格，固定顺序，见 docs/prompts.md 第 3 节） |
 | GET | `/api/projects` | — | `ProjectSummary[]`，按 `updated_at` 倒序 |
 | POST | `/api/projects` | `{"name"?: string}` | `ProjectDetail`（201），默认名「我的婚纱照」 |

@@ -148,6 +148,21 @@ CREATE TABLE IF NOT EXISTS makeups (
 CREATE INDEX IF NOT EXISTS makeup_project ON makeups(project_id,person,style_id);
 CREATE INDEX IF NOT EXISTS makeup_queue ON makeups(status,created_at);
 CREATE INDEX IF NOT EXISTS makeup_request ON makeups(client_request_id);
+-- V7.18: one person's final look: one edit of their selected look (look_id) into the whole person in one outfit. One
+-- is selected per (look, outfit); it tells a sample what the clothes are, and the look keeps fixing the face.
+CREATE TABLE IF NOT EXISTS outfit_looks (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    person TEXT NOT NULL CHECK(person IN ('a','b')), role TEXT NOT NULL CHECK(role IN ('bride','groom')),
+    look_id TEXT NOT NULL REFERENCES looks(id), outfit_id TEXT NOT NULL,
+    source_asset_id TEXT NOT NULL REFERENCES image_assets(id),
+    status TEXT NOT NULL CHECK(status IN ('waiting','running','ready','failed','interrupted')),
+    error_code TEXT, error_message TEXT, model TEXT, prompt TEXT NOT NULL,
+    image_asset_id TEXT REFERENCES image_assets(id), selected_by TEXT,
+    client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS outfit_look_key ON outfit_looks(look_id,outfit_id);
+CREATE INDEX IF NOT EXISTS outfit_look_queue ON outfit_looks(status,created_at);
+CREATE INDEX IF NOT EXISTS outfit_look_request ON outfit_looks(client_request_id);
 CREATE TABLE IF NOT EXISTS project_outfits (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, style_id TEXT NOT NULL, outfit_id TEXT NOT NULL,
     PRIMARY KEY (project_id, style_id)
@@ -161,6 +176,8 @@ CREATE TABLE IF NOT EXISTS moment_drafts (
 """
 
 BATCH_REFERENCE_MODES = ('prompt_only', 'with_preview')
+DIRECTOR_MODEL_KEYS = {'88api': 'director_model', 'pptoken': 'director_model_pptoken'}
+DEFAULT_PPTOKEN_DIRECTOR_MODEL = 'gpt-6.1-sol'
 # V7.1: replaces the on/off auto_face_swap setting, which is no longer read.
 AUTO_FACE_FIX_MODES = ('split', 'ai', 'facefusion', 'off')
 IMAGE_PROVIDERS = ('88api', 'pptoken')
@@ -216,6 +233,7 @@ class Database:
             add_column('looks', 'makeup_id TEXT REFERENCES makeups(id)')
             add_column('image_assets', 'source_asset_id TEXT REFERENCES image_assets(id)')
             add_column('photo_versions', 'face_scores TEXT')
+            add_column('photo_versions', 'size_warning TEXT')
             add_column('projects', 'person_a_left_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_a_right_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_b_left_image_id TEXT REFERENCES image_assets(id)')
@@ -438,15 +456,34 @@ class Database:
                 "INSERT INTO app_settings (key,value) VALUES ('image_provider',?) "
                 'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (provider,))
 
-    def get_director_model(self) -> str | None:
+    def get_director_provider(self) -> str:
+        """The service the AI director's text requests go to; separate from the image service."""
         with self.connect() as connection:
-            row = connection.execute("SELECT value FROM app_settings WHERE key='director_model'").fetchone()
-        return row['value'] or None if row else None
+            row = connection.execute("SELECT value FROM app_settings WHERE key='director_provider'").fetchone()
+        return row['value'] if row is not None and row['value'] in IMAGE_PROVIDERS else '88api'
 
-    def set_director_model(self, model: str | None):
+    def set_director_provider(self, provider: str):
+        if provider not in IMAGE_PROVIDERS:
+            raise ValueError('unsupported director provider')
         with self.connect(write=True) as connection:
             connection.execute(
-                "INSERT INTO app_settings (key,value) VALUES ('director_model',?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (model or '',),
+                "INSERT INTO app_settings (key,value) VALUES ('director_provider',?) "
+                'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (provider,))
+
+    def get_director_model(self) -> str | None:
+        """The director's model on its current service. Each service remembers its own, since their model names differ."""
+        provider = self.get_director_provider()
+        with self.connect() as connection:
+            row = connection.execute('SELECT value FROM app_settings WHERE key=?', (DIRECTOR_MODEL_KEYS[provider],)).fetchone()
+        if row is None:
+            return DEFAULT_PPTOKEN_DIRECTOR_MODEL if provider == 'pptoken' else None
+        return row['value'] or None
+
+    def set_director_model(self, model: str | None):
+        """Set the model of the director's current service."""
+        key = DIRECTOR_MODEL_KEYS[self.get_director_provider()]
+        with self.connect(write=True) as connection:
+            connection.execute(
+                'INSERT INTO app_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                (key, model or ''),
             )

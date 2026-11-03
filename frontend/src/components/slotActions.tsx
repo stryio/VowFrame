@@ -438,6 +438,7 @@ export function VersionsDialog({
                     {v.pose_name && <span className="muted">{v.pose_name}</span>}
                     {v.model && <span className="muted">{v.model}</span>}
                     <FaceScore scores={v.face_scores} />
+                    {v.size_warning && <span className="error-text">尺寸不符：{v.size_warning}</span>}
                     <span className="muted">{new Date(v.created_at).toLocaleString("zh-CN")}</span>
                   </div>
                   <div className="version-actions">

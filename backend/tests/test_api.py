@@ -25,6 +25,7 @@ def test_health_styles_and_pose_library(client_app):
         '港风复古', '城市夜景', '草原旷野', '冬日雪景', '欧式教堂', '黑白经典', '生活日常',
         '玉龙雪山', '草坪花艺', '花园花房', '法式庄园', '极简建筑', '酒店教堂', '湖畔洱海', '复古油画', '黑色影棚',
         '日系清新', '民国旗袍', '汉服古韵', '西北大漠',
+        '欧法千金', '法式复古', '主纱极简', '白马仪式', '蓝调夜景', '森系胶片', '复古红棚', '街拍故事', '喜嫁新中式',
     ]
     assert [s['description'] for s in styles] == [style['description'] for style in STYLES]
     assert all(set(s) == {'id', 'name', 'description', 'default_preview', 'retired'} for s in styles)

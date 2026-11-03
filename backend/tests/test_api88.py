@@ -79,7 +79,7 @@ def test_openai_multipart_and_b64_response(config, images, model):
         assert request.extensions['timeout'] == dict.fromkeys(('connect', 'read', 'write', 'pool'), 600)
         parts = multipart_parts(request)
         fields = {name: value.decode() for name, filename, _, value in parts if filename is None}
-        assert fields == {'model': model, 'prompt': PROMPT, 'size': '1536x2048', 'n': '1'}
+        assert fields == {'model': model, 'prompt': PROMPT, 'size': '1536x2048', 'quality': 'high', 'n': '1'}
         assert [part for part in parts if part[1] is not None] == [
             ('image[]', 'bride.png', 'image/png', sent(images[0])),
             ('image[]', 'groom.jpg', 'image/jpeg', sent(images[1])),
@@ -493,7 +493,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
                     'aspect_ratio': '3:4', 'resolution': '2K', 'provider': '88api',
                     # V5.0: the looks the sample was shot from and what each reference image is.
-                    'outfit': 'satin_a_line',
+                    'outfit': 'studio_satin',
                     'looks': {'version': STYLING_VERSION, 'bride': looks['bride'], 'groom': looks['groom']},
                     'reference_slots': [['bride', 'front'], ['groom', 'front']],
                 }

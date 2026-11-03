@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from app.director import FORBIDDEN_WORDS, SHOT_SIZES, SYSTEM_PROMPT, MockDirector, Moment, _shot_requirement, _user_prompt, validate_moment, validate_moments
-from app.prompts import STYLES, director_scene_text
+from app.prompts import RETIRED_STYLE_IDS, STYLES, director_scene_text
 from conftest import create_project, preview_batch, wait_batch
 from app.db import Database
 
@@ -15,7 +15,8 @@ def test_director_user_prompt_lists_every_variant_matching_section_7_2():
         '风格：高级光影\n'
         '服装（摄影团队已确定）：新娘穿缎面婚纱，新郎穿黑色西装。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。\n'
         '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
-        '场景变体（每个镜头选其中一个，把编号填在 scene；整组尽量用到不同的变体）：\n'
+        '拍摄方向（摄影团队已确定）：' + next(style['shooting'] for style in STYLES if style['id'] == 'cinematic_light') + '\n'
+        '场景变体（每个镜头选其中一个，把编号填在 scene；以一个主场景为主，少量相邻场景补充，光色和空间关系连贯）：\n'
         '1. 窗格投影：上午的硬质阳光从房间一侧的窗户射入，在白色墙面、水泥地面和两人的衣服上投出清晰的窗格影子。\n'
         '2. 百叶窗条纹：阳光穿过房间一侧的百叶窗，在白色墙面、水泥地面和两人的衣服上落下斜向的条纹光影。\n'
         '3. 树影墙：阳光从一扇大窗照进房间，窗外树枝和树叶的影子投在白色墙面、水泥地面和两人的衣服上。\n'
@@ -36,8 +37,22 @@ def test_preview_reference_mode_keeps_director_in_the_first_variant():
     assert director_scene_text('cinematic_light', single_variant=True) == (
         '服装（摄影团队已确定）：新娘穿缎面婚纱，新郎穿黑色西装。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。\n'
         '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
+        '拍摄方向（摄影团队已确定）：' + next(style['shooting'] for style in STYLES if style['id'] == 'cinematic_light') + '\n'
         '场景（所有镜头都在这个场景里，scene 填 1）：上午的硬质阳光从房间一侧的窗户射入，在白色墙面、水泥地面和两人的衣服上投出清晰的窗格影子。'
     )
+
+
+def test_style_direction_reaches_the_director_in_both_reference_modes():
+    for style in STYLES:
+        for single_variant in (False, True):
+            text = director_scene_text(style['id'], single_variant=single_variant)
+            if style['id'] in RETIRED_STYLE_IDS:
+                assert '拍摄方向（摄影团队已确定）' not in text
+            else:
+                assert '拍摄方向（摄影团队已确定）：' + style['shooting'] in text
+            assert '整组尽量用到不同的变体' not in text
+            if single_variant:
+                assert 'scene 填 1' in text and '场景变体（' not in text
 
 
 def test_text_length_limit_is_220_characters():
@@ -114,7 +129,7 @@ def test_shot_requirement_matches_section_7_2():
 
 def test_wedding_set_composition_scales_with_the_count():
     # (standard, interaction, costume, atmosphere) per docs/prompts.md 7.2
-    for count, (standard, interaction, costume, atmosphere) in {4: (2, 2, 0, 0), 8: (3, 3, 1, 1), 12: (4, 5, 2, 1), 20: (7, 8, 3, 2)}.items():
+    for count, (standard, interaction, costume, atmosphere) in {4: (1, 3, 0, 0), 8: (2, 4, 1, 1), 12: (3, 6, 2, 1), 20: (4, 11, 3, 2)}.items():
         text = _shot_requirement(count)
         assert f'标准照 {standard} 张' in text and f'互动 {interaction} 张' in text
         assert (f'婚纱表现 {costume} 张' in text) == bool(costume)
@@ -222,10 +237,12 @@ def test_system_prompt_matches_docs_and_no_longer_offers_detail_shots():
     assert 'detail' not in SHOT_SIZES and '局部特写' not in SYSTEM_PROMPT
 
 
-def test_the_director_asks_for_happy_relaxed_couples_v7_3():
+def test_the_director_uses_the_styles_emotion_without_a_shared_smile_quota():
     from app.director import SYSTEM_PROMPT, _shot_requirement
-    assert '以开心、亲密、放松为主要情绪' in SYSTEM_PROMPT and '约一半安排自然露齿笑' in SYSTEM_PROMPT
-    assert '含蓄' not in SYSTEM_PROMPT and '可以描写笑容、视线、头部朝向和表情变化' in SYSTEM_PROMPT
+    assert '情绪以「拍摄方向」为准' in SYSTEM_PROMPT and '不统一安排露齿笑或大笑的比例' in SYSTEM_PROMPT
+    assert '约一半安排自然露齿笑' not in SYSTEM_PROMPT
+    assert '可以描写笑容、视线、头部朝向和表情变化' in SYSTEM_PROMPT
     assert '抓拍要写出动作进行到哪一刻' in SYSTEM_PROMPT
     standard = _shot_requirement(12)
-    assert '标准照 4 张：两人一起看向镜头' in standard and '表情开心' in standard and '正面站立' not in standard
+    assert '标准照 3 张：两人一起看向镜头' in standard and '表情符合本风格的拍摄方向' in standard
+    assert '不强制拥抱、奔跑或转圈' in standard and '以一个主场景为主' in standard

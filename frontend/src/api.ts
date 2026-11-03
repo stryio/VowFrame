@@ -39,6 +39,8 @@ export interface VersionRef {
   source_version_id: string | null;
   /** Null until measured (and for pictures without faces to measure). */
   face_scores?: FaceScores | null;
+  /** The service returned another size than requested. */
+  size_warning?: string | null;
 }
 
 export interface TaskBrief {
@@ -133,6 +135,27 @@ export interface Makeup {
   created_at: string;
 }
 
+/** One person's final look (V7.18): their look edited into the whole person in one outfit. New samples take the
+ * clothes from the selected one; the face still comes from the look. */
+export interface OutfitLook {
+  id: string;
+  person: "a" | "b";
+  role: Role;
+  look_id: string;
+  outfit_id: string;
+  outfit_name: string;
+  status: LookStatus;
+  error_code: string | null;
+  error_message: string | null;
+  asset_id: string | null;
+  look_asset_id: string | null;
+  selected: boolean;
+  selected_by: "user" | "auto" | null;
+  usable: boolean;
+  unusable_reason: string | null;
+  created_at: string;
+}
+
 export interface LookItem {
   hairstyle_id: string;
 }
@@ -184,6 +207,8 @@ export interface ProjectDetail extends ProjectSummary {
   style_outfits: Record<string, string>;
   /** The bride's makeup candidates of every style (V7.8), oldest first. */
   makeups: Makeup[];
+  /** Final looks (V7.18), oldest first. */
+  outfit_looks: OutfitLook[];
   /** Per role, the default candidates for the stated hair length. */
   default_look_items: Record<Role, LookItem[]>;
 }
@@ -291,6 +316,8 @@ export interface VersionDetail {
   source_version_id: string | null;
   is_current: boolean;
   face_scores?: FaceScores | null;
+  /** The service returned another size than requested. */
+  size_warning?: string | null;
 }
 
 export interface Style {
@@ -334,6 +361,9 @@ export interface Settings {
   /** V7.11: the image service models both services offer go to. */
   image_provider: ImageProviderId;
   image_providers: ImageProvider[];
+  /** The service the AI director uses; director_model is that service's model. */
+  director_provider: ImageProviderId;
+  director_providers: ImageProvider[];
 }
 
 export interface FaceSwapStatus {
@@ -451,6 +481,15 @@ export const api = {
   retryMakeup: (makeupId: string) => request<Makeup>(`/makeups/${makeupId}/retry`, { method: "POST" }),
   selectMakeup: (makeupId: string) => request<Makeup>(`/makeups/${makeupId}/select`, { method: "POST" }),
   deleteMakeup: (makeupId: string) => request<void>(`/makeups/${makeupId}`, { method: "DELETE" }),
+  /** One final look, one paid edit of the look (V7.18). */
+  createOutfitLook: (projectId: string, lookId: string, outfitId: string) =>
+    request<OutfitLook>(
+      `/projects/${projectId}/outfit-looks`,
+      json("POST", { client_request_id: crypto.randomUUID(), look_id: lookId, outfit_id: outfitId }),
+    ),
+  retryOutfitLook: (id: string) => request<OutfitLook>(`/outfit-looks/${id}/retry`, { method: "POST" }),
+  selectOutfitLook: (id: string) => request<OutfitLook>(`/outfit-looks/${id}/select`, { method: "POST" }),
+  deleteOutfitLook: (id: string) => request<void>(`/outfit-looks/${id}`, { method: "DELETE" }),
   createDraft: (projectId: string, previewSlotId: string, count: number) =>
     request<MomentDraft>(
       `/projects/${projectId}/moment-drafts`,

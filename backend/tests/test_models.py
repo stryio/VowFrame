@@ -25,6 +25,8 @@ def test_registry_and_models_endpoint(client_app):
 
 PROVIDERS = {'image_provider': '88api', 'image_providers': [
     {'id': '88api', 'name': '88API', 'available': True, 'reason': None},
+    {'id': 'pptoken', 'name': 'PPTOKEN', 'available': True, 'reason': None}], 'director_provider': '88api', 'director_providers': [
+    {'id': '88api', 'name': '88API', 'available': True, 'reason': None},
     {'id': 'pptoken', 'name': 'PPTOKEN', 'available': True, 'reason': None}]}
 
 

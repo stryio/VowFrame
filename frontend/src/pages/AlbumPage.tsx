@@ -481,6 +481,7 @@ function PhotoCard({
               .join(" · ")}
           </span>
           <FaceScore scores={version?.face_scores} />
+          {version?.size_warning && <span className="error-text">尺寸不符：{version.size_warning}</span>}
         </div>
         {!selecting && <SlotMenu items={menu} />}
       </div>

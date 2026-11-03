@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import io
 import json
 import logging
 import math
@@ -46,6 +47,21 @@ NO_IMAGE_MESSAGE = '模型没有返回图片，请重试'
 UNKNOWN_OUTCOME_MESSAGE = '模型服务连接中断，结果无法确认，可能已经扣费。重新生成可能产生额外费用'
 DOWNLOAD_FAILED_MESSAGE = '图片已生成但下载失败，可能已经扣费。重新生成可能产生额外费用'
 QUOTA_PATTERN = re.compile(r'quota|balance|insufficient|余额|配额|额度|欠费', re.IGNORECASE)
+
+
+def size_problem(content: bytes, model_id: str, aspect_ratio: str, resolution: str) -> str | None:
+    """Whether a picture has the pixels an OpenAI-style request asked for; a service can return another size and
+    still charge for the request. Gemini takes a size class rather than exact pixels, so it is not compared."""
+    model = get_model(model_id)
+    if model is None or model.family != 'openai' or aspect_ratio not in OPENAI_SIZES:
+        return None
+    wanted = OPENAI_SIZES[aspect_ratio][resolution]
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            actual = f'{image.width}x{image.height}'
+    except OSError:
+        return f"要求 {wanted.replace('x', '×')}，返回的图片无法读取尺寸"
+    return None if actual == wanted else f"要求 {wanted.replace('x', '×')}，实际 {actual.replace('x', '×')}"
 
 
 def retry_after_seconds(value: str | None) -> float | None:
@@ -197,7 +213,7 @@ class Api88Generator(ImageGenerator):
                     client, 'POST', base_url + '/v1/images/edits', headers=headers,
                     model=model_id,
                     data={'model': model_id, 'prompt': prompt,
-                          'size': OPENAI_SIZES[aspect_ratio][self._config.resolution], 'n': '1'},
+                          'size': OPENAI_SIZES[aspect_ratio][self._config.resolution], 'quality': 'high', 'n': '1'},
                     files=[('image[]', reference) for reference in references],
                 )
             else:

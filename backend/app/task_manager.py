@@ -13,10 +13,11 @@ from .face_fix import face_fix_prompt, face_fix_snapshot
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
 from .face_swap import (FaceSources, FaceSwapError, FaceSwapper, ScoreItem, create_face_swapper,
                         face_swap_applied_snapshot, face_swap_snapshot, face_swap_weight)
+from .api88 import size_problem
 from .models import DEFAULT_MODEL
 from .prompts import DETAIL_SHOT, POSE_BY_ID, STYLING_ASPECT_RATIO, compose_look_prompt, is_faceless_shot
 from .storage import asset_path, save_image
-from .styling import (auto_select, auto_select_makeup, find_side_look, task_face_swap_reference_ids,
+from .styling import (auto_select, auto_select_makeup, auto_select_outfit_look, find_side_look, task_face_swap_reference_ids,
                       uploaded_asset_id)
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class TaskManager:
             conn.execute("UPDATE generation_tasks SET status='held' WHERE status='waiting' AND batch_id IN "
                          '(SELECT id FROM generation_batches WHERE paused_at IS NOT NULL)')
             # Look candidates: one still being edited may have been charged; queued ones never started.
-            for table, noun in (('looks', '造型'), ('makeups', '妆容')):
+            for table, noun in (('looks', '造型'), ('makeups', '妆容'), ('outfit_looks', '最终造型')):
                 conn.execute(f"UPDATE {table} SET status='interrupted',error_code='interrupted_by_restart',error_message=?,finished_at=? "
                              "WHERE status='running'", (f'后端重启时这张{noun}还在生成，结果无法确认，可能已经扣费。重试可能产生额外费用', utc_now()))
                 conn.execute(f"UPDATE {table} SET status='failed',error_code='not_started',error_message=?,finished_at=? "
@@ -163,6 +164,12 @@ class TaskManager:
                     look = self._claim_candidate('looks')
                     if look is not None:
                         job = asyncio.create_task(self._execute_look(look), name=f"look-{look['id']}")
+                        self._jobs.add(job)
+                        job.add_done_callback(lambda completed: self._job_done(completed, self._jobs))
+                        continue
+                    outfit_look = self._claim_candidate('outfit_looks')
+                    if outfit_look is not None:
+                        job = asyncio.create_task(self._execute_outfit_look(outfit_look), name=f"outfit-look-{outfit_look['id']}")
                         self._jobs.add(job)
                         job.add_done_callback(lambda completed: self._job_done(completed, self._jobs))
                         continue
@@ -266,6 +273,7 @@ class TaskManager:
             started = time.monotonic()
             logger.info('Generation request started model=%s task_id=%s', model, task['id'])
             content = await asyncio.to_thread(self.generator.generate_image, images, task['prompt'], model, aspect_ratio)
+            size_warning = self._size_warning(content, model, aspect_ratio, f"task_id={task['id']}")
             logger.info('Generation request succeeded model=%s task_id=%s elapsed_seconds=%.3f',
                         model, task['id'], time.monotonic() - started)
         except GeneratorError as error:
@@ -279,7 +287,7 @@ class TaskManager:
         try:
             asset_id = new_id()
             relative_path = await asyncio.to_thread(save_image, self.config, task['project_id'], asset_id, content)
-            self._commit_result(task, asset_id, relative_path)
+            self._commit_result(task, asset_id, relative_path, size_warning=size_warning)
             self._rate_limit_count = 0
         except TaskStopped:
             logger.info('Result discarded for stopped task %s', task['id'])
@@ -357,6 +365,7 @@ class TaskManager:
             started = time.monotonic()
             logger.info('Side look request started model=%s task_id=%s role=%s angle=%s', model, task['id'], parent['role'], angle)
             content = await asyncio.to_thread(self.stylist.generate_image, paths, prompt, model, STYLING_ASPECT_RATIO)
+            self._size_warning(content, model, STYLING_ASPECT_RATIO, f"task_id={task['id']} side_look")
             logger.info('Side look request succeeded model=%s task_id=%s elapsed_seconds=%.3f',
                         model, task['id'], time.monotonic() - started)
             asset_id = new_id()
@@ -374,10 +383,20 @@ class TaskManager:
                      model, prompt, asset_id, now, now))
             return asset_id
 
+    def _size_warning(self, content: bytes, model: str, aspect_ratio: str, what: str) -> str | None:
+        """The service returned another size than requested; the picture is kept, and the problem is logged."""
+        if self.config.generator == 'mock':
+            return None
+        problem = size_problem(content, model, aspect_ratio, self.config.resolution)
+        if problem is not None:
+            logger.warning('Image size mismatch model=%s %s: %s', model, what, problem)
+        return problem
+
     async def _look_edit(self, look: dict, images: list, prompt: str, model: str, step: str) -> bytes:
         started = time.monotonic()
         logger.info('Look request started model=%s look_id=%s step=%s', model, look['id'], step)
         content = await asyncio.to_thread(self.stylist.generate_image, images, prompt, model, STYLING_ASPECT_RATIO)
+        self._size_warning(content, model, STYLING_ASPECT_RATIO, f"look_id={look['id']} step={step}")
         logger.info('Look request succeeded model=%s look_id=%s step=%s elapsed_seconds=%.3f',
                     model, look['id'], step, time.monotonic() - started)
         return content
@@ -508,6 +527,37 @@ class TaskManager:
         except Exception:
             logger.exception('Unexpected makeup failure for makeup %s', makeup['id'])
             self._fail_look(makeup, 'generation_failed', '妆容生成失败，请稍后重试', table='makeups')
+
+    async def _execute_outfit_look(self, row: dict):
+        """Edit a person's look into their final look: the whole person in one outfit (V7.18)."""
+        model = row['model'] or self.db.get_default_model() or DEFAULT_MODEL
+        with self.db.connect() as conn:
+            look = conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (row['look_id'],)).fetchone()
+            source = self._asset_file(conn, look['image_asset_id']) if look else None
+        if source is None:
+            self._fail_look(row, 'reference_missing', '这套造型的图片缺失，请重新生成造型后再做最终造型', table='outfit_looks')
+            return
+        try:
+            content = await self._look_edit(row, [source], row['prompt'], model, 'outfit')
+            asset_id = await self._save_look_image(row, content)
+            now = utc_now()
+            with self.db.connect(write=True) as conn:
+                conn.execute("UPDATE outfit_looks SET status='ready',image_asset_id=?,model=?,error_code=NULL,error_message=NULL,"
+                             "finished_at=? WHERE id=? AND status='running'", (asset_id, model, now, row['id']))
+                conn.execute('UPDATE projects SET updated_at=? WHERE id=?', (now, row['project_id']))
+                ready = conn.execute("SELECT * FROM outfit_looks WHERE id=? AND status='ready'", (row['id'],)).fetchone()
+                project = conn.execute('SELECT * FROM projects WHERE id=?', (row['project_id'],)).fetchone()
+                if ready is not None:
+                    auto_select_outfit_look(conn, project, ready)
+            self._rate_limit_count = 0
+        except GeneratorError as error:
+            self._candidate_edit_failed('outfit_looks', row, error)
+        except OSError:
+            logger.exception('Final look storage failed for %s', row['id'])
+            self._fail_look(row, 'storage_error', f'图片保存失败，请检查存储空间及目录权限：{self.config.data_dir}', table='outfit_looks')
+        except Exception:
+            logger.exception('Unexpected final look failure for %s', row['id'])
+            self._fail_look(row, 'generation_failed', '最终造型生成失败，请稍后重试', table='outfit_looks')
 
     async def _execute_makeup_scoring(self, makeup_ids: list[str]):
         """Likeness of each makeup candidate to the uploaded photo; the scores pick the most similar makeup of its
@@ -684,8 +734,9 @@ class TaskManager:
         try:
             started = time.monotonic()
             logger.info('Face-fix request started model=%s task_id=%s', model, task['id'])
-            content = await asyncio.to_thread(self.generator.generate_image, [target_path, *photos], face_fix_prompt(snapshot), model,
-                                              snapshot.get('aspect_ratio') or self.config.aspect_ratio)
+            aspect_ratio = snapshot.get('aspect_ratio') or self.config.aspect_ratio
+            content = await asyncio.to_thread(self.generator.generate_image, [target_path, *photos], face_fix_prompt(snapshot), model, aspect_ratio)
+            size_warning = self._size_warning(content, model, aspect_ratio, f"task_id={task['id']}")
             logger.info('Face-fix request succeeded model=%s task_id=%s elapsed_seconds=%.3f',
                         model, task['id'], time.monotonic() - started)
         except GeneratorError as error:
@@ -698,7 +749,7 @@ class TaskManager:
         try:
             asset_id = new_id()
             relative_path = await asyncio.to_thread(save_image, self.config, task['project_id'], asset_id, content)
-            self._commit_result(task, asset_id, relative_path)
+            self._commit_result(task, asset_id, relative_path, size_warning=size_warning)
             self._rate_limit_count = 0
         except TaskStopped:
             logger.info('Result discarded for stopped task %s', task['id'])
@@ -872,7 +923,7 @@ class TaskManager:
             logger.info('Face fix made %s less alike; kept the original version slot_id=%s', '/'.join(worse), row['photo_slot_id'])
 
     def _commit_result(self, task: dict, asset_id: str, relative_path: str, scores: dict | None = None,
-                       score_later: bool = False):
+                       score_later: bool = False, size_warning: str | None = None):
         now = utc_now()
         version_id = new_id()
         follow_up = self._auto_face_fix_mode(task)
@@ -897,10 +948,14 @@ class TaskManager:
             conn.execute('INSERT INTO image_assets (id,project_id,file_path,asset_type,created_at) VALUES (?,?,?,?,?)',
                          (asset_id, task['project_id'], relative_path, asset_type, now))
             scores = scores or {}
+            if task['regenerate_mode'] == 'face_swap' and task['source_version_id']:
+                # A swap keeps its source's pixels, and with them what is wrong with its size.
+                source = conn.execute('SELECT size_warning FROM photo_versions WHERE id=?', (task['source_version_id'],)).fetchone()
+                size_warning = source['size_warning'] if source else None
             conn.execute('INSERT INTO photo_versions (id,photo_slot_id,image_asset_id,generation_task_id,version_number,'
-                         'created_at,face_scores) VALUES (?,?,?,?,?,?,?)',
+                         'created_at,face_scores,size_warning) VALUES (?,?,?,?,?,?,?,?)',
                          (version_id, task['target_slot_id'], asset_id, task['id'], number, now,
-                          json.dumps(scores['after']) if scores.get('after') else None))
+                          json.dumps(scores['after']) if scores.get('after') else None, size_warning))
             if scores.get('before'):
                 # The swap measured the picture it started from too; keep a score made earlier.
                 conn.execute('UPDATE photo_versions SET face_scores=? WHERE id=? AND face_scores IS NULL',

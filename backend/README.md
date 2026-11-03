@@ -20,6 +20,44 @@ HTTP 契约见 `../docs/API.md`。本轮实现项目、上传、样片、按风�
 
 新建样片和拍组任务使用的提示词由 `../docs/prompts.md` 统一规范；已创建任务保留创建时的提示词快照。
 
+默认操作流程：上传照片 → 选择风格、服饰并做好妆发 → 试拍样片 → 确认人物、服饰与整体效果 → 设计镜头并拍组照。
+穿衣与样片的场景、光线、构图在同一次生成中完成。独立全身服饰定妆照位于折叠的可选入口，
+适合需要提前单独查看复杂服饰时使用，每张额外付费，也可以只做新娘；未生成定妆照不阻止试拍。
+已有定妆照的候选、选用和任务状态保留，已选用的照片仍作为新样片的服饰参考。
+更换服饰或妆发后需要重新试拍才会采用新选择，已有样片与组照沿用创建时的快照。
+
+V7.19 为 13 个在用风格分别设置代表镜头和拍摄方向，导演按主题安排表情、构图与场景连贯性。
+韩系极简、森林森系、城市街拍新增服饰作为新默认；原服饰仍可选择，已有图片及任务快照不变。
+V7.20 在原有风格之外新增九套参考主题：欧法千金、法式复古、主纱极简、白马仪式、蓝调夜景、
+森系胶片、复古红棚、街拍故事、喜嫁新中式，共 22 个可选风格。规格见
+[`reference-styles.md`](../docs/reference-styles.md)，九套数据集中在 `app/reference_styles.py`。
+样片展示图通过应用自身的生成器制作，可以先输出到审阅目录，检查后再替换展示资源：
+
+```bash
+.venv/bin/python scripts/make_examples.py styles --style korean_minimal --style forest_natural --style french_vintage --force --output-dir ../data/style-review/examples
+.venv/bin/python scripts/make_examples.py outfits --style korean_minimal --style forest_natural --style french_vintage --output-dir ../data/style-review/examples
+```
+
+生成跟随应用「设置」中当前选择的图片服务与模型并计费，固定使用 1K；尚未初始化应用时使用本地配置，
+`--pptoken` 可显式指定 PPTOKEN 的 GPT Image 2.5。原尺寸图片和实际提示词保存在
+`data/examples_raw/styles/` 与 `data/examples_raw/outfits/`，失败请求不会自动重发。
+服务鉴权或余额不足时停止发送尚未开始的请求，不自动切换到其他服务。
+
+九套参考主题的整组审阅使用当前应用的导演、图片模型和样片参考模式；默认每套一张样片、四张组照：
+
+```bash
+.venv/bin/python scripts/review_reference_styles.py plan
+.venv/bin/python scripts/review_reference_styles.py render
+# Check every image in data/style-review/v720/ before publishing the catalogue samples.
+.venv/bin/python scripts/review_reference_styles.py publish
+```
+
+`--style` 可重复指定主题，`--count` 支持 4、8、12、20。镜头方案、实际提示词、原图和请求记录
+都留在审阅目录，不创建用户项目或任务。生成中断且留下请求记录时，不会在下一次运行时自动重发该张。
+自动测试只能验证数据和流程；参考风格、人物关系、服饰一致性和光影必须查看实际成片。
+审核过的代表样片可以用 `publish --samples-only` 单独接入页面；这不表示整组出图已完成，
+组照仍须继续生成和审阅。`contact` 可在组照完成后制作参考图与实际成片的对照图。
+
 运行时日志同时输出到控制台和 `<VOWFRAME_DATA_DIR>/logs/vowframe.log`，文件按
 5 MB 轮转并保留 3 个备份。中断任务的 `error_code` 用于区分原因：
 `interrupted_by_restart` 表示后端重启时请求仍在进行，`unknown_outcome` 表示生成请求
@@ -80,9 +118,11 @@ cp backend/config.local.example.json backend/config.local.json
   "pptoken_base_url": "https://api.pptoken.cc"
 ```
 
+AI 导演使用单独的密钥，不借用上面的生图密钥：88API 填 `director_api_key`，PPTOKEN 填 `director_pptoken_api_key`（在 PPTOKEN 控制台创建的 API Key，不是会员中心的登录 token）。两者都可以用自己的账号和额度；没有填的服务在设置页不能选，AI 导演当前服务缺密钥时会直接报错。服务在设置页「AI 导演」里切换，PPTOKEN 的模型默认是 `gpt-6.1-sol`。
+
 `pptoken_base_url` 可以不写，默认就是这个地址。没有填 `pptoken_api_key` 时，设置页里的 PPTOKEN 是灰的，
 不能选。PPTOKEN 用和 88API 相同的 `/v1/images/edits` 接口和同一套尺寸；它提供 GPT Image 2 和 GPT Image 2.5，
-没有 Flare、Sunburst 和 Gemini。AI 导演写分镜仍用 88API。
+没有 Flare、Sunburst 和 Gemini。AI 导演的服务和密钥单独设置。
 
 `backend/app/assets/` 里的 SegFace 人脸解析模型（28 MB，运行它需要 `requirements.txt` 里的
 `onnxruntime`）现在没有被调用：V6.x 用它把原照片的脸贴回造型照，V7.0 起造型照由修图直接画好发型和妆容，
@@ -103,8 +143,8 @@ cp backend/config.local.example.json backend/config.local.json
 其他模型 ID 均不接受。默认模型通过 `/api/settings` 修改并保存在 SQLite，立即对新任务生效，
 无需重启。任务可在创建样片时通过 `model` 指定模型；省略时使用当前默认值。所有请求只生成
 一张图片；参考图保持新娘在前、新郎在后的顺序。
-OpenAI 系列使用 `/v1/images/edits` 的 `image[]` multipart 文件字段，根据比例和
-分辨率映射像素尺寸，例如 `3:4` + `2K` 为 `1536x2048`。
+OpenAI 系列使用 `/v1/images/edits` 的 `image[]` multipart 文件字段，固定发送 `quality: high`，根据比例和
+分辨率映射像素尺寸，例如 `3:4` + `2K` 为 `1536x2048`。返回的尺寸和要求不同时图片照常保留，日志记录一条警告，成片和版本历史显示「尺寸不符」。
 Gemini 系列使用 `/v1/chat/completions`，内容依次为参考图 data URI、提示词，
 图片设置放在 `extra_body.google.image_config`。
 

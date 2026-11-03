@@ -74,6 +74,7 @@ def create_app(config: Config | None = None, generator: ImageGenerator | None = 
         # config.local.json's aspect_ratio only seeds the first-run portrait ratio; Settings owns it afterwards.
         db.initialize(config.model, config.director_model, config.aspect_ratio)
         if hasattr(director, 'model'):
+            director.provider = db.get_director_provider()
             director.model = db.get_director_model()
         manager.recover()
         await manager.start()

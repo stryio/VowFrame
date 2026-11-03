@@ -382,12 +382,12 @@ def test_file_is_fsynced_and_moved_before_database_completion(app_factory):
 
     real_commit = TaskManager._commit_result
 
-    def commit(manager, task, asset_id, relative_path):
+    def commit(manager, task, asset_id, relative_path, **kwargs):
         assert asset_path(manager.config, relative_path).read_bytes() == PNG
         with manager.db.connect() as conn:
             assert conn.execute('SELECT status FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()[0] == 'running'
         events.append('commit')
-        return real_commit(manager, task, asset_id, relative_path)
+        return real_commit(manager, task, asset_id, relative_path, **kwargs)
 
     with app_factory(concurrency=1) as (client, app):
         project = create_project(client)

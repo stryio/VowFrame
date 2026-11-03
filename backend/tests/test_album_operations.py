@@ -8,7 +8,7 @@ import zipfile
 import pytest
 
 from app.db import Database, new_id
-from app.prompts import QUALITY_PARAGRAPH
+from app.prompts import QUALITY_PARAGRAPH, STYLE_BY_ID
 from conftest import BlockingGenerator, PNG, ScriptedGenerator, create_director_photo_batch, create_project, preview_batch, uploaded_ids, wait_batch
 
 
@@ -118,7 +118,7 @@ def test_identity_boost_keeps_the_looks_takes_the_style_preview_and_exact_sectio
         assert row['regenerate_mode'] == 'identity_boost'
 
 
-def test_identity_boost_preview_uses_fixed_moment_and_missing_style_preview_is_409(app_factory):
+def test_identity_boost_preview_uses_representative_moment_and_missing_style_preview_is_409(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
         preview = ready_preview(client, project['id'])
@@ -128,7 +128,7 @@ def test_identity_boost_preview_uses_fixed_moment_and_missing_style_preview_is_4
         assert result.status_code == 201, result.text
         wait_batch(client, result.json()['id'])
         task = task_for_batch(client, result.json()['id'])
-        assert '镜头：两人并肩站立，新娘轻挽新郎的手臂' in task['prompt']
+        assert task['prompt'].split('\n\n')[3].startswith(STYLE_BY_ID['korean_minimal']['preview'].removesuffix('。'))
         with app.state.db.connect() as conn:
             references = conn.execute(
                 'SELECT reference_image_ids FROM generation_tasks WHERE id=?', (task['id'],)
@@ -315,7 +315,7 @@ def test_versions_restore_pose_and_foreign_version_rejection(app_factory):
         assert [version['version_number'] for version in versions] == [2, 1]
         assert set(versions[0]) == {'id', 'asset_id', 'version_number', 'created_at', 'model', 'pose_id',
                                     'pose_name', 'shot_size', 'regenerate_mode', 'source_version_id', 'is_current',
-                                    'face_scores'}
+                                    'face_scores', 'size_warning'}
         assert versions[0]['regenerate_mode'] == 'same' and versions[0]['is_current'] is True
         assert versions[1]['regenerate_mode'] is None and versions[1]['is_current'] is False
         restored = client.post(f"/api/slots/{slot['id']}/restore", json={'version_id': versions[1]['id']})

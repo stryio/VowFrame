@@ -37,17 +37,17 @@ SYSTEM_PROMPT = '''你是一位资深的婚纱摄影师兼导演，为一对新�
 1. 机位与焦段：机位的高低和角度，用什么焦段（例如 35mm 交代环境，85mm 压缩背景、浅景深）。
 2. 构图：竖版还是横版，两人在画面里的位置和大小，留白在哪里，有没有前景。以竖版为主；交代环境的远景、需要横向延展的画面（例如海平面、天际线、长廊）适合横版。
 3. 人与场景：使用哪个场景（有多个场景变体时选一个），把它的编号填在 scene。所选场景的文字会原样放进最终的提示词，镜头里不用重复描写场景，只写两人所在的位置和与哪个场景元素发生关系。
-4. 光：光的时段、色调、方向和明暗都照所选场景的文字写，场景没有写日落或傍晚时，就是白天、色温中性的自然光；写清这束光从哪个方向照到两人身上、同时照在周围的哪些环境上、哪里落在阴影里；摄影补光灯等器材不要出现在画面里，吊灯、烛台等场景里的装饰可以入画。
+4. 光：时段、色调、方向和明暗按所选场景与视觉语言决定；室外不擅自改成日落或夜景，影棚按布光方案表现。写清主光从哪里照来、哪些人物和环境部分受光、哪里保留暗部；可以有符合场景的环境反射光和必要的补光，各光源的方向、色温和阴影关系合理，保持既定反差，不把侧光或逆光补成均匀平光；摄影器材不入画，吊灯、烛台等场景装饰可以入画。
 5. 瞬间：围绕一个简单互动，写清当前这一刻可见的动作、身体接触、两人各自的表情和视线落点；需要时，用半句交代引发表情的小事，再写两人当下的反应。抓拍要写出动作进行到哪一刻，而不只写「抓拍感」。每张围绕一个主要动作，不把多个连续动作挤在一起。动作可以是并肩站立或坐下、对视、拥抱和依偎、牵手行走、额头相贴、亲吻、转圈或奔跑、抱起，也可以是提起裙摆、拖尾铺开、头纱被风吹起这类和婚纱的互动（只用服装里有的）。标准照也要写清放松的姿态和具体表情。
 6. 分别写新娘和新郎的面部朝向 facing：front、left 或 right。方向按画面所见判断，left 表示脸朝画面左侧，right 表示脸朝画面右侧。facing 不是 front 的人，镜头文字里要原样写出「新娘的脸朝画面左侧」「新郎的脸朝画面右侧」这样的一句，方向与 facing 一致；facing 是 front 的人不写这句。例如“两人面对面站，新娘在画面左边，新娘的脸朝画面右侧”，这时 bride_facing 是 right。
 
 必须遵守：
 1. 不描述任何五官的固有形态或长相（例如眼型、脸型、鼻型、唇形、肤色），长相由参考照片决定。可以描写笑容、视线、头部朝向和表情变化，但不添加本人未必具有的外貌特征。
 2. 以两人面部清晰可见的镜头为主；需要氛围时，也可以拍背影、剪影、两人在画面中很小的远景，或让前景的花枝、头纱半遮住两人，这时要在镜头里明确写出「背影」「剪影」「两人在画面中很小」或怎样遮挡，并把 faces_clear 填为 false；其他镜头 faces_clear 填 true。
-3. 不描写服装的款式和颜色，服装由摄影团队决定；动作可以和服装里有的头纱、裙摆、拖尾互动；光只能来自所选场景里的光源。
+3. 不描写服装的款式和颜色，服装由摄影团队决定；动作可以和服装里有的头纱、裙摆、拖尾互动；主光与所选场景一致，补光只帮助自然融合，不额外改变场景时段和光影风格。
 4. 动作自然、真实可拍，避免多人、复杂道具和夸张特技。
-5. 以开心、亲密、放松为主要情绪。面部可见的镜头中，约一半安排自然露齿笑，其中少量可以是开怀大笑；其余安排轻松的微笑、温柔的对视或安静依偎，表情随互动变化。互动镜头用简短的动作或事件带出笑容，并明确写出当下的表情；两人的笑容程度和反应可以不同。只有需要明显大笑的镜头才写「开怀大笑」，小组或单张不必安排。肩颈、手臂和重心随动作自然放松。
-6. 各个镜头彼此不同，也不要与「已拍过的镜头」重复。
+5. 情绪以「拍摄方向」为准，没有单独说明时以亲密、放松和喜悦为主。主纱可以从容微笑，森系与街拍可以自然露齿笑，沉静光影可以保留安静的视线；不统一安排露齿笑或大笑的比例。用当下可见的动作、交谈后的反应和身体接触带出表情，两人的反应可以不同；只在适合主题的瞬间写「开怀大笑」。肩颈、手臂和重心随动作自然放松。
+6. 各个镜头在人物前后、高低、身体朝向、视线或动作阶段上有具体区别，也不要与「已拍过的镜头」重复；不靠换标题或不断换场景凑变化。整组围绕一个主题，以一个主场景为主，变化来自人物关系、景别、机位和光影。
 7. 只写具体的拍摄决定，不要堆砌「高级感」「电影感」「唯美」这类空洞的形容词；面部清晰、曝光和遮挡由摄影团队另行把关，镜头里不用复述这些要求（例如「不遮脸」「亮部保留纹理」「不拍剪影」）。
 8. 只输出 JSON，不要输出任何其他文字。
 
@@ -203,27 +203,27 @@ def _parse_moments(payload: dict) -> list[Moment]:
     return result
 
 
-def _shot_requirement(count: int) -> str:
+def _shot_requirement(count: int, *, atmospheric: bool = False) -> str:
     if count == 1:
         return '不限，选择最适合这个场景的景别和机位。'
-    # A wedding set: delivery shots first, then interaction, costume and at most a little atmosphere (V3.36).
-    standard, costume, atmosphere = math.ceil(count / 3), count // 6, count // 8
+    # Keep delivery portraits, then let the theme drive interaction and atmosphere (V7.19).
+    standard, costume, atmosphere = math.ceil(count / 5), count // 6, count // 8
+    if atmospheric and count >= 4:
+        atmosphere = max(1, atmosphere)
     interaction = count - standard - costume - atmosphere
-    close_limit, foreground_limit = max(1, count // 10), max(1, count // 6)  # kisses and lifts are hard to render
-    parts = [f'整组 {count} 张要像一次真实的婚纱拍摄，按下面的构成安排：',
-             # V7.3: posed shots stay, relaxed and happy rather than standing to attention.
-             f'标准照 {standard} 张：两人一起看向镜头，婚纱完整入画，可以站立或坐着；姿态自然舒展，肩颈和手臂放松，有轻松的身体接触，表情开心。'
-             '标准照不只安排浅笑，也安排自然露齿笑；其中可有刚互动完转向镜头、笑意还在的瞬间，不同镜头的姿态和笑容程度有变化；',
-             f'互动 {interaction} 张：以两人彼此互动为主，要有身体接触和动作，例如拥抱、依偎、额头相贴、牵手行走或奔跑、转圈、抱起、亲吻；'
-             f'其中至少 1 张拥抱、1 张在走动或转圈中抓拍，亲吻、抱起各最多 {close_limit} 张；']
+    close_limit, foreground_limit = max(1, count // 10), max(1, count // 6)
+    parts = [f'整组 {count} 张围绕同一个拍摄主题，以一个主场景为主，按下面的构成安排：',
+             f'标准照 {standard} 张：两人一起看向镜头，婚纱完整入画，可以站立或坐着；'
+             '姿态自然舒展，有轻松的身体接触，表情符合本风格的拍摄方向；用站坐高低、前后错位或肩线变化区分各张，不统一要求露齿笑；',
+             f'互动 {interaction} 张：以符合本风格的动作和身体关系为主，写清这一刻的重心、手的位置、各自表情与视线；'
+             f'安静相依、走动回望或有动感的互动由主题决定，不强制拥抱、奔跑或转圈，亲吻、抱起各最多 {close_limit} 张；']
     if costume:
-        parts.append(f'婚纱表现 {costume} 张：提起裙摆、拖尾铺开或头纱被风吹起，只用服装里有的；')
+        parts.append(f'婚纱表现 {costume} 张：利用坐姿或侧身展示裙形、拖尾铺展或头纱透光，只用服装里有的；')
     parts.append(f'氛围镜头 {atmosphere} 张：背影、剪影或两人在画面中很小，faces_clear 填 false；' if atmosphere else '这组不安排氛围镜头；')
-    parts.append('景别上既有交代环境的远景（用广角靠近两人拍，身后是大片的环境，两人仍能看清神情），也有中景和情绪近景；'
-                 '可以有 1 张用 85～135mm 把背景压缩到两人身后，人物仍要足够大；'
-                 f'前景最多 {foreground_limit} 张且不遮脸，明显的高处俯拍最多 1 张；景别、机位和构图都要有变化，各类镜头的先后顺序不要固定。')
+    parts.append('景别上有完整造型、人物关系和情绪近景的变化，环境画面通过人物位置、建筑或岸线的引导、前后层次体现空间；'
+                 '面部可见镜头中人物仍足够大，焦段按透视和空间关系选择，不为凑焦段改变动作；'
+                 f'前景最多 {foreground_limit} 张且不遮脸，明显的高处俯拍最多 1 张；各类镜头的先后顺序自然安排。')
     return ''.join(parts)
-
 
 def _user_prompt(style: str, scene_text: str, count: int, shot_requirement: str, avoid_titles: list[str]) -> str:
     return (f'风格：{style}\n{scene_text}\n需要的镜头数量：{count}\n'
@@ -276,29 +276,54 @@ class MockDirector:
         return moment
 
 
+def director_key_problem(config: Config, provider: str) -> str | None:
+    """Why the director cannot use this service; None when it can."""
+    if provider == 'pptoken' and not config.director_pptoken_api_key.strip():
+        return '没有配置 AI 导演的 PPTOKEN 密钥：在 backend/config.local.json 里填写 director_pptoken_api_key 后重启后端'
+    if provider == '88api' and not config.director_api_key.strip():
+        return '没有配置 AI 导演的 88API 密钥：在 backend/config.local.json 里填写 director_api_key 后重启后端'
+    return None
+
+
 class Api88Director:
-    def __init__(self, config: Config, *, model: str | None = None, transport: httpx.BaseTransport | None = None):
+    """The AI director over either service's OpenAI-style chat endpoint; provider and model follow Settings."""
+
+    def __init__(self, config: Config, *, model: str | None = None, provider: str = '88api',
+                 transport: httpx.BaseTransport | None = None):
         self.config = config
         self.model = model or config.director_model
+        self.provider = provider
         self.transport = transport
+
+    @property
+    def _api_key(self) -> str:
+        return self.config.director_pptoken_api_key if self.provider == 'pptoken' else self.config.director_api_key
+
+    @property
+    def _base_url(self) -> str:
+        return self.config.pptoken_base_url if self.provider == 'pptoken' else self.config.base_url
 
     def _call(self, user: str) -> list[Moment]:
         if not self.model:
             raise DirectorFailed('请先在设置中填写 AI 导演使用的文字模型')
-        headers = {'Authorization': f'Bearer {self.config.api_key}', 'Content-Type': 'application/json'}
-        url = self.config.base_url.rstrip('/') + '/v1/chat/completions'
+        problem = director_key_problem(self.config, self.provider)
+        if problem is not None:
+            raise DirectorFailed(problem)
+        api_key = self._api_key
+        headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
+        url = self._base_url.rstrip('/') + '/v1/chat/completions'
         try:
             with httpx.Client(transport=self.transport, timeout=60, trust_env=False) as client:
                 response = client.post(url, headers=headers, json={'model': self.model, 'messages': [
                     {'role': 'system', 'content': SYSTEM_PROMPT}, {'role': 'user', 'content': user}], 'temperature': 0.9})
         except Exception as exc:
-            logger.warning('director transport failure model=%s error=%s', self.model, str(exc).replace(self.config.api_key, '[REDACTED]'))
+            logger.warning('director transport failure provider=%s model=%s error=%s', self.provider, self.model, str(exc).replace(api_key, '[REDACTED]'))
             raise DirectorFailed('模型服务连接失败，请稍后重试') from None
         if response.status_code in (401, 402, 403):
             logger.warning('director provider auth failure status=%s', response.status_code)
             raise DirectorFailed(AUTH_MESSAGE)
         if response.status_code >= 400:
-            logger.warning('director provider HTTP %s: %s', response.status_code, response.text[:1000].replace(self.config.api_key, '[REDACTED]'))
+            logger.warning('director provider=%s HTTP %s: %s', self.provider, response.status_code, response.text[:1000].replace(api_key, '[REDACTED]'))
             raise DirectorFailed('文字模型服务暂时异常，请稍后重试')
         try:
             payload = response.json()

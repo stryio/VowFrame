@@ -21,7 +21,7 @@ export function useCurrentProject() {
 
 const isBusy = (p: ProjectDetail) =>
   p.active_task_count > 0 || p.previews.some(isGenerating) || p.photos.some(isGenerating) ||
-  [...p.looks, ...p.makeups].some((item) => item.status === "waiting" || item.status === "running");
+  [...p.looks, ...p.makeups, ...p.outfit_looks].some((item) => item.status === "waiting" || item.status === "running");
 
 export function Layout() {
   const workspaceMatch = useMatch("/projects/:projectId/*");
