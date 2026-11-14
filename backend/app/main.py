@@ -13,10 +13,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api import router
 from .api88 import Api88Generator
+from .ark import ArkGenerator
 from .config import Config, load_config
 from .db import Database
 from .director import Api88Director, MockDirector
 from .generator import ImageGenerator, MockGenerator, ProviderGenerator
+from .hand_analysis import ApiHandAnalyzer, MockHandAnalyzer
 from .face_swap import FaceSwapper, create_face_swapper
 from .photo_prep import FacePhotoPreparer, PhotoPreparer
 from .task_manager import TaskManager
@@ -61,6 +63,9 @@ def create_app(config: Config | None = None, generator: ImageGenerator | None = 
             if config.pptoken_api_key.strip():
                 generators['pptoken'] = Api88Generator(
                     replace(config, base_url=config.pptoken_base_url, api_key=config.pptoken_api_key), provider='PPTOKEN')
+            # 2026-11-13: 火山方舟, the official Seedream API, has its own client (app/ark.py).
+            if config.ark_api_key.strip():
+                generators['ark'] = ArkGenerator(replace(config, base_url=config.ark_base_url, api_key=config.ark_api_key))
             generator = ProviderGenerator(generators, lambda: db.get_image_provider())
         else:
             raise ValueError('不支持此生成器，请配置 mock 或 88api')
@@ -90,6 +95,7 @@ def create_app(config: Config | None = None, generator: ImageGenerator | None = 
     application.state.generator = generator
     application.state.face_swapper = face_swapper
     application.state.director = director
+    application.state.hand_analyzer = MockHandAnalyzer() if config.generator == 'mock' else ApiHandAnalyzer(config)
     application.state.photo_preparer = photo_preparer or FacePhotoPreparer()
 
     @application.exception_handler(StarletteHTTPException)

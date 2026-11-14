@@ -566,7 +566,8 @@ button:disabled {
 
 .side-upload-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .side-upload { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.side-upload-label { font-size: 12px; color: var(--text-secondary); }
+.side-upload-label { font-size: 12px; color: var(--text-secondary); text-align: center; }
+.side-upload-hint { margin: 8px 0 0; font-size: 12px; }
 .side-dropzone { width: 100%; aspect-ratio: 4 / 3; border: 1px dashed #d9cfc2; border-radius: var(--radius-sm); background: var(--bg); color: var(--text-secondary); overflow: hidden; }
 .side-dropzone.filled { border-style: solid; border-color: var(--border); }
 .side-dropzone img { width: 100%; height: 100%; object-fit: cover; }
@@ -868,6 +869,20 @@ button:disabled {
   color: #fff;
 }
 
+/* V7.61: the bride's jewelry on the look step: names are longer than counts */
+.count-options.jewelry-options {
+  flex-wrap: wrap;
+}
+
+.jewelry-options .count-option {
+  width: auto;
+  height: 36px;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
 .notice {
   padding: 14px 18px;
   border-radius: var(--radius-sm);
@@ -949,10 +964,17 @@ button:disabled {
 
 .modal {
   width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* A generate dialog that also picks the outfit and the room (V7.37): wide enough for one row of each */
+.modal.modal-wide {
+  width: min(760px, calc(100vw - 32px));
 }
 
 .modal p {
@@ -991,13 +1013,76 @@ button:disabled {
   align-items: center;
   gap: 14px;
   max-width: 92vw;
+  width: 92vw;
+  height: calc(100dvh - 96px);
 }
 
-.lightbox img {
-  max-width: 92vw;
-  max-height: 82vh;
+.image-view-stage img {
+  max-width: none;
+  max-height: none;
+  flex: none;
+  object-fit: contain;
+  user-select: none;
   border-radius: var(--radius-sm);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+.zoomable-image {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.image-view-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.image-view-stage.is-zoomed, .regional-edit-stage.is-move-tool,
+.regional-edit-stage.is-move-tool canvas {
+  cursor: grab;
+}
+
+.image-view-stage.is-panning, .regional-edit-stage.is-panning,
+.regional-edit-stage.is-panning canvas {
+  cursor: grabbing;
+}
+
+.image-zoom-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+}
+
+.image-zoom-level {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-zoom-hint, .image-view-loading {
+  color: #e9e4dd;
+  font-size: 12px;
+  text-align: center;
+}
+
+.lightbox .image-zoom-level {
+  color: #e9e4dd;
 }
 
 .lightbox-caption {
@@ -1007,6 +1092,7 @@ button:disabled {
 }
 
 .lightbox-close {
+  z-index: 2;
   position: fixed;
   top: 20px;
   right: 24px;
@@ -1274,6 +1360,11 @@ button.status-chip {
   display: flex;
   align-items: center;
   gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  flex: none;
+  max-height: 22dvh;
+  overflow-y: auto;
 }
 
 .lightbox-bar .btn {
@@ -1281,6 +1372,7 @@ button.status-chip {
 }
 
 .lightbox-nav {
+  z-index: 1;
   position: fixed;
   top: 50%;
   transform: translateY(-50%);
@@ -1431,6 +1523,20 @@ button.status-chip {
 
 .menu-item-danger {
   color: var(--danger);
+}
+
+/* The "⋯" list floats above the page so a card that hides its overflow cannot cut it off. */
+.menu-floating {
+  position: fixed;
+  bottom: auto;
+  z-index: 60;
+  overflow-y: auto;
+}
+
+.menu-item-divider {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
 }
 
 /* ---------- Multi-select ---------- */
@@ -1956,6 +2062,46 @@ button.status-chip {
 }
 
 /* Looks step (V5.0): candidates per person, then the looks each style uses. */
+.looks-intro { font-size: 13px; }
+.looks-disclosure { padding: 14px 18px; }
+.looks-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.looks-disclosure > summary::-webkit-details-marker { display: none; }
+.looks-disclosure > summary > span:first-child { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.looks-disclosure > summary .muted { font-size: 12px; }
+.looks-disclosure-toggle { color: var(--accent-strong); font-size: 12px; flex-shrink: 0; }
+.looks-disclosure-toggle::after { content: "展开 ＋"; }
+.looks-disclosure[open] > summary .looks-disclosure-toggle::after { content: "收起 −"; }
+.looks-shared-settings > .makeup-card { border: 0; box-shadow: none; padding: 16px 0 0; }
+.looks-style-picker-body { display: flex; flex-direction: column; gap: 14px; padding-top: 16px; }
+.looks-style-picker-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.looks-workspace { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: start; gap: 18px; scroll-margin-top: 12px; }
+.looks-navigation { position: sticky; top: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px 10px; max-height: calc(100dvh - 100px); min-width: 0; }
+.looks-navigation-heading { display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
+.looks-navigation-heading h3 { font-size: 15px; }
+.looks-navigation-heading > .muted, .looks-navigation > p { font-size: 12px; }
+.looks-nav-list { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow-y: auto; padding: 2px; }
+.looks-nav-item { display: flex; align-items: center; gap: 10px; flex-shrink: 0; width: 100%; padding: 8px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); text-align: left; }
+.looks-nav-item:hover { background: var(--surface-muted); }
+.looks-nav-item.active { background: var(--accent-soft); border-color: var(--accent); }
+.looks-nav-item:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -2px; }
+.looks-nav-item > img { width: 36px; height: 46px; object-fit: cover; border-radius: 5px; flex-shrink: 0; background: var(--surface-muted); }
+.looks-nav-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.looks-nav-copy > strong { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.looks-nav-status { font-size: 11px; color: var(--text-secondary); }
+.looks-nav-status.ready { color: var(--success); }
+.looks-nav-status.busy { color: var(--accent-strong); }
+.looks-nav-status.error { color: var(--danger); }
+.looks-add-style { width: 100%; flex-shrink: 0; }
+.looks-panels { min-width: 0; }
+.looks-panels .looks-header { flex-wrap: wrap; gap: 6px 12px; }
+@media (max-width: 1100px) {
+  .looks-workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .looks-navigation { top: 0; z-index: 5; max-height: none; padding: 10px; gap: 8px; }
+  .looks-navigation-heading { flex-direction: row; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+  .looks-nav-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .looks-nav-item { width: 180px; }
+  .looks-add-style { align-self: flex-start; width: auto; }
+}
 .looks-card { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
 .looks-header { display: flex; align-items: baseline; gap: 12px; }
 .looks-header h3 { font-size: 15px; }
@@ -1963,6 +2109,22 @@ button.status-chip {
 .planner-sample img { width: 64px; height: 86px; object-fit: cover; flex-shrink: 0; border-radius: var(--radius-sm); }
 .look-form { display: flex; flex-direction: column; gap: 8px; }
 .makeup-picker { display: flex; flex-direction: column; gap: 10px; }
+.makeup-adjustments { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.makeup-adjustments > summary { padding: 10px 12px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.makeup-adjustments fieldset { border: 0; margin: 0; padding: 0 12px 12px; min-width: 0; }
+.makeup-adjustments p { margin: 8px 0 0; font-size: 12px; }
+.makeup-adjustment-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.makeup-adjustment-presets > label { font-weight: 600; }
+.makeup-adjustment-presets > select { max-width: 100%; min-width: 0; }
+.makeup-adjustment-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; margin-top: 12px; }
+.makeup-adjustment-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.makeup-adjustment-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; font-size: 13px; }
+.makeup-adjustment-heading > label { font-weight: 600; }
+.makeup-adjustment-heading > output { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+.makeup-adjustment-slider { width: 100%; min-width: 0; height: 28px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.makeup-adjustment-slider:disabled { cursor: wait; opacity: 0.6; }
+.makeup-adjustment-scale { display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 11px; }
+.makeup-adjustment-field > .muted { font-size: 12px; }
 .look-step-title { font-size: 14px; font-weight: 600; }
 .makeup-reuse {
   display: flex; flex-direction: column; gap: 10px;
@@ -2000,4 +2162,318 @@ button.status-chip {
 .look-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .look-body .muted, .look-body .error-text { font-size: 12px; }
 .look-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.face-fix-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.face-fix-role { width: 32px; font-size: 13px; color: var(--text-secondary); }
+.edit-choice { display: flex; gap: 8px; }
+.edit-choice .input { flex: 1; min-width: 0; }
+@media (max-width: 520px) { .edit-choice { flex-direction: column; } }
+.side-looks { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.side-look-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.side-look { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 72px; }
+.side-look-empty {
+  width: 72px;
+  aspect-ratio: 3 / 4;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.side-look img {
+  width: 72px;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  display: block;
+}
 .style-picker-actions { display: flex; justify-content: flex-end; }
+
+/* ---------- Style art (V7.33) ---------- */
+.style-art-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.style-art-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.style-art-main {
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: var(--surface-2, #f4f1ec);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.style-art-main img,
+.style-art-steps img {
+  width: 100%;
+  height: 100%;
+  /* V7.49: a room's main-area art is 16:9; show it whole in the 4:3 box. */
+  object-fit: contain;
+  display: block;
+}
+.style-art-steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.style-art-steps a {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.style-art-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.text-danger {
+  color: var(--danger);
+}
+
+/* V7.34: picking the room a sample is shot in */
+.room-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+}
+
+.room-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  font-size: 12px;
+  line-height: 1.3;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+}
+
+.room-option img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.room-option.active {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+/* V7.35: the style art a sample was shot from, on its card */
+.preview-art {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.preview-art img {
+  width: 72px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--accent-soft);
+}
+
+/* V7.37: outfit cards in the sample dialog: the outfit picture sits in the middle of a white portrait card, so the
+   room cards' 4:3 crop shows the whole outfit; the white edge needs a border to read as a card */
+.outfit-option img {
+  background: #fff;
+  border: 1px solid var(--accent-soft);
+  object-fit: contain;
+}
+
+/* V7.60: a scene or outfit option with its own "see it large" button in the corner */
+.room-option-wrap {
+  position: relative;
+  display: flex;
+}
+
+.room-option-wrap .room-option {
+  flex: 1;
+}
+
+/* Annotation editing keeps the original photograph separate from the drawing layer. */
+.regional-edit-backdrop {
+  z-index: 80;
+  padding: 16px;
+}
+
+.modal.regional-edit-modal {
+  width: min(1120px, 100%);
+  max-height: calc(100dvh - 32px);
+}
+
+.regional-edit-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.regional-edit-heading p {
+  margin-top: 6px;
+}
+
+.regional-edit-task-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e3cf9c;
+  border-radius: 8px;
+  background: #fff9eb;
+  font-size: 13px;
+}
+
+.regional-edit-task-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.regional-edit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+}
+
+.regional-edit-workspace, .regional-edit-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.regional-edit-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 32px;
+}
+
+.hand-analysis-panel, .hand-analysis-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hand-analysis-panel {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.hand-analysis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hand-analysis-region {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.hand-analysis-result p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.regional-edit-brush {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.regional-edit-brush input {
+  width: 72px;
+}
+
+.regional-edit-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: min(60vh, 620px);
+  min-height: 200px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #eeece8;
+  touch-action: none;
+}
+
+.regional-edit-image {
+  position: relative;
+  flex: none;
+}
+
+.regional-edit-image img, .regional-edit-image canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.regional-edit-image img {
+  object-fit: contain;
+  user-select: none;
+}
+
+.regional-edit-image canvas {
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.regional-edit-loading {
+  position: absolute;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .regional-edit-backdrop {
+    padding: 8px;
+  }
+
+  .modal.regional-edit-modal {
+    padding: 16px;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .regional-edit-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .regional-edit-stage {
+    height: 42vh;
+  }
+}

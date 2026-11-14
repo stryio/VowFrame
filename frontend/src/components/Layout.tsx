@@ -6,7 +6,7 @@ import { TaskDrawer } from "./TaskDrawer";
 
 interface CurrentProject {
   project: ProjectDetail | null;
-  /** Re-fetch now and keep polling while tasks are active. */
+  /** Re-fetch now and keep polling while generation or face scoring is active. */
   refresh: () => Promise<void>;
   openTasks: () => void;
 }
@@ -20,8 +20,8 @@ export function useCurrentProject() {
 }
 
 const isBusy = (p: ProjectDetail) =>
-  p.active_task_count > 0 || p.previews.some(isGenerating) || p.photos.some(isGenerating) ||
-  [...p.looks, ...p.makeups].some((item) => item.status === "waiting" || item.status === "running");
+  p.active_task_count > 0 || p.has_pending_face_scores || p.previews.some(isGenerating) || p.photos.some(isGenerating) ||
+  [...p.looks, ...p.makeups, ...p.side_looks].some((item) => item.status === "waiting" || item.status === "running");
 
 export function Layout() {
   const workspaceMatch = useMatch("/projects/:projectId/*");

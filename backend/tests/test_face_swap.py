@@ -59,7 +59,7 @@ class BlockingAuthGenerator:
         self.started = threading.Event()
         self.release = threading.Event()
 
-    def generate_image(self, images, prompt, model, aspect_ratio):
+    def generate_image(self, images, prompt, model, aspect_ratio, **_):
         self.started.set()
         if not self.release.wait(10):
             raise RuntimeError('Test generator was not released')
@@ -67,7 +67,7 @@ class BlockingAuthGenerator:
         raise GeneratorError('auth_or_quota')
 
 
-def ready_preview(client, project_id, style_ids=('dark_studio',), *, request_id='ready'):
+def ready_preview(client, project_id, style_ids=('city_story',), *, request_id='ready'):
     batch = preview_batch(client, project_id, request_id=request_id, style_ids=list(style_ids))
     wait_batch(client, batch['id'])
     detail = client.get(f'/api/projects/{project_id}').json()
@@ -81,14 +81,14 @@ def test_health_and_endpoint_validation_unavailable_and_without_current_version(
         _, slots = ready_preview(client, project['id'], request_id='ready-busy')
         health = client.get('/api/health').json()['face_swap']
         assert health == {'available': False, 'mode': None, 'reason': '未配置 FaceFusion 安装目录'}
-        response = client.post(f"/api/slots/{slots['dark_studio']['id']}/face-swap", json={'client_request_id': 'unavailable'})
+        response = client.post(f"/api/slots/{slots['city_story']['id']}/face-swap", json={'client_request_id': 'unavailable'})
         assert response.status_code == 409
         assert response.json()['detail'] == {'code': 'face_swap_unavailable', 'message': health['reason']}
 
     generator = ScriptedGenerator([Exception('generation fails')])
     with app_factory(generator=generator, face_swapper=MockFaceSwapper()) as (client, _app):
         project = create_project(client)
-        failed = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        failed = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, failed['id'], status='needs_attention')
         slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         response = client.post(f"/api/slots/{slot['id']}/face-swap", json={'client_request_id': 'no-version'})
@@ -124,7 +124,7 @@ def test_photos_missing_busy_and_idempotency(app_factory):
     with app_factory(face_swapper=swapper) as (client, app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'], request_id='ready-first')
-        slot = slots['dark_studio']
+        slot = slots['city_story']
         first = client.post(f"/api/slots/{slot['id']}/face-swap", json={'client_request_id': 'same-request'})
         assert first.status_code == 201
         repeated = client.post(f"/api/slots/{slot['id']}/face-swap", json={'client_request_id': 'same-request'})
@@ -140,7 +140,7 @@ def test_photos_missing_busy_and_idempotency(app_factory):
     with app_factory(generator=ScriptedGenerator(), face_swapper=MockFaceSwapper(), concurrency=1) as (client, app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'], request_id='ready-busy')
-        slot = slots['dark_studio']
+        slot = slots['city_story']
         app.state.task_manager.generator = blocker
         regen = client.post(f"/api/slots/{slot['id']}/regenerate", json={'client_request_id': 'busy-gen', 'mode': 'same'})
         assert regen.status_code == 201 and blocker.started.wait(2)
@@ -157,8 +157,8 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
     with app_factory(face_swapper=swapper) as (client, app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'], request_id='ready-retry-transient')
-        slot_id = slots['dark_studio']['id']
-        original_version = slots['dark_studio']['current_version']['id']
+        slot_id = slots['city_story']['id']
+        original_version = slots['city_story']['current_version']['id']
 
         first = client.post(f'/api/slots/{slot_id}/face-swap', json={'client_request_id': 'first-face-swap'})
         assert first.status_code == 201
@@ -180,7 +180,7 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
             row = conn.execute('SELECT * FROM generation_tasks WHERE id=?', (first_task['id'],)).fetchone()
             # The fronts are the styled photos of the sample (V4.0).
             references = json.loads(row['reference_image_ids'])
-            assert references[:2] == [slots['dark_studio']['styled_asset_ids'][role] for role in ('bride', 'groom')]
+            assert references[:2] == [slots['city_story']['styled_asset_ids'][role] for role in ('bride', 'groom')]
             assert uploaded_ids(app, references) == [
                 project['person_a']['asset_id'], project['person_b']['asset_id'], None, None, None, None]
             snapshot = json.loads(row['model_config_snapshot'])
@@ -192,7 +192,7 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
                 'side_turn': 0.18,
                 'pixel_boost': '512x512',
                 'face_mask_types': ['box', 'occlusion'],
-                'weight': 1.0,
+                'weight': 0.5,
                 'faces': SCRIPTED_FACES,
             }
 
@@ -216,10 +216,10 @@ def test_face_swap_task_fields_versions_and_source_version_of_a_swap(app_factory
 def test_batch_action_face_swap_ignores_model_and_validates_every_slot(app_factory):
     with app_factory(face_swapper=MockFaceSwapper(), concurrency=1) as (client, _app):
         project = create_project(client)
-        _, slots = ready_preview(client, project['id'], ('dark_studio', 'lakeside'))
+        _, slots = ready_preview(client, project['id'], ('city_story', 'forest_film'))
         response = client.post('/api/slots/batch-action', json={
             'client_request_id': 'batch-swaps',
-            'slot_ids': [slots['dark_studio']['id'], slots['lakeside']['id']],
+            'slot_ids': [slots['city_story']['id'], slots['forest_film']['id']],
             'action': 'face_swap', 'model': 'not-a-generator-model',
         })
         assert response.status_code == 201, response.text
@@ -231,13 +231,13 @@ def test_batch_action_face_swap_ignores_model_and_validates_every_slot(app_facto
     generator = ScriptedGenerator([None, Exception('second style fails')])
     with app_factory(generator=generator, face_swapper=MockFaceSwapper(), concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['dark_studio', 'lakeside'])
+        batch = preview_batch(client, project['id'], style_ids=['city_story', 'forest_film'])
         wait_batch(client, batch['id'], status='needs_attention')
         detail = client.get(f"/api/projects/{project['id']}").json()
         slots_by_style = {slot['style_id']: slot for slot in detail['previews']}
         rejected = client.post('/api/slots/batch-action', json={
             'client_request_id': 'all-or-nothing',
-            'slot_ids': [slots_by_style['dark_studio']['id'], slots_by_style['lakeside']['id']],
+            'slot_ids': [slots_by_style['city_story']['id'], slots_by_style['forest_film']['id']],
             'action': 'face_swap',
         })
         assert rejected.status_code == 409 and rejected.json()['detail']['code'] == 'slot_not_ready'
@@ -250,7 +250,7 @@ def test_face_swap_retry_policy_and_direct_validation_failures(app_factory):
     with app_factory(face_swapper=swapper) as (client, app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'], request_id='ready-retry-roles')
-        batch = client.post(f"/api/slots/{slots['dark_studio']['id']}/face-swap", json={'client_request_id': 'retry-face'})
+        batch = client.post(f"/api/slots/{slots['city_story']['id']}/face-swap", json={'client_request_id': 'retry-face'})
         wait_batch(client, batch.json()['id'], status='needs_attention')
         task = client.get('/api/tasks', params={'batch_id': batch.json()['id']}).json()[0]
         assert task['status'] == 'failed' and task['error_code'] == 'face_swap_failed'
@@ -261,7 +261,7 @@ def test_face_swap_retry_policy_and_direct_validation_failures(app_factory):
     with app_factory(face_swapper=swapper) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
-        batch = client.post(f"/api/slots/{slots['dark_studio']['id']}/face-swap", json={'client_request_id': 'no-auto-retry'})
+        batch = client.post(f"/api/slots/{slots['city_story']['id']}/face-swap", json={'client_request_id': 'no-auto-retry'})
         wait_batch(client, batch.json()['id'], status='needs_attention')
         task = client.get('/api/tasks', params={'batch_id': batch.json()['id']}).json()[0]
         assert task['status'] == 'failed' and task['error_code'] == 'roles_swapped'
@@ -308,11 +308,11 @@ def test_missing_reference_asset_fails_without_retry(app_factory):
         _, slots = ready_preview(client, project['id'], request_id='missing-reference-source')
         with app.state.db.connect() as conn:
             # The swap uses the bride's styled photo (V4.0).
-            reference_id = slots['dark_studio']['styled_asset_ids']['bride']
+            reference_id = slots['city_story']['styled_asset_ids']['bride']
             row = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (reference_id,)).fetchone()
         asset_path(app.state.config, row['file_path']).unlink()
         batch = client.post(
-            f"/api/slots/{slots['dark_studio']['id']}/face-swap",
+            f"/api/slots/{slots['city_story']['id']}/face-swap",
             json={'client_request_id': 'reference-missing'},
         )
         wait_batch(client, batch.json()['id'], status='needs_attention')
@@ -326,10 +326,10 @@ def test_face_swap_lane_runs_while_generation_lane_is_full(app_factory):
     swapper = ScriptedFaceSwapper()
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, concurrency=1) as (client, app):
         project = create_project(client)
-        _, slots = ready_preview(client, project['id'], ('dark_studio',))
-        existing = slots['dark_studio']
+        _, slots = ready_preview(client, project['id'], ('city_story',))
+        existing = slots['city_story']
         app.state.task_manager.generator = blocker
-        generating = preview_batch(client, project['id'], request_id='generation-blocked', style_ids=['lakeside'])
+        generating = preview_batch(client, project['id'], request_id='generation-blocked', style_ids=['forest_film'])
         assert blocker.started.wait(2)
         app.state.task_manager._backoff_until = time.monotonic() + 30
 
@@ -347,12 +347,12 @@ def test_auth_quota_hold_does_not_hold_face_swap_tasks_in_same_batch(app_factory
     generator = ScriptedGenerator()
     with app_factory(generator=generator, face_swapper=swapper, concurrency=1) as (client, app):
         project = create_project(client)
-        baseline, slots = ready_preview(client, project['id'], ('lakeside', 'seaside_sunset'), request_id='baseline-for-hold')
+        baseline, slots = ready_preview(client, project['id'], ('forest_film', 'seaside_sunset'), request_id='baseline-for-hold')
         blocking = BlockingAuthGenerator()
         app.state.task_manager.generator = blocking
         current_batch = preview_batch(
             client, project['id'], request_id='batch-with-face-swap',
-            style_ids=['lakeside', 'seaside_sunset'],
+            style_ids=['forest_film', 'seaside_sunset'],
         )
         assert blocking.started.wait(2)
         pending = client.get('/api/tasks', params={'batch_id': current_batch['id']}).json()
@@ -386,7 +386,7 @@ def test_auth_quota_hold_does_not_hold_face_swap_tasks_in_same_batch(app_factory
 def test_startup_recovery_treats_face_swap_tasks_as_local(app_factory):
     with app_factory(face_swapper=MockFaceSwapper(), concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['seaside_sunset', 'chinese_traditional', 'dark_studio', 'lakeside', 'lawn_floral', 'french_estate'])
+        batch = preview_batch(client, project['id'], style_ids=['seaside_sunset', 'flower_house', 'city_story', 'forest_film', 'garden_lawn', 'chinese_celebration'])
         wait_batch(client, batch['id'])
         tasks = client.get('/api/tasks', params={'batch_id': batch['id']}).json()
         manager = app.state.task_manager
@@ -414,7 +414,7 @@ def test_startup_recovery_treats_face_swap_tasks_as_local(app_factory):
 def test_previous_task_schema_migrates_face_swap_fields_and_preserves_indexes(app_factory):
     with app_factory(face_swapper=MockFaceSwapper(), concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, batch['id'])
         db = app.state.db
     with sqlite3.connect(db.path) as raw:
@@ -505,7 +505,7 @@ def test_generated_images_are_face_swapped_automatically_and_keep_the_original(a
         # The batch finishes only after the swap: one generation task plus its automatic swap.
         finished = client.get(f"/api/batches/{batch['id']}").json()
         assert finished['total'] == 2 and finished['counts']['completed'] == 2
-        slot = slots['dark_studio']
+        slot = slots['city_story']
         versions = client.get(f"/api/slots/{slot['id']}/versions").json()
         swapped, original = versions
         assert swapped['is_current'] and swapped['source_version_id'] == original['id']
@@ -513,19 +513,20 @@ def test_generated_images_are_face_swapped_automatically_and_keep_the_original(a
         assert len(swapper.calls) == 1
         with app.state.db.connect() as conn:
             task = conn.execute("SELECT * FROM generation_tasks WHERE regenerate_mode='face_swap'").fetchone()
-        assert json.loads(task['model_config_snapshot'])['weight'] == 1.0  # samples are swapped at full strength
-        assert swapper.calls[0][3] == 1.0
+        assert json.loads(task['model_config_snapshot'])['weight'] == 0.5  # samples too since 2026-11-03
+        assert swapper.calls[0][3] == 0.5
         assert task['batch_id'] == batch['id']
 
 
 @pytest.mark.parametrize('mode', ['facefusion', 'split'])
-def test_album_photos_are_swapped_at_half_strength_and_samples_at_full_strength(app_factory, mode):
+def test_album_photos_and_samples_are_swapped_at_half_strength(app_factory, mode):
+    """Since 2026-11-03 samples use 0.5 like album photos (1.0 from 2026-10-28)."""
     swapper = ScriptedFaceSwapper()
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix=mode, concurrency=1) as (client, app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts",
-                            json={'preview_slot_id': slots['dark_studio']['id'], 'count': 4}).json()
+                            json={'preview_slot_id': slots['city_story']['id'], 'count': 4}).json()
         shot = client.post(f"/api/projects/{project['id']}/photo-batches", json={'client_request_id': 'weights', 'draft_id': draft['id']})
         wait_batch(client, shot.json()['id'])
         photo = client.get(f"/api/projects/{project['id']}").json()['photos'][0]
@@ -535,8 +536,8 @@ def test_album_photos_are_swapped_at_half_strength_and_samples_at_full_strength(
             weights = {(kind, json.loads(snapshot)['weight']) for kind, snapshot in conn.execute(
                 "SELECT slot.kind, task.model_config_snapshot FROM generation_tasks task "
                 "JOIN photo_slots slot ON slot.id=task.target_slot_id WHERE task.regenerate_mode='face_swap'")}
-        assert weights == {('preview', 1.0), ('photo', 0.5)}
-        assert sorted(call[3] for call in swapper.calls) == [0.5] * 5 + [1.0]
+        assert weights == {('preview', 0.5), ('photo', 0.5)}
+        assert [call[3] for call in swapper.calls] == [0.5] * 6
 
 
 def test_actions_on_a_swapped_image_start_from_its_generation_prompt(app_factory):
@@ -544,13 +545,13 @@ def test_actions_on_a_swapped_image_start_from_its_generation_prompt(app_factory
     with app_factory(generator=generator, face_swapper=ScriptedFaceSwapper(), auto_face_fix='facefusion', concurrency=1) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
-        slot_id = slots['dark_studio']['id']
+        slot_id = slots['city_story']['id']
         boost = client.post(f'/api/slots/{slot_id}/regenerate', json={'client_request_id': 'boost', 'mode': 'identity_boost'})
         assert boost.status_code == 201, boost.text
         wait_batch(client, boost.json()['id'])
         tasks = client.get('/api/tasks', params={'batch_id': boost.json()['id']}).json()
         boost_task = next(task for task in tasks if task['regenerate_mode'] == 'identity_boost')
-        assert boost_task['prompt'].split('\n\n')[3].startswith(STYLE_BY_ID['dark_studio']['preview'].removesuffix('。'))
+        assert boost_task['prompt'].split('\n\n')[3].startswith(STYLE_BY_ID['city_story']['preview'].removesuffix('。'))
         assert generator.calls[-1][1] == boost_task['prompt']
         # The boosted image is swapped again automatically.
         assert {task['regenerate_mode'] for task in tasks} == {'identity_boost', 'face_swap'}
@@ -595,7 +596,7 @@ def test_face_swap_passes_side_photos_by_role_and_slot(app_factory):
                                  files={'file': (f'{person}-{angle}.png', PNG, 'image/png')}).json()
             uploads[(person, angle)] = detail[f'person_{person}'][f'{angle}_asset_id']
         _, slots = ready_preview(client, project['id'], request_id='side-swap-ready')
-        batch = client.post(f"/api/slots/{slots['dark_studio']['id']}/face-swap", json={'client_request_id': 'side-swap'})
+        batch = client.post(f"/api/slots/{slots['city_story']['id']}/face-swap", json={'client_request_id': 'side-swap'})
         wait_batch(client, batch.json()['id'])
         task = client.get('/api/tasks', params={'batch_id': batch.json()['id']}).json()[0]
         with app.state.db.connect() as conn:
@@ -618,7 +619,7 @@ def test_back_view_and_silhouette_shots_are_not_swapped_automatically(app_factor
         _, slots = ready_preview(client, project['id'])
         swapper.calls.clear()
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts",
-                            json={'preview_slot_id': slots['dark_studio']['id'], 'count': 4}).json()
+                            json={'preview_slot_id': slots['city_story']['id'], 'count': 4}).json()
         for index, text in ((0, '35mm 镜头，远景。两人牵手走向远处，留下背影。'), (1, '逆光下两人相拥，形成剪影。')):
             patched = client.patch(f"/api/moment-drafts/{draft['id']}/moments/{index}",
                                    json={'text': text, 'faces_clear': False, 'bride_facing': 'front', 'groom_facing': 'front'})
@@ -637,15 +638,14 @@ def test_a_swap_records_the_face_similarity_before_and_after(app_factory):
                      concurrency=1) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
-        slot_id = slots['dark_studio']['id']
-        # The swap came from the looks, so what it measured compares with the looks; both pictures are scored
-        # against the uploaded photos instead, like every other picture (V5.0).
+        slot_id = slots['city_story']['id']
+        # The swap came from the looks and measured against them, like every picture's score (V7.33): it keeps
+        # what it measured before and after, and neither picture is scored again.
         swapped, original = wait_until(lambda: client.get(f'/api/slots/{slot_id}/versions').json(),
                                        lambda versions: all(version['face_scores'] for version in versions))
-        assert original['face_scores'] == swapped['face_scores'] == {'bride': 0.55, 'groom': 0.61}
-        uploads = {project['person_a']['asset_id'], project['person_b']['asset_id']}
-        pictures = [item for item in _app.state.face_swapper.scored if item.bride != item.groom]
-        assert len(pictures) == 2 and all({item.bride.stem, item.groom.stem} == uploads for item in pictures)
+        assert original['face_scores'] == SCRIPTED_SCORES['before']
+        assert swapped['face_scores'] == SCRIPTED_SCORES['after']
+        assert [item for item in _app.state.face_swapper.scored if item.bride != item.groom] == []
 
 
 def test_a_swap_from_uploaded_photos_keeps_what_it_measured(app_factory):
@@ -661,9 +661,9 @@ def test_a_swap_from_uploaded_photos_keeps_what_it_measured(app_factory):
             conn.execute('UPDATE generation_tasks SET model_config_snapshot=?,reference_image_ids=? WHERE id=?',
                          (json.dumps(snapshot), json.dumps(uploads), task['id']))
             conn.execute('UPDATE photo_versions SET face_scores=NULL')
-        swap = client.post(f"/api/slots/{slots['dark_studio']['id']}/face-swap", json={'client_request_id': 'swap'})
+        swap = client.post(f"/api/slots/{slots['city_story']['id']}/face-swap", json={'client_request_id': 'swap'})
         wait_batch(client, swap.json()['id'])
-        swapped, original = client.get(f"/api/slots/{slots['dark_studio']['id']}/versions").json()
+        swapped, original = client.get(f"/api/slots/{slots['city_story']['id']}/versions").json()
         assert original['face_scores'] == SCRIPTED_SCORES['before']
         assert swapped['face_scores'] == SCRIPTED_SCORES['after']  # null: the groom's face was not found
 
@@ -673,15 +673,17 @@ def test_a_picture_that_is_not_swapped_is_scored_on_its_own(app_factory):
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, concurrency=1) as (client, _app):
         project = create_project(client)
         _, slots = ready_preview(client, project['id'])
-        slot_id = slots['dark_studio']['id']
+        slot_id = slots['city_story']['id']
         version = wait_until(lambda: client.get(f'/api/slots/{slot_id}/versions').json()[0],
                              lambda value: value['face_scores'] is not None)
         assert version['face_scores'] == {'bride': 0.55, 'groom': 0.61}
         assert swapper.calls == []
-        # Compared with the uploaded photos the picture's looks were made from, bride first; the looks themselves are
-        # scored one person at a time (bride and groom photo the same).
+        # Compared with the picture's looks, bride first (V7.33); the looks themselves are scored against the uploaded
+        # photo one person at a time (bride and groom photo the same).
         item = next(item for item in swapper.scored if item.bride != item.groom)
-        assert item.bride.stem == project['person_a']['asset_id'] and item.groom.stem == project['person_b']['asset_id']
+        looks = slots['city_story']['styled_asset_ids']
+        assert item.bride.stem == looks['bride'] and item.groom.stem == looks['groom']
+        assert uploaded_ids(_app, [looks['bride'], looks['groom']]) == [project['person_a']['asset_id'], project['person_b']['asset_id']]
 
 
 def test_pictures_without_a_score_are_scored_after_a_restart(app_factory, tmp_path):
@@ -692,7 +694,7 @@ def test_pictures_without_a_score_are_scored_after_a_restart(app_factory, tmp_pa
         _, slots = ready_preview(client, project['id'])  # the mock swapper cannot measure faces
     swapper = ScriptedFaceSwapper()
     with app_factory(face_swapper=swapper, data_dir=data_dir) as (client, _app):
-        slot_id = slots['dark_studio']['id']
+        slot_id = slots['city_story']['id']
         version = wait_until(lambda: client.get(f'/api/slots/{slot_id}/versions').json()[0],
                              lambda value: value['face_scores'] is not None)
         assert version['face_scores'] == {'bride': 0.55, 'groom': 0.61}

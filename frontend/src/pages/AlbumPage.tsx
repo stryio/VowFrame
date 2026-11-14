@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, assetUrl, hasFaces, isBroken, isFaceSwapped, isGenerating, SHOT_LABEL, type Slot, type SlotAction } from "../api";
+import { api, assetUrl, fixLabel, hasFaces, isBroken, isFaceSwapped, isGenerating, SHOT_LABEL, type Slot, type SlotAction } from "../api";
 import { AttemptNotice } from "../components/AttemptNotice";
 import { CompareView } from "../components/CompareView";
+import { ZoomableImage } from "../components/ZoomableImage";
 import { FaceScore, faceScoreText } from "../components/FaceScore";
 import { EmptyState, useToast } from "../components/feedback";
 import { useCurrentProject } from "../components/Layout";
@@ -137,6 +138,15 @@ export function AlbumPage() {
     if (slots.length > 0 && (await actions.faceSwap(slots))) exitSelecting();
   };
 
+  /** Hand fix and wash take finished, idle pictures only; the rest are skipped with a note. */
+  const idleSelection = () => {
+    if (chosenIdle.length < chosen.length) {
+      toast.info(`已跳过 ${chosen.length - chosenIdle.length} 张正在处理或尚未完成的作品`);
+    }
+    return chosenIdle;
+  };
+  const chosenFailed = chosen.filter((p) => p.latest_task && ["failed", "interrupted"].includes(p.latest_task.status));
+
   const menuFor = (slot: Slot): MenuItem[] => {
     const idle = isIdle(slot) && Boolean(slot.current_version);
     return [
@@ -151,9 +161,24 @@ export function AlbumPage() {
       { label: "换景别…", onSelect: () => actions.run([slot], "change_shot"), disabled: !idle },
       {
         label: "AI 修脸",
+        divider: true,
         onSelect: () => actions.faceFix([slot]),
         disabled: !idle || !hasFaces(slot),
         title: !hasFaces(slot) ? "局部特写没有人脸，无需修脸" : "用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致；每张修一次，按模型计费",
+      },
+      {
+        label: "修手…",
+        onSelect: () => actions.handFix(slot),
+        disabled: !idle,
+        title: "涂出要修的手，只把手放大修好贴回原图，其余保持不变；修一次，按模型计费",
+      },
+      { label: "局部编辑…", onSelect: () => actions.regionalEdit(slot), disabled: !idle,
+        title: "圈出要改的位置，或涂抹蒙版，再描述修改要求；原图保留" },
+      {
+        label: "洗图（4K）",
+        onSelect: () => actions.wash([slot]),
+        disabled: !idle,
+        title: "整张重绘得更干净清晰，按 4K 输出；洗一次，按模型计费。建议在修脸、修手之后最后再洗",
       },
       {
         label: "换脸修正",
@@ -164,13 +189,13 @@ export function AlbumPage() {
           : (swapUnavailable ?? "用上传的原照替换两人的脸，本地处理、不产生费用"),
       },
       ...(isFaceSwapped(slot) ? [{ label: "对比原图", onSelect: () => setSourceCompare(slot) }] : []),
-      { label: `历史版本（${slot.version_count}）`, onSelect: () => setVersionsFor(slot), disabled: slot.version_count === 0 },
+      { label: `历史版本（${slot.version_count}）`, divider: true, onSelect: () => setVersionsFor(slot), disabled: slot.version_count === 0 },
       {
         label: "下载",
         onSelect: () => slot.current_version && download(slot.current_version.asset_id),
         disabled: !slot.current_version,
       },
-      { label: "删除", onSelect: () => actions.remove([slot]), danger: true, disabled: isGenerating(slot) },
+      { label: "删除", divider: true, onSelect: () => actions.remove([slot]), danger: true, disabled: isGenerating(slot) },
     ];
   };
 
@@ -264,46 +289,44 @@ export function AlbumPage() {
             取消全选
           </button>
           <span className="selection-spacer" />
-          <button className="btn btn-sm" onClick={() => runOnSelection("same")} disabled={chosenIdle.length === 0 || actions.busy}>
-            批量重生
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => runOnSelection("identity_boost")}
+          <SlotMenu
+            label="重新生成"
+            disabled={chosen.length === 0 || actions.busy}
+            items={[
+              { label: "按原设置重新生成", onSelect: () => runOnSelection("same"), disabled: chosenIdle.length === 0 },
+              {
+                label: `重试失败的${chosenFailed.length > 0 ? `（${chosenFailed.length}）` : ""}`,
+                title: "按原来的设置重新生成生成失败或中断的作品",
+                onSelect: async () => {
+                  if (await actions.retryFailed(chosenFailed)) exitSelecting();
+                },
+                disabled: chosenFailed.length === 0,
+              },
+              { label: "不像本人？加强长相", onSelect: () => runOnSelection("identity_boost"), disabled: chosenIdle.length === 0 },
+              { label: "换动作", onSelect: () => runOnSelection("change_pose"), disabled: chosenIdle.length === 0 },
+              { label: "换景别…", onSelect: () => runOnSelection("change_shot"), disabled: chosenIdle.length === 0 },
+            ]}
+          />
+          <SlotMenu
+            label="修图"
             disabled={chosenIdle.length === 0 || actions.busy}
-          >
-            加强长相
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => runOnSelection("change_pose")}
-            disabled={chosenIdle.length === 0 || actions.busy}
-          >
-            批量换动作
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => runOnSelection("change_shot")}
-            disabled={chosenIdle.length === 0 || actions.busy}
-          >
-            批量换景别
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={faceFixSelection}
-            disabled={chosenIdle.length === 0 || actions.busy}
-            title="每张修一次，按模型计费"
-          >
-            批量 AI 修脸
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={faceSwapSelection}
-            disabled={chosenIdle.length === 0 || actions.busy || !faceSwap?.available}
-            title={swapUnavailable ?? "本地处理、不产生费用"}
-          >
-            批量换脸修正
-          </button>
+            items={[
+              { label: "AI 修脸", title: "每张修一次，按模型计费", onSelect: faceFixSelection },
+              {
+                label: "洗图（4K）",
+                title: "整张重绘得更干净清晰，按 4K 输出；每张洗一次，按模型计费。建议在修脸、修手之后最后再洗",
+                onSelect: async () => {
+                  if (await actions.wash(idleSelection())) exitSelecting();
+                },
+              },
+              {
+                label: "换脸修正",
+                title: swapUnavailable ?? "本地处理、不产生费用",
+                onSelect: faceSwapSelection,
+                disabled: !faceSwap?.available,
+              },
+            ]}
+          />
           <button
             className="btn btn-sm"
             onClick={() => setComparing(true)}
@@ -462,8 +485,8 @@ function PhotoCard({
         )}
         {version && slot.is_stale && <span className="status-chip stale-chip">旧照片生成</span>}
         {version && isFaceSwapped(slot) && !selecting && (
-          <button className="status-chip swap-chip" onClick={onCompareSource} title="与修脸前的原图对比">
-            修脸 · 对比
+          <button className="status-chip swap-chip" onClick={onCompareSource} title={`与${fixLabel(slot)}前的原图对比`}>
+            {fixLabel(slot)} · 对比
           </button>
         )}
       </div>
@@ -546,7 +569,7 @@ function PhotoViewer({
         </button>
       )}
       <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-        <img src={assetUrl(version.asset_id)} alt={slot.pose_name ?? ""} />
+        <ZoomableImage key={version.id} src={assetUrl(version.asset_id)} alt={slot.pose_name ?? ""} />
         <div className="lightbox-bar">
           <span className="lightbox-caption">
             {[slot.style_name, slot.pose_name, `V${version.version_number}`, version.model, faceScoreText(version.face_scores)]

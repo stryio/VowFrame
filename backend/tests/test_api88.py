@@ -79,7 +79,7 @@ def test_openai_multipart_and_b64_response(config, images, model):
         assert request.extensions['timeout'] == dict.fromkeys(('connect', 'read', 'write', 'pool'), 600)
         parts = multipart_parts(request)
         fields = {name: value.decode() for name, filename, _, value in parts if filename is None}
-        assert fields == {'model': model, 'prompt': PROMPT, 'size': '1536x2048', 'quality': 'high', 'n': '1'}
+        assert fields == {'model': model, 'prompt': PROMPT, 'size': '1536x2048', 'quality': 'xhigh', 'n': '1'}
         assert [part for part in parts if part[1] is not None] == [
             ('image[]', 'bride.png', 'image/png', sent(images[0])),
             ('image[]', 'groom.jpg', 'image/jpeg', sent(images[1])),
@@ -103,7 +103,28 @@ def test_openai_dimensions_match_reference_script(config, images, aspect_ratio, 
     assert generator.generate_image(images, PROMPT, 'gpt-image-2', '3:4') == PNG
 
 
-@pytest.mark.parametrize('model', ['gemini-nano-banana-2.1'])
+def test_a_request_can_ask_for_its_own_resolution(config, images):
+    """A wash asks for 4K (V7.26) while every other request keeps the configured size."""
+    sizes = []
+
+    def handler(request):
+        if request.url.path.endswith('/images/edits'):
+            sizes.append({name: value.decode() for name, filename, _, value in multipart_parts(request) if filename is None}['size'])
+        else:
+            sizes.append(json.loads(request.content)['extra_body']['google']['image_config']['image_size'])
+        return image_response() if request.url.path.endswith('/images/edits') else httpx.Response(200, json={
+            'choices': [{'message': {'content': f'![图](data:image/png;base64,{base64.b64encode(PNG).decode()})'}}]})
+
+    generator = make_generator(replace(config, resolution='2K'), handler)
+    generator.generate_image(images, PROMPT, 'gpt-image-2', '3:4')
+    generator.generate_image(images, PROMPT, 'gpt-image-2', '3:4', resolution='4K')
+    generator.generate_image(images, PROMPT, 'gemini-nano-banana-2.1', '3:4', resolution='4K')
+    assert sizes == ['1536x2048', '2448x3264', '4K']
+    with pytest.raises(ValueError):
+        generator.generate_image(images, PROMPT, 'gpt-image-2', '3:4', resolution='8K')
+
+
+@pytest.mark.parametrize('model', ['gemini-nano-banana-2.1', 'gemini-3-pro-image'])
 def test_gemini_json_and_inline_markdown_response(config, images, model):
     def handler(request):
         assert request.method == 'POST'
@@ -352,7 +373,7 @@ def test_read_error_file_log_is_redacted_and_create_app_does_not_duplicate_handl
     with caplog.at_level(logging.DEBUG):
         with TestClient(second_app, backend_options={'use_uvloop': True}) as client:
             project = create_project(client)
-            batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+            batch = preview_batch(client, project['id'], style_ids=['city_story'])
             wait_batch(client, batch['id'], status='needs_attention')
             task = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
             assert task['error_code'] == 'unknown_outcome'
@@ -478,6 +499,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
         with TestClient(app, backend_options={'use_uvloop': True}) as client:
             # These tests count the shot's own requests; the automatic AI face fix (V7.1) would add one.
             app.state.db.set_auto_face_fix('off')
+            app.state.db.set_style_art_mode('off')  # nor the style art's three edits (V7.33)
             health = client.get('/api/health')
             assert health.json() == {
                 'ok': True, 'generator': '88api', 'model': 'gpt-image-2',
@@ -485,7 +507,7 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
             }
             assert TEST_KEY not in health.text
             project = create_project(client, role=role)
-            batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+            batch = preview_batch(client, project['id'], style_ids=['city_story'])
             wait_batch(client, batch['id'])
             looks = client.get(f"/api/projects/{project['id']}").json()['previews'][0]['look_ids']
             with app.state.db.connect() as conn:
@@ -494,18 +516,22 @@ def test_real_adapter_task_snapshot_health_and_logs_never_contain_key(config, ro
                     'generator': '88api', 'model': 'gpt-image-2', 'base_url': 'https://api.88api.ai',
                     'aspect_ratio': '3:4', 'resolution': '2K', 'provider': '88api',
                     # V5.0: the looks the sample was shot from and what each reference image is.
-                    'outfit': 'satin_mermaid',
+                    'outfit': 'city_halter_satin', 'room': {'area': 1, 'id': 'brick_street'},
                     'looks': {'version': STYLING_VERSION, 'bride': looks['bride'], 'groom': looks['groom']},
                     'reference_slots': [['bride', 'front'], ['groom', 'front']],
+                    # V7.41: the two looks are sent as one picture.
+                    'paired_looks': True,
+                    # V7.43: and two or more side looks as one more picture.
+                    'paired_sides': True,
                 }
                 assert TEST_KEY not in repr(dict(row))
                 expected = [project['person_a']['asset_id'], project['person_b']['asset_id']]
                 assert uploaded_ids(app, json.loads(row['reference_image_ids'])) == (expected if role == 'bride' else expected[::-1])
-                # The two looks come first (V5.0), each edit sending one photo; the shot sends the looks.
-                assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 1, 1, 2]
+                # The two looks come first (V5.0), each edit sending one photo; the shot sends the looks as one
+                # picture, side by side (V7.41).
+                assert [len([part for part in multipart_parts(call) if part[1] is not None]) for call in calls] == [1, 1, 1, 1, 1]
                 file_names = [part[1] for part in multipart_parts(calls[4]) if part[1] is not None]
-                ordered = json.loads(row['reference_image_ids'])
-                assert [name.split('.')[0] for name in file_names] == ordered
+                assert [name.split('.')[0] for name in file_names] == [f"{row['id']}-looks"]
             assert TEST_KEY not in client.get('/api/tasks').text
     assert len(calls) == 5
     assert TEST_KEY not in caplog.text
@@ -534,8 +560,9 @@ def test_adapter_outcomes_drive_existing_retry_policy(config, failure, expected,
     app = create_app(config, make_generator(config, handler), photo_preparer=PassthroughPhotoPreparer())
     with TestClient(app, backend_options={'use_uvloop': True}) as client:
         app.state.db.set_auto_face_fix('off')  # count only the shot's requests
+        app.state.db.set_style_art_mode('off')
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, batch['id'], status='completed' if expected == 'completed' else 'needs_attention')
         task = client.get('/api/tasks', params={'batch_id': batch['id']}).json()[0]
         assert task['status'] == expected

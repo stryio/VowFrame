@@ -12,7 +12,8 @@ from app.db import Database
 def test_director_user_prompt_lists_every_variant_matching_section_7_2():
     # cinematic_light is retired (V7.23), so its shooting direction no longer reaches the director.
     scene = director_scene_text('cinematic_light', single_variant=False)
-    assert _user_prompt('高级光影', scene, 8, _shot_requirement(8), ['海边踏浪回眸', '沙滩并肩漫步']) == (
+    facings = {'bride': ('front', 'left', 'right_full'), 'groom': ('front',)}
+    assert _user_prompt('高级光影', scene, 8, _shot_requirement(8), ['海边踏浪回眸', '沙滩并肩漫步'], facings) == (
         '风格：高级光影\n'
         '服装（摄影团队已确定）：新娘穿缎面婚纱，新郎穿黑色西装。妆容方向：有光泽的底妆，深棕色眼影，浓郁的玫瑰红唇，经得起强烈的明暗光。\n'
         '视觉语言（摄影团队已确定）：光和影是画面的主角：方向明确的光在墙面、地面和两人的衣服上形成清晰的明暗结构或投影图案，两人的面部处在光的亮处，均匀明亮、五官清晰；整组照片都在同一个空旷的室内空间里拍摄：白色的墙面、浅灰色的水泥地面，房间里几乎没有家具；背景简洁，颜色服务于光影；灯具等光源本身不出现在画面里。\n'
@@ -24,12 +25,15 @@ def test_director_user_prompt_lists_every_variant_matching_section_7_2():
         '5. 色彩墙侧光：房间里刷成雾蓝色的一面墙，一束侧光从画面一侧掠过墙面和水泥地面，形成由亮到暗的渐变。\n'
         '需要的镜头数量：8\n'
         '景别要求：' + _shot_requirement(8) + '\n'
-        '已拍过的镜头（不要重复）：海边踏浪回眸、沙滩并肩漫步\n\n'
+        '已拍过的镜头（不要重复）：海边踏浪回眸、沙滩并肩漫步\n'
+        '可用的面部朝向（面部清晰的镜头只能用这些）：新娘：front（正面）、left（朝左半侧脸）、right_full（朝右正侧面）；新郎：front（正面）\n\n'
         '请输出 JSON：{"moments": [{"title": "2～12 个汉字的标题", "scene": 所选场景的编号, "faces_clear": true | false, "shot_size": "wide | full | three_quarter | half | close", '
-        '"orientation": "portrait | landscape", "bride_facing": "front | left | right", "groom_facing": "front | left | right", "text": "镜头描述，最多 220 个字，以句号结尾"}]}\n'
+        '"orientation": "portrait | landscape", "bride_facing": "front | left | right | left_full | right_full", '
+        '"groom_facing": "front | left | right | left_full | right_full", "text": "镜头描述，最多 220 个字，以句号结尾"}]}\n'
         'scene 是数字，只有一个场景时填 1。faces_clear：两人面部清晰可见时为 true，背影、剪影、人物很小或被遮挡的氛围镜头为 false。shot_size 含义：wide 远景，full 全身，three_quarter 七分身，half 半身，close 近景。'
         'orientation 含义：portrait 竖版，landscape 横版。'
-        'facing 按画面所见判断，left 是脸朝画面左侧，right 是脸朝画面右侧；不是 front 时，text 里要写出「新娘的脸朝画面左侧」这样的一句，方向与 facing 一致。'
+        'facing 按画面所见判断，left/right 是脸朝画面左侧/右侧的半侧脸，left_full/right_full 是正侧面；'
+        'left/right 时 text 里写「新娘的脸朝画面左侧」这样的一句，left_full/right_full 时写「新娘的脸朝画面左侧，正侧面」，方向与 facing 一致。'
     )
 
 
@@ -110,7 +114,7 @@ def test_validation_requires_valid_facing_values():
 
 
 def test_validation_checks_forbidden_words():
-    invalid = Moment('墨镜', 'half', '新郎戴着墨镜看向镜头。', 'portrait')
+    invalid = Moment('口罩', 'half', '新郎戴着口罩看向镜头。', 'portrait')
     problems = validate_moment(invalid)
     assert any('禁用词' in problem for problem in problems)
 
@@ -142,10 +146,13 @@ def test_style_scene_text_has_no_lens_frame_or_separate_face_light_terms():
     assert all('照亮两人的面部' not in style['scene_prompt'] for style in STYLES)
 
 
-def test_draft_and_photo_batch_store_moments(app_factory):
+def test_draft_and_photo_batch_store_moments(app_factory, monkeypatch):
+    # V7.73: every style in use has sets; the scene variants are checked on one without them.
+    from app import rooms
+    monkeypatch.setitem(rooms.STYLE_ROOMS, 'city_story', ())
     with app_factory(concurrency=1) as (client, _app):
         project = create_project(client)
-        preview = preview_batch(client, project['id'], style_ids=['seaside_sunset'])
+        preview = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, preview['id'])
         slot = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts", json={
@@ -165,9 +172,9 @@ def test_draft_and_photo_batch_store_moments(app_factory):
         assert all(task['moment_title'] and task['moment_shot_size'] for task in tasks)
         assert all(task['prompt'].split('\n\n')[3].startswith('镜头：') for task in tasks)
         # Each shot carries the original text of the scene the director chose.
-        variants = next(style['variants'] for style in STYLES if style['id'] == 'seaside_sunset')
+        variants = next(style['variants'] for style in STYLES if style['id'] == 'city_story')
         scenes = [moment['scene'] for moment in draft.json()['moments']]
-        assert sorted(task['prompt'].split('\n\n')[2].split('场景：', 1)[1] for task in tasks) == \
+        assert sorted(task['prompt'].split('\n\n')[2].rsplit('场景：', 1)[1] for task in tasks) == \
             sorted(variants[scene - 1][1] for scene in scenes)
 
 
@@ -231,9 +238,12 @@ def test_change_shot_creates_director_version(app_factory):
 
 
 def test_system_prompt_matches_docs_and_no_longer_offers_detail_shots():
+    from app.prompts import LIGHTING_RULES
+
     doc = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
     assert re.search(r'### 7\.1 系统提示词\n\n```text\n(.*?)\n```', doc, re.S).group(1) == SYSTEM_PROMPT
     assert 'detail' not in SHOT_SIZES and '局部特写' not in SYSTEM_PROMPT
+    assert LIGHTING_RULES in SYSTEM_PROMPT
 
 
 def test_the_director_uses_the_styles_emotion_without_a_shared_smile_quota():

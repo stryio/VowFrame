@@ -8,7 +8,7 @@ from conftest import PNG, create_director_photo_batch, create_project, preview_b
 
 
 def ready_preview(client, project_id):
-    batch = preview_batch(client, project_id, style_ids=['dark_studio'])
+    batch = preview_batch(client, project_id, style_ids=['city_story'])
     wait_batch(client, batch['id'])
     return client.get(f'/api/projects/{project_id}').json()['previews'][0]
 
@@ -54,7 +54,7 @@ def test_twenty_photo_batch_uses_director_moments_and_photo_set_aggregation(clie
         )]
     assert len({task['moment_title'] for task in prompts}) == 20
     assert detail['photo_sets'] == [{
-        'style_id': 'dark_studio', 'style_name': '黑色影棚', 'slot_count': 20,
+        'style_id': 'city_story', 'style_name': '街拍故事', 'slot_count': 20,
         'completed_count': 20, 'batch_ids': [batch['id']],
     }]
 
@@ -67,14 +67,14 @@ def test_photo_sets_group_repeated_style_and_second_style(client_app):
     wait_batch(client, first['id'])
     second = create_director_photo_batch(client, project['id'], first_preview['id'], request_id='style-one-b').json()
     wait_batch(client, second['id'])
-    second_preview_batch = preview_batch(client, project['id'], request_id='second-style-preview', style_ids=['lakeside'])
+    second_preview_batch = preview_batch(client, project['id'], request_id='second-style-preview', style_ids=['forest_film'])
     wait_batch(client, second_preview_batch['id'])
-    french_preview = next(s for s in client.get(f"/api/projects/{project['id']}").json()['previews'] if s['style_id'] == 'lakeside')
+    french_preview = next(s for s in client.get(f"/api/projects/{project['id']}").json()['previews'] if s['style_id'] == 'forest_film')
     third = create_director_photo_batch(client, project['id'], french_preview['id'], request_id='style-two').json()
     wait_batch(client, third['id'])
     sets = client.get(f"/api/projects/{project['id']}").json()['photo_sets']
     assert [(item['style_id'], item['slot_count'], item['batch_ids']) for item in sets] == [
-        ('dark_studio', 8, [first['id'], second['id']]), ('lakeside', 4, [third['id']]),
+        ('city_story', 8, [first['id'], second['id']]), ('forest_film', 4, [third['id']]),
     ]
 
 
@@ -92,7 +92,7 @@ def test_photo_batch_reference_modes_stale_and_settings(client_app):
         assert refs[:2] == [preview['styled_asset_ids']['bride'], preview['styled_asset_ids']['groom']]
         assert uploaded_ids(app, refs[:2]) == [project['person_a']['asset_id'], project['person_b']['asset_id']]
         assert len(refs) == 3 and refs[2] == preview['current_version']['asset_id']
-        assert '第二张图是新郎的造型照。第三张图是风格参考，只参考它的场景、服装、光线和色调，不参考其中的人脸、长相和构图。' in row['prompt']
+        assert '第一张图是两人的造型照：左边是新娘，右边是新郎。第二张图是风格参考，只参考它的场景、服装、光线和色调，不参考其中的人脸、长相和构图。' in row['prompt']
     assert client.get(f"/api/projects/{project['id']}").json()['photos'][0]['is_stale'] is False
     client.post(f"/api/projects/{project['id']}/images", data={'person': 'a'}, files={'file': ('replacement.png', PNG)})
     assert client.get(f"/api/projects/{project['id']}").json()['photos'][0]['is_stale'] is True
@@ -121,11 +121,12 @@ def test_photo_batch_uses_side_references_per_moment_and_delete_keeps_asset(clie
     assert uploaded_ids(app, [refs[1][2], refs[2][2]]) == [side_ids['b'], side_ids['a']]
     assert refs[1][2] == refs[2][3]
     side_edits = [call for call in app.state.stylist.calls if '脸朝画面' in call[1]]
-    assert len(side_edits) == 2 and all(len(call[0]) == 2 for call in side_edits)
+    assert len(side_edits) == 2 and all(len(call[0]) == 1 for call in side_edits)
     assert [len(item) for item in refs] == [2, 3, 4, 2]
     # Mock shots: 回眸相依 has the groom facing left; 相视浅笑 has bride right, groom left.
-    assert '第二张图是新郎的造型照，第三张图是新郎脸朝画面左侧时的造型照。' in rows[1]['prompt']
-    assert '第三张图是新娘脸朝画面右侧时的造型照，第四张图是新郎脸朝画面左侧时的造型照。' in rows[2]['prompt']
+    assert '第一张图是两人的造型照：左边是新娘，右边是新郎，第二张图是新郎脸朝画面左侧时的造型照。' in rows[1]['prompt']
+    # V7.43: the two side looks are one picture.
+    assert '第二张图是两人的侧脸造型照：左边是新娘脸朝画面右侧时，右边是新郎脸朝画面左侧时。' in rows[2]['prompt']
     replacement = client.post(f"/api/projects/{project['id']}/images", data={'person': 'a', 'angle': 'right'},
                                files={'file': ('a-right-new.png', PNG, 'image/png')})
     assert replacement.status_code == 200

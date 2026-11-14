@@ -6,7 +6,7 @@ import json
 
 from app.db import Database
 from app.generator import GeneratorError
-from app.prompts import STYLING_VERSION
+from app.prompts import UPDO_STYLES, STYLING_VERSION
 from app.storage import asset_path
 from conftest import (PNG, BlockingGenerator, ScriptedGenerator, create_director_photo_batch, create_project, ensure_looks, ensure_makeup,
                       preview_batch, uploaded_ids, wait_batch, wait_until)
@@ -17,7 +17,7 @@ def detail(client, project_id):
     return client.get(f'/api/projects/{project_id}').json()
 
 
-def preview_slot(client, project_id, style_id='dark_studio'):
+def preview_slot(client, project_id, style_id='city_story'):
     return next(slot for slot in detail(client, project_id)['previews'] if slot['style_id'] == style_id)
 
 
@@ -67,7 +67,7 @@ def test_look_options_list_hairstyles_and_the_style_table(client_app):
         'low_bun', 'high_bun', 'french_bun', 'chinese_bun', 'finger_waves', 'slick_short'}
     assert len(options['makeup_colors']) == 8 and 'max_selected' not in options
     assert options['styles']['hanfu'] == {'primary': 'soft_pink', 'alternates': ['classic_red', 'rose_bean'], 'needs_updo': True}
-    assert options['styles']['dark_studio'] == {'primary': 'berry', 'alternates': ['milk_tea'], 'needs_updo': False}
+    assert options['styles']['city_story'] == {'primary': 'rose_bean', 'alternates': ['peach_coral'], 'needs_updo': False}
 
 
 def test_six_bride_and_four_groom_candidates_by_default_fitted_to_the_hair_length(client_app):
@@ -90,20 +90,20 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         assert [item['hairstyle_id'] for item in detail(client, project['id'])['default_look_items']['groom']] == ['keep']
         url = f"/api/projects/{project['id']}/looks"
         bad = (({'person': 'b', 'items': [{'hairstyle_id': 'side_part'}]}, 'invalid_hairstyle'),  # a buzz cut
-               ({'person': 'a', 'style_id': 'dark_studio', 'items': [{'hairstyle_id': 'side_part'}]}, 'invalid_hairstyle'),
+               ({'person': 'a', 'style_id': 'city_story', 'items': [{'hairstyle_id': 'side_part'}]}, 'invalid_hairstyle'),
                ({'person': 'a', 'items': [{'hairstyle_id': 'keep'}]}, 'invalid_style'),          # a bride look needs a style
                ({'person': 'a', 'style_id': 'nowhere', 'items': [{'hairstyle_id': 'keep'}]}, 'invalid_style'),
                ({'person': 'a', 'style_id': 'black_white', 'items': [{'hairstyle_id': 'keep'}]}, 'invalid_style'),  # retired
-               ({'person': 'b', 'style_id': 'dark_studio', 'items': [{'hairstyle_id': 'keep'}]}, 'invalid_style'))
+               ({'person': 'b', 'style_id': 'city_story', 'items': [{'hairstyle_id': 'keep'}]}, 'invalid_style'))
         for body, code in bad:
             response = client.post(url, json={'client_request_id': code + str(body), **body})
             assert response.status_code == 422 and response.json()['detail']['code'] == code, response.text
         # The makeup colour comes from the style, never from the request (V7.0).
-        response = client.post(url, json={'client_request_id': 'colour', 'person': 'a', 'style_id': 'dark_studio',
+        response = client.post(url, json={'client_request_id': 'colour', 'person': 'a', 'style_id': 'city_story',
                                           'items': [{'hairstyle_id': 'keep', 'makeup_color': 'berry'}]})
         assert response.status_code == 422
         ids = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'high_bun'}],
-                         style_id='dark_studio', select=False)
+                         style_id='city_story', select=False)
         calls = app.state.stylist.calls
         # V7.5: a bride look is makeup on the uploaded photo, then only the hair on that made-up photo; since V7.8
         # the style's looks share one selected makeup candidate, so two looks are one makeup and two hair edits.
@@ -113,7 +113,7 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         assert len(makeup_calls) == 1 and len(hair_calls) == 2
         assert all(call[0][0].stem == project['person_a']['asset_id'] for call in makeup_calls)
         makeup = makeup_calls[0][1]
-        assert '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' in makeup and '新娘妆色：眼影用玫瑰棕和灰紫棕' in makeup and '新娘妆面：底妆是细腻柔缎的质感' in makeup
+        assert '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' in makeup and '新娘妆色：眼影用玫瑰棕和藕粉色' in makeup and '新娘妆面：底妆通透柔缎' in makeup
         assert '发型：' not in makeup
         hair = next(call[1] for call in hair_calls if '发型：赫本高盘发，' in call[1])
         assert '不再上妆、不再提白' in hair and '新娘妆色' not in hair
@@ -122,8 +122,8 @@ def test_candidates_are_one_edit_each_of_the_uploaded_photo_with_the_project_set
         made_up = {looks[look_id]['makeup_asset_id'] for look_id in ids}
         assert len(made_up) == 1 and None not in made_up and {call[0][0].stem for call in hair_calls} == made_up
         assert uploaded_ids(app, list(made_up)) == [project['person_a']['asset_id']]
-        assert {looks[look_id]['style_id'] for look_id in ids} == {'dark_studio'}
-        assert looks[ids[1]]['makeup_level'] == 'refined' and looks[ids[1]]['makeup_color'] == 'berry'
+        assert {looks[look_id]['style_id'] for look_id in ids} == {'city_story'}
+        assert looks[ids[1]]['makeup_level'] == 'refined' and looks[ids[1]]['makeup_color'] == 'rose_bean'
         # Without scores the first one ready is picked for the style; the other waits.
         assert sorted(looks[look_id]['selected'] for look_id in ids) == [False, True]
         assert {looks[look_id]['selected_by'] for look_id in ids} == {None, 'auto'}
@@ -155,86 +155,86 @@ def test_each_style_uses_one_selected_bride_look_and_every_style_the_same_groom_
     with app_factory(generator=ScriptedGenerator()) as (client, _app):
         project = create_project(client)
         first, second = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'soft_waves'}],
-                                   style_id='dark_studio')
-        bun = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='chinese_traditional')[0]
+                                   style_id='city_story')
+        bun = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='flower_house')[0]
         grooms = make_looks(client, project['id'], 'b', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'textured'}])
         looks = detail(client, project['id'])['style_looks']
         # Selecting a look replaces the one its style used; other styles keep theirs.
-        assert looks['dark_studio'] == {'bride': second, 'groom': grooms[1]}
-        assert looks['chinese_traditional'] == {'bride': bun, 'groom': grooms[1]}
-        assert looks['lakeside'] == {'bride': None, 'groom': grooms[1]}
+        assert looks['city_story'] == {'bride': second, 'groom': grooms[1]}
+        assert looks['flower_house'] == {'bride': bun, 'groom': grooms[1]}
+        assert looks['forest_film'] == {'bride': None, 'groom': grooms[1]}
         state = {look['id']: look for look in detail(client, project['id'])['looks']}
         assert [state[look_id]['selected'] for look_id in (first, second, bun)] == [False, True, True]
         assert client.post(f'/api/looks/{first}/select').status_code == 200
-        assert detail(client, project['id'])['style_looks']['dark_studio']['bride'] == first
+        assert detail(client, project['id'])['style_looks']['city_story']['bride'] == first
         assert client.post(f'/api/looks/{first}/unselect').status_code == 200
-        assert detail(client, project['id'])['style_looks']['dark_studio']['bride'] is None
+        assert detail(client, project['id'])['style_looks']['city_story']['bride'] is None
         assert client.delete(f'/api/looks/{bun}').status_code == 204
         remaining = detail(client, project['id'])
-        assert bun not in [look['id'] for look in remaining['looks']] and remaining['style_looks']['chinese_traditional']['bride'] is None
+        assert bun not in [look['id'] for look in remaining['looks']] and remaining['style_looks']['flower_house']['bride'] is None
 
 
 def test_samples_use_the_styles_selected_looks(app_factory):
     with app_factory(generator=ScriptedGenerator()) as (client, app):
         project = create_project(client)
         url = f"/api/projects/{project['id']}/previews"
-        missing = client.post(url, json={'client_request_id': 'no-looks', 'style_ids': ['dark_studio']})
+        missing = client.post(url, json={'client_request_id': 'no-looks', 'style_ids': ['city_story']})
         assert missing.status_code == 409 and missing.json()['detail']['code'] == 'looks_required'
-        looks = ensure_looks(client, project['id'], ['dark_studio'])['style_looks']['dark_studio']
+        looks = ensure_looks(client, project['id'], ['city_story'])['style_looks']['city_story']
         # The groom's look serves every style, but the bride has none for this one yet.
-        response = client.post(url, json={'client_request_id': 'no-bride', 'style_ids': ['dark_studio', 'lakeside']})
-        assert response.status_code == 409 and '「湖畔洱海」还没有选用新娘的造型' in response.json()['detail']['message']
-        response = client.post(url, json={'client_request_id': 'ok', 'style_ids': ['dark_studio']})
+        response = client.post(url, json={'client_request_id': 'no-bride', 'style_ids': ['city_story', 'forest_film']})
+        assert response.status_code == 409 and '「森系胶片」还没有选用新娘的造型' in response.json()['detail']['message']
+        response = client.post(url, json={'client_request_id': 'ok', 'style_ids': ['city_story']})
         assert response.status_code == 201
         task = batch_tasks(client, response.json()['id'])[0]
         assert json.loads(task_row(app, task['id'])['model_config_snapshot'])['looks'] == {'version': STYLING_VERSION, **looks}
 
 
-def test_the_chinese_styles_need_the_bride_in_an_updo(app_factory):
+def test_the_chinese_styles_need_the_bride_in_an_updo(app_factory, monkeypatch):
+    # V7.73: no style in use needs an updo since 中式国风 was retired; the rule is checked on a style made to need one.
+    monkeypatch.setitem(UPDO_STYLES, 'flower_house', UPDO_STYLES['chinese_traditional'])
     with app_factory(generator=ScriptedGenerator()) as (client, _app):
         project = create_project(client)
         response = client.post(f"/api/projects/{project['id']}/looks", json={
-            'client_request_id': 'own', 'person': 'a', 'style_id': 'chinese_traditional', 'items': [{'hairstyle_id': 'keep'}]})
+            'client_request_id': 'own', 'person': 'a', 'style_id': 'flower_house', 'items': [{'hairstyle_id': 'keep'}]})
         assert response.status_code == 422 and response.json()['detail']['code'] == 'invalid_hairstyle'
         assert '需要盘发' in response.json()['detail']['message']
-        batch = preview_batch(client, project['id'], request_id='chinese-ok', style_ids=['chinese_traditional'])
+        batch = preview_batch(client, project['id'], request_id='chinese-ok', style_ids=['flower_house'])
         wait_batch(client, batch['id'])
-        prompt = batch_tasks(client, batch['id'])[0]['prompt']
-        assert '头饰：新娘在后脑别一枚小型金色花叶发梳' in prompt.split('\n\n')[2]
 
 
 def test_a_bride_with_short_hair_keeps_her_own_hair_in_the_chinese_styles(app_factory):
     with app_factory(generator=ScriptedGenerator()) as (client, _app):
         project = create_project(client)
         client.patch(f"/api/projects/{project['id']}", json={'bride_hair_length': 'short'})
-        own = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='chinese_traditional')[0]
-        assert detail(client, project['id'])['style_looks']['chinese_traditional']['bride'] == own
+        own = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='flower_house')[0]
+        assert detail(client, project['id'])['style_looks']['flower_house']['bride'] == own
 
 
 def test_the_bride_look_wears_the_styles_makeup_and_the_shot_copies_it(app_factory):
     with app_factory(generator=ScriptedGenerator()) as (client, app):
         project = create_project(client)
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
-        batch = preview_batch(client, project['id'], request_id='makeup', style_ids=['chinese_traditional'])
+        batch = preview_batch(client, project['id'], request_id='makeup', style_ids=['flower_house'])
         wait_batch(client, batch['id'])
         look = next(call[1] for call in app.state.stylist.calls if '新娘婚礼当天化好妆' in call[1])
-        assert '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' in look and '新娘妆色：眼影用暖棕、赤茶和浅金色' in look
+        assert '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' in look and '新娘妆色：眼影用蜜桃杏和暖橘棕' in look
         paragraphs = batch_tasks(client, batch['id'])[0]['prompt'].split('\n\n')
         assert '造型照就是两人婚礼当天化好妆、做好发型后的样子' in paragraphs[1] and '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆' not in paragraphs[1]
-        assert '新娘妆色：眼影用暖棕、赤茶和浅金色，腮红用暖粉和杏红色，唇色是正红或朱砂红。' in paragraphs[2]
+        assert '新娘妆色：眼影用蜜桃杏和暖橘棕，腮红用蜜桃粉和珊瑚橘，唇色是蜜桃珊瑚或杏橘色。' in paragraphs[2]
 
 
 def test_looks_from_before_v7_make_no_new_pictures(app_factory):
     with app_factory(generator=ScriptedGenerator()) as (client, app):
         project = create_project(client)
-        old = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='dark_studio')[0]
-        failed = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='dark_studio', select=False)[0]
+        old = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='city_story')[0]
+        failed = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='city_story', select=False)[0]
         with app.state.db.connect(write=True) as conn:
             conn.execute('UPDATE looks SET styling_version=? WHERE id IN (?,?)', (STYLING_VERSION - 1, old, failed))
             conn.execute("UPDATE looks SET status='failed' WHERE id=?", (failed,))
         look = next(item for item in detail(client, project['id'])['looks'] if item['id'] == old)
         assert not look['usable'] and '旧版本的造型' in look['unusable_reason']
-        assert detail(client, project['id'])['style_looks']['dark_studio']['bride'] is None
+        assert detail(client, project['id'])['style_looks']['city_story']['bride'] is None
         response = client.post(f'/api/looks/{failed}/retry')
         assert response.status_code == 409 and response.json()['detail']['code'] == 'look_unusable'
 
@@ -242,10 +242,10 @@ def test_looks_from_before_v7_make_no_new_pictures(app_factory):
 def test_photo_sets_and_slot_actions_keep_the_looks_of_their_sample(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
         sample = preview_slot(client, project['id'])
         # A newer look for the style does not change pictures that start from the sample.
-        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'soft_waves'}], style_id='dark_studio')
+        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'soft_waves'}], style_id='city_story')
         batch = create_director_photo_batch(client, project['id'], sample['id'], request_id='set')
         wait_batch(client, batch.json()['id'])
         images = [look_image(app, sample['look_ids']['bride']), look_image(app, sample['look_ids']['groom'])]
@@ -262,7 +262,7 @@ def test_photo_sets_and_slot_actions_keep_the_looks_of_their_sample(app_factory)
 def test_pictures_from_the_old_flow_cannot_start_new_shots(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, batch['id'])
         task = batch_tasks(client, batch['id'])[0]
         with app.state.db.connect(write=True) as conn:
@@ -280,12 +280,12 @@ def test_pictures_from_the_old_flow_cannot_start_new_shots(app_factory):
 def test_looks_of_a_replaced_photo_or_after_swapping_roles_make_no_new_pictures(app_factory):
     with app_factory(generator=ScriptedGenerator()) as (client, _app):
         project = create_project(client)
-        looks = ensure_looks(client, project['id'], ['dark_studio'])['style_looks']['dark_studio']
+        looks = ensure_looks(client, project['id'], ['city_story'])['style_looks']['city_story']
         client.post(f"/api/projects/{project['id']}/images", data={'person': 'a'}, files={'file': ('new.png', PNG, 'image/png')})
         state = {look['id']: look for look in detail(client, project['id'])['looks']}
         assert not state[looks['bride']]['usable'] and state[looks['bride']]['unusable_reason'].startswith('这个人的照片已经更换')
         assert state[looks['groom']]['usable']
-        assert detail(client, project['id'])['style_looks']['dark_studio'] == {'bride': None, 'groom': looks['groom']}
+        assert detail(client, project['id'])['style_looks']['city_story'] == {'bride': None, 'groom': looks['groom']}
         assert client.post(f"/api/looks/{looks['bride']}/select").status_code == 409
         client.patch(f"/api/projects/{project['id']}", json={'person_a_role': 'groom'})
         state = {look['id']: look for look in detail(client, project['id'])['looks']}
@@ -346,23 +346,79 @@ def test_side_looks_are_made_once_from_the_side_photo_and_the_front_look(app_fac
         for person, angle in (('a', 'right'), ('b', 'left')):
             client.post(f"/api/projects/{project['id']}/images", data={'person': person, 'angle': angle},
                         files={'file': (f'{person}-{angle}.png', PNG, 'image/png')})
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
         sample = preview_slot(client, project['id'])
         batch = create_director_photo_batch(client, project['id'], sample['id'], request_id='set')
         wait_batch(client, batch.json()['id'])
         side_edits = [call for call in app.state.stylist.calls if '脸朝画面' in call[1]]
         # Mock shots: the groom faces left in two shots, the bride right in one: two side looks, each edited once.
         assert len(side_edits) == 2
-        groom_front = look_image(app, sample['look_ids']['groom'])
+        # V7.46: only the side photo is sent; the front look's picture is not, its styling is in the words.
+        groom_side = detail(client, project['id'])['person_b']['left_asset_id']
         with app.state.db.connect() as conn:
-            groom_front_path = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (groom_front,)).fetchone()[0]
+            groom_side_path = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (groom_side,)).fetchone()[0]
         groom_edit = next(call for call in side_edits if '新郎脸朝画面左侧' in call[1])
-        assert groom_edit[0][1].as_posix().endswith(groom_front_path)
+        assert len(groom_edit[0]) == 1 and groom_edit[0][0].as_posix().endswith(groom_side_path)
+        assert '第二张图' not in groom_edit[1]
         with app.state.db.connect() as conn:
             sides = conn.execute("SELECT parent_look_id,angle FROM looks WHERE angle<>'front' ORDER BY angle").fetchall()
         assert [tuple(row) for row in sides] == [(sample['look_ids']['groom'], 'left'), (sample['look_ids']['bride'], 'right')]
         # Side looks never show up as candidates.
         assert len(detail(client, project['id'])['looks']) == 2
+
+
+class SideLikenessSwapper(ScriptedFaceSwapper):
+    """Scores each picture against the photo it is compared with, so a test can check which photo that was."""
+
+    def score(self, items):
+        self.scored.extend(items)
+        return [{'groom': 0.67} for _ in items]
+
+
+def test_a_side_look_shows_its_likeness_to_the_side_photo_and_is_not_made_again(app_factory):
+    """V7.45: the score is shown for the user to decide on; a low one does not make a second paid edit."""
+    swapper = SideLikenessSwapper()
+    with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, concurrency=1) as (client, app):
+        project = create_project(client)
+        client.post(f"/api/projects/{project['id']}/images", data={'person': 'b', 'angle': 'left'},
+                    files={'file': ('b-left.png', PNG, 'image/png')})
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
+        sample = preview_slot(client, project['id'])
+        wait_batch(client, create_director_photo_batch(client, project['id'], sample['id'], request_id='set').json()['id'])
+        assert sum('脸朝画面' in call[1] for call in app.state.stylist.calls) == 1
+        side = wait_until(lambda: detail(client, project['id'])['side_looks'][0], lambda side: side['face_score'] is not None)
+        assert side['face_score'] == 0.67
+        with app.state.db.connect() as conn:
+            side_photo = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (side['source_asset_id'],)).fetchone()[0]
+            side_image = conn.execute('SELECT file_path FROM image_assets WHERE id=?', (side['asset_id'],)).fetchone()[0]
+        item = next(item for item in swapper.scored if item.target.as_posix().endswith(side_image))
+        assert item.groom.as_posix().endswith(side_photo)
+
+
+def test_side_looks_are_shown_and_a_deleted_one_is_made_again_by_the_next_shot(app_factory):
+    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
+        project = create_project(client)
+        client.post(f"/api/projects/{project['id']}/images", data={'person': 'b', 'angle': 'left'},
+                    files={'file': ('b-left.png', PNG, 'image/png')})
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
+        sample = preview_slot(client, project['id'])
+        wait_batch(client, create_director_photo_batch(client, project['id'], sample['id'], request_id='first').json()['id'])
+        project = detail(client, project['id'])
+        [side] = project['side_looks']
+        assert (side['parent_look_id'], side['role'], side['angle']) == (sample['look_ids']['groom'], 'groom', 'left')
+        assert side['source_asset_id'] == project['person_b']['left_asset_id']
+
+        assert client.delete(f"/api/side-looks/{side['id']}").status_code == 204
+        assert detail(client, project['id'])['side_looks'] == []
+        assert client.delete(f"/api/side-looks/{side['id']}").status_code == 404
+        # Front looks are not deleted here.
+        assert client.delete(f"/api/side-looks/{sample['look_ids']['groom']}").status_code == 404
+
+        edits = len(app.state.stylist.calls)
+        wait_batch(client, create_director_photo_batch(client, project['id'], sample['id'], request_id='second').json()['id'])
+        assert len([call for call in app.state.stylist.calls[edits:] if '脸朝画面' in call[1]]) == 1
+        [again] = detail(client, project['id'])['side_looks']
+        assert again['id'] != side['id'] and again['parent_look_id'] == side['parent_look_id']
 
 
 def test_a_failed_side_look_holds_the_set_and_a_retry_reuses_the_rest(app_factory):
@@ -373,7 +429,7 @@ def test_a_failed_side_look_holds_the_set_and_a_retry_reuses_the_rest(app_factor
         for person, angle in (('a', 'right'), ('b', 'left')):
             client.post(f"/api/projects/{project['id']}/images", data={'person': person, 'angle': angle},
                         files={'file': (f'{person}-{angle}.png', PNG, 'image/png')})
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
         batch = create_director_photo_batch(client, project['id'], preview_slot(client, project['id'])['id'], request_id='set')
         batch_id = batch.json()['id']
         wait_batch(client, batch_id, status='held')
@@ -383,7 +439,7 @@ def test_a_failed_side_look_holds_the_set_and_a_retry_reuses_the_rest(app_factor
         assert client.post(f'/api/batches/{batch_id}/continue').status_code == 200
         wait_batch(client, batch_id)
         side_edits = [call for call in stylist.calls[4:] if '脸朝画面' in call[1]]
-        assert len(stylist.calls) == 7 and len(side_edits) == 3 and all(len(call[0]) == 2 for call in side_edits)
+        assert len(stylist.calls) == 7 and len(side_edits) == 3 and all(len(call[0]) == 1 for call in side_edits)
 
 
 def test_a_side_look_whose_file_is_gone_is_edited_again(app_factory):
@@ -391,7 +447,7 @@ def test_a_side_look_whose_file_is_gone_is_edited_again(app_factory):
         project = create_project(client)
         client.post(f"/api/projects/{project['id']}/images", data={'person': 'b', 'angle': 'left'},
                     files={'file': ('b-left.png', PNG, 'image/png')})
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
         sample = preview_slot(client, project['id'])
         wait_batch(client, create_director_photo_batch(client, project['id'], sample['id'], request_id='first').json()['id'])
         with app.state.db.connect() as conn:
@@ -408,7 +464,7 @@ def test_face_swaps_use_the_looks_of_the_picture_they_fix(app_factory):
     swapper = ScriptedFaceSwapper()
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, auto_face_fix='facefusion', concurrency=1) as (client, app):
         project = create_project(client)
-        wait_batch(client, preview_batch(client, project['id'], style_ids=['dark_studio'])['id'])
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
         sample = preview_slot(client, project['id'])
         with app.state.db.connect() as conn:
             paths = {row['id']: row['file_path'] for row in conn.execute('SELECT id,file_path FROM image_assets')}
@@ -416,7 +472,7 @@ def test_face_swaps_use_the_looks_of_the_picture_they_fix(app_factory):
         bride, groom = swapper.calls[0][0], swapper.calls[0][1]
         assert bride.front.as_posix().endswith(paths[bride_image]) and groom.front.as_posix().endswith(paths[groom_image])
         # A newer look for the style does not change a manual swap of the old picture.
-        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'soft_waves'}], style_id='dark_studio')
+        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'soft_waves'}], style_id='city_story')
         swap = client.post(f"/api/slots/{sample['id']}/face-swap", json={'client_request_id': 'manual'})
         wait_batch(client, swap.json()['id'])
         assert swapper.calls[-1][0].front.as_posix().endswith(paths[bride_image])
@@ -426,7 +482,7 @@ def test_candidates_show_their_likeness_to_the_uploaded_photo(app_factory):
     swapper = ScriptedFaceSwapper()
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper) as (client, _app):
         project = create_project(client)
-        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='dark_studio', select=False)
+        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}], style_id='city_story', select=False)
         make_looks(client, project['id'], 'b', [{'hairstyle_id': 'keep'}], select=False)
         looks = wait_until(lambda: detail(client, project['id'])['looks'], lambda looks: all(look['face_score'] is not None for look in looks))
         # The scripted scorer gives the bride 0.55 and the groom 0.61; each look keeps its own person's score.
@@ -448,7 +504,7 @@ def test_candidates_show_their_likeness_to_the_uploaded_photo(app_factory):
 def test_a_v4_task_without_its_styled_photos_is_retired(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, batch['id'])
         task = batch_tasks(client, batch['id'])[0]
         uploads = [project['person_a']['asset_id'], project['person_b']['asset_id']]
@@ -469,7 +525,7 @@ def test_pictures_from_before_styled_photos_replay_and_swap_with_the_uploaded_ph
     swapper = ScriptedFaceSwapper()
     with app_factory(generator=ScriptedGenerator(), face_swapper=swapper, concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, batch['id'])
         task = batch_tasks(client, batch['id'])[0]
         uploads = [project['person_a']['asset_id'], project['person_b']['asset_id']]
@@ -545,7 +601,7 @@ def test_the_most_similar_look_is_picked_unless_the_user_picked_one(app_factory)
     with app_factory(generator=ScriptedGenerator()) as (client, app):
         project = create_project(client)
         first, second = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'keep'}, {'hairstyle_id': 'low_bun'}],
-                                   style_id='dark_studio', select=False)
+                                   style_id='city_story', select=False)
 
         def state():
             looks = {look['id']: look for look in detail(client, project['id'])['looks']}
@@ -575,7 +631,7 @@ def test_a_refined_groom_look_is_not_picked_by_its_score(app_factory):
 
         def pick(level):
             with app.state.db.connect(write=True) as conn:
-                conn.execute('UPDATE looks SET selected_order=NULL,selected_by=NULL,makeup_level=?,makeup_id=NULL WHERE id IN (?,?)',
+                conn.execute('UPDATE looks SET selected_order=NULL,selected_by=NULL,makeup_level=?,makeup_id=NULL,retouch_settings=NULL WHERE id IN (?,?)',
                              (level, first, second))
                 conn.execute("UPDATE looks SET selected_order=1,selected_by='auto' WHERE id=?", (first,))
                 conn.execute('UPDATE looks SET face_score=? WHERE id=?', (0.41, first))
@@ -592,7 +648,7 @@ def test_a_failed_hair_edit_is_retried_from_the_saved_made_up_photo(app_factory)
     stylist = ScriptedGenerator([None, GeneratorError('rejected')])
     with app_factory(generator=ScriptedGenerator(), stylist=stylist, concurrency=1) as (client, _app):
         project = create_project(client)
-        look_id = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='dark_studio', select=False)[0]
+        look_id = make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='city_story', select=False)[0]
         look = next(look for look in detail(client, project['id'])['looks'] if look['id'] == look_id)
         assert look['status'] == 'failed' and look['makeup_asset_id']
         assert client.post(f'/api/looks/{look_id}/retry').status_code == 200
@@ -600,3 +656,88 @@ def test_a_failed_hair_edit_is_retried_from_the_saved_made_up_photo(app_factory)
         # Makeup, the refused hair edit, and the hair edit again: the makeup is not paid for twice.
         assert len(stylist.calls) == 3 and '这一步只改头发' in stylist.calls[2][1]
         assert stylist.calls[2][0][0].stem == look['makeup_asset_id']
+
+
+def test_side_looks_are_made_in_the_look_step_and_shots_use_them(app_factory):
+    stylist = ScriptedGenerator()
+    with app_factory(generator=ScriptedGenerator(), stylist=stylist, concurrency=1) as (client, app):
+        project = create_project(client)
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
+        sample = preview_slot(client, project['id'])
+        groom_look = sample['look_ids']['groom']
+        # No side photo yet: nothing to make.
+        assert client.post(f'/api/looks/{groom_look}/side-looks').json()['detail']['code'] == 'side_photos_missing'
+        for angle in ('left', 'right'):
+            client.post(f"/api/projects/{project['id']}/images", data={'person': 'b', 'angle': angle},
+                        files={'file': (f'b-{angle}.png', PNG, 'image/png')})
+        edits = len(stylist.calls)
+        response = client.post(f'/api/looks/{groom_look}/side-looks')
+        assert response.status_code == 201, response.text
+        assert sorted(side['angle'] for side in response.json()) == ['left', 'right']
+        sides = wait_until(lambda: detail(client, project['id'])['side_looks'],
+                           lambda sides: len(sides) == 2 and all(side['status'] == 'ready' for side in sides))
+        made = stylist.calls[edits:]
+        # One edit per side photo: the side photo and the groom's front look, with the side-look prompt.
+        assert len(made) == 2 and all(len(call[0]) == 1 and '新郎脸朝画面' in call[1] for call in made)
+        # Asking again makes nothing new.
+        client.post(f'/api/looks/{groom_look}/side-looks')
+        assert len(stylist.calls) == edits + 2
+
+        # A set uses them: no side edit while shooting.
+        wait_batch(client, create_director_photo_batch(client, project['id'], sample['id'], request_id='set').json()['id'])
+        assert len([call for call in stylist.calls[edits + 2:] if '脸朝画面' in call[1]]) == 0
+        ready = {side['asset_id'] for side in sides}
+        with app.state.db.connect() as conn:
+            used = {asset for (refs,) in conn.execute("SELECT reference_image_ids FROM generation_tasks WHERE moment_title IS NOT NULL")
+                    for asset in json.loads(refs)}
+        assert ready & used
+
+        # Deleting one and asking again makes that one again.
+        left = next(side for side in sides if side['angle'] == 'left')
+        assert client.delete(f"/api/side-looks/{left['id']}").status_code == 204
+        client.post(f'/api/looks/{groom_look}/side-looks')
+        wait_until(lambda: detail(client, project['id'])['side_looks'],
+                   lambda sides: len(sides) == 2 and all(side['status'] == 'ready' for side in sides))
+        assert len(stylist.calls) == edits + 2 + 1
+
+
+def test_a_failed_side_look_shows_and_is_made_again_on_request(app_factory):
+    stylist = ScriptedGenerator([None, None, None, None, GeneratorError('rejected')])
+    with app_factory(generator=ScriptedGenerator(), stylist=stylist, concurrency=1) as (client, _app):
+        project = create_project(client)
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
+        groom_look = preview_slot(client, project['id'])['look_ids']['groom']
+        client.post(f"/api/projects/{project['id']}/images", data={'person': 'b', 'angle': 'left'},
+                    files={'file': ('b-left.png', PNG, 'image/png')})
+        assert len(stylist.calls) == 4  # two looks, two edits each
+        client.post(f'/api/looks/{groom_look}/side-looks')
+        [failed] = wait_until(lambda: detail(client, project['id'])['side_looks'],
+                              lambda sides: len(sides) == 1 and sides[0]['status'] == 'failed')
+        assert failed['asset_id'] is None and failed['error_message']
+        client.post(f'/api/looks/{groom_look}/side-looks')
+        [ready] = wait_until(lambda: detail(client, project['id'])['side_looks'],
+                             lambda sides: len(sides) == 1 and sides[0]['status'] == 'ready')
+        assert ready['id'] != failed['id']
+
+
+def test_identity_boost_of_a_side_shot_keeps_its_side_reference(app_factory):
+    with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
+        project = create_project(client)
+        client.post(f"/api/projects/{project['id']}/images", data={'person': 'b', 'angle': 'left'},
+                    files={'file': ('b-left.png', PNG, 'image/png')})
+        wait_batch(client, preview_batch(client, project['id'], style_ids=['city_story'])['id'])
+        sample = preview_slot(client, project['id'])
+        wait_batch(client, create_director_photo_batch(client, project['id'], sample['id'], request_id='set').json()['id'])
+        with app.state.db.connect() as conn:
+            shot = conn.execute("SELECT * FROM generation_tasks WHERE moment_title IS NOT NULL AND model_config_snapshot LIKE '%\"left\"%' "
+                                'ORDER BY created_at LIMIT 1').fetchone()
+        slot_id = shot['target_slot_id']
+        boost = client.post(f'/api/slots/{slot_id}/regenerate', json={'client_request_id': 'boost', 'mode': 'identity_boost'})
+        assert boost.status_code == 201, boost.text
+        wait_batch(client, boost.json()['id'])
+        task = batch_tasks(client, boost.json()['id'])[0]
+        with app.state.db.connect() as conn:
+            row = conn.execute('SELECT reference_image_ids,model_config_snapshot FROM generation_tasks WHERE id=?', (task['id'],)).fetchone()
+        assert ['groom', 'left'] in json.loads(row['model_config_snapshot'])['reference_slots']
+        assert len(json.loads(row['reference_image_ids'])) == len(json.loads(shot['reference_image_ids']))
+        assert '新郎' in task['prompt'] and '左' in task['prompt'].split('\n\n')[1]

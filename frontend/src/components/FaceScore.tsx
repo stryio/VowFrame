@@ -1,6 +1,6 @@
 import type { FaceScores } from "../api";
 
-const HINT = "与上传正脸照的人脸相似度（FaceFusion 人脸识别），越接近 1 越像；未识别表示画面里没找到这个人的脸";
+const HINT = "与这张图所用造型照的人脸相似度（FaceFusion 人脸识别），越接近 1 越像造型照；造型和本人像不像，看造型卡片上的相似度。未识别表示画面里没找到这个人的脸";
 
 const value = (score: number | null) => (score === null ? "未识别" : score.toFixed(2));
 

@@ -36,7 +36,8 @@ REFERENCE_IMAGES = dict(zip(REFERENCE_STYLE_IDS, (
     '3cca0605c884752fa4cf8902c08cee49.jpg', '5a1928dc061fa4d64cf26935c8a9a13b.jpg',
     '37facae60fdacf3fc6081107f82408a3.jpg', '272df287c3825e7417dcbb9f6e02e483.jpg',
     '2977ceb20dfefae08457128d62c011ab.jpg', 'd1a065aa27b6edf946388cb0dd745994.jpg',
-    'b82a174e117cab7c4d1db8636db9d024.jpg',
+    'b82a174e117cab7c4d1db8636db9d024.jpg', '参考照/森系草坪/0f0fb467abed8d6f77c2b75d20b31ca9.jpg',
+    '参考照/花房/7010f2ceacc138665ed3e567ae743bf8.jpg',
 ), strict=True))
 
 

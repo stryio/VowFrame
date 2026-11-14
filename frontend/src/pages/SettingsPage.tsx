@@ -1,22 +1,48 @@
 import { useEffect, useState } from "react";
 import {
   api,
-  type AutoFaceFix,
+  type FaceFixMethod,
   type BatchReferenceMode,
   type Health,
   type ImageProvider,
   type ImageProviderId,
   type Model,
   type PortraitRatio,
+  type Settings,
+  type StageChoice,
+  type StageKind,
 } from "../api";
 import { EmptyState, useToast } from "../components/feedback";
+import { StyleArtPanel } from "../components/StyleArtPanel";
 
-const AUTO_FACE_FIX_OPTIONS: [AutoFaceFix, string][] = [
-  ["split", "新娘 AI 修脸 + 新郎 FaceFusion"],
-  ["ai", "两人都 AI 修脸"],
-  ["facefusion", "两人都 FaceFusion 换脸"],
+// V7.29: each person on their own.
+const FACE_FIX_METHODS: [FaceFixMethod, string][] = [
+  ["ai", "AI 修脸"],
+  ["facefusion", "FaceFusion 换脸"],
   ["off", "不修"],
 ];
+const methodName = (method: FaceFixMethod) => FACE_FIX_METHODS.find(([value]) => value === method)?.[1] ?? method;
+
+// 2026-11-13: every step that makes or edits pictures can use its own service and model; "" in a select follows the
+// image service or the default model. The backend drops a model the newly chosen service does not offer.
+const STAGES: { kind: StageKind; label: string; hint: string }[] = [
+  { kind: "makeup", label: "妆容模型", hint: "新娘每个风格的妆容和新郎的修脸照都用它。" },
+  { kind: "look", label: "造型模型", hint: "发型造型，以及拍摄时按需生成的侧面造型都用它。" },
+  { kind: "style_art", label: "服饰场景图模型", hint: "每个风格的服饰场景图（服饰灰底图、空景和合成，一次三张）都用它。" },
+  { kind: "face", label: "AI 修脸模型", hint: "生成后的自动 AI 修脸和照片菜单里的「AI 修脸」都用它；只修脸，按配置的尺寸输出。" },
+  { kind: "face_fix", label: "修手模型", hint: "照片菜单里单独的「修手」用它。" },
+  { kind: "wash", label: "洗图模型", hint: "照片菜单里的「洗图（4K）」用它，按 4K 输出；火山方舟 Seedream 最高 2K，不能用来洗图。" },
+  { kind: "regional", label: "局部编辑默认模型", hint: "打开局部编辑时预选它，弹窗里仍可临时换；只列出能做局部编辑的模型。" },
+];
+const PROVIDER_IDS: ImageProviderId[] = ["88api", "pptoken", "ark"];
+
+const stagesOf = (settings: Settings) =>
+  Object.fromEntries(
+    STAGES.map(({ kind }) => [
+      kind,
+      { model: settings[`${kind}_model` as `${StageKind}_model`], provider: settings[`${kind}_provider` as `${StageKind}_provider`] },
+    ]),
+  ) as Record<StageKind, StageChoice>;
 
 export function SettingsPage() {
   const toast = useToast();
@@ -26,9 +52,14 @@ export function SettingsPage() {
   const [provider, setProvider] = useState<ImageProviderId>("88api");
   const [providers, setProviders] = useState<ImageProvider[]>([]);
   const [referenceMode, setReferenceMode] = useState<BatchReferenceMode>("prompt_only");
+  const [styleArtMode, setStyleArtMode] = useState<"on" | "off">("on");
   const [portraitRatio, setPortraitRatio] = useState<PortraitRatio>("3:4");
-  const [autoFaceFix, setAutoFaceFix] = useState<AutoFaceFix>("split");
-  const [faceFixModel, setFaceFixModel] = useState<string | null>(null);
+  const [autoFaceFix, setAutoFaceFix] = useState<Record<"bride" | "groom", FaceFixMethod>>({ bride: "ai", groom: "facefusion" });
+  // Each step's own service and model (V7.27, 2026-11-13); null follows `provider` / the default model.
+  const [stages, setStages] = useState<Partial<Record<StageKind, StageChoice>>>({});
+  const [modelsByProvider, setModelsByProvider] = useState<Partial<Record<ImageProviderId, Model[]>>>({});
+  // The models each service offers for regional edits, for the regional edit's own choice.
+  const [regionalByProvider, setRegionalByProvider] = useState<Partial<Record<ImageProviderId, Model[]>>>({});
   const [directorModel, setDirectorModel] = useState("");
   const [directorProvider, setDirectorProvider] = useState<ImageProviderId>("88api");
   const [directorProviders, setDirectorProviders] = useState<ImageProvider[]>([]);
@@ -37,17 +68,26 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.health(), api.models(), api.settings()])
-      .then(([h, list, settings]) => {
+    Promise.all([
+      api.health(),
+      api.models(),
+      api.settings(),
+      Promise.all(PROVIDER_IDS.map((id) => api.models(id))),
+      Promise.all(PROVIDER_IDS.map((id) => api.regionalEditModels(id))),
+    ])
+      .then(([h, list, settings, lists, regionalLists]) => {
+        setModelsByProvider(Object.fromEntries(PROVIDER_IDS.map((id, index) => [id, lists[index]])));
+        setRegionalByProvider(Object.fromEntries(PROVIDER_IDS.map((id, index) => [id, regionalLists[index]])));
+        setStages(stagesOf(settings));
         setHealth(h);
         setModels(list);
         setDefaultModel(settings.default_model);
         setProvider(settings.image_provider);
         setProviders(settings.image_providers);
         setReferenceMode(settings.batch_reference_mode);
+        setStyleArtMode(settings.style_art_mode);
         setPortraitRatio(settings.portrait_ratio);
-        setAutoFaceFix(settings.auto_face_fix);
-        setFaceFixModel(settings.face_fix_model);
+        setAutoFaceFix({ bride: settings.auto_face_fix_bride, groom: settings.auto_face_fix_groom });
         setDirectorModel(settings.director_model ?? "");
         setDirectorProvider(settings.director_provider);
         setDirectorProviders(settings.director_providers);
@@ -85,11 +125,14 @@ export function SettingsPage() {
       } else {
         toast.info(`已切换到 ${providers.find((item) => item.id === id)?.name}，新建的任务将发给它`);
       }
-      if (faceFixModel && saved.face_fix_model === null) {
-        toast.info("新服务不提供原来的修脸模型，AI 修脸改为跟随默认模型");
+      const next = stagesOf(saved);
+      for (const { kind, label } of STAGES) {
+        if (stages[kind]?.model && next[kind].model === null) {
+          toast.info(`新服务不提供原来的${label}，改为跟随默认模型`);
+        }
       }
       setDefaultModel(saved.default_model);
-      setFaceFixModel(saved.face_fix_model);
+      setStages(next);
       setHealth((h) => (h ? { ...h, model: saved.default_model } : h));
     } catch (err) {
       toast.error(err);
@@ -98,17 +141,27 @@ export function SettingsPage() {
     }
   };
 
-  // "" in the select means: follow the default model.
-  const changeFaceFixModel = async (id: string) => {
-    const previous = faceFixModel;
-    setFaceFixModel(id || null);
+  // V7.27, 2026-11-13: the service or the model of one step.
+  const changeStage = async (kind: StageKind, label: string, patch: Partial<Settings>) => {
+    const providerKey = `${kind}_provider` as `${StageKind}_provider`;
     setSaving(true);
     try {
-      const saved = await api.updateSettings({ face_fix_model: id || null });
-      setFaceFixModel(saved.face_fix_model);
-      toast.info(saved.face_fix_model ? `AI 修脸将使用 ${saved.face_fix_model}` : "AI 修脸改为跟随默认模型");
+      const saved = await api.updateSettings(patch);
+      const before = stages[kind]?.model;
+      const next = stagesOf(saved);
+      const after = next[kind].model;
+      setStages(next);
+      const service = providers.find((item) => item.id === (patch[providerKey] ?? saved.image_provider))?.name;
+      if (providerKey in patch) {
+        toast.info(
+          `${label}改为${patch[providerKey] ? `使用 ${service}` : `跟随生图服务（${service}）`}` +
+            (before && after === null ? "；它不提供原来的模型，改为跟随默认模型" : ""),
+        );
+      } else {
+        const name = allModels.find((m) => m?.id === after)?.name ?? after;
+        toast.info(after ? `${label}改为 ${name}` : `${label}改为跟随默认模型`);
+      }
     } catch (err) {
-      setFaceFixModel(previous);
       toast.error(err);
     } finally {
       setSaving(false);
@@ -131,14 +184,32 @@ export function SettingsPage() {
     }
   };
 
-  const changeAutoFaceFix = async (mode: AutoFaceFix) => {
-    const previous = autoFaceFix;
-    setAutoFaceFix(mode);
+  const changeStyleArtMode = async (mode: "on" | "off") => {
+    const previous = styleArtMode;
+    setStyleArtMode(mode);
     setSaving(true);
     try {
-      const saved = await api.updateSettings({ auto_face_fix: mode });
-      setAutoFaceFix(saved.auto_face_fix);
-      toast.info(`之后生成的照片：${AUTO_FACE_FIX_OPTIONS.find(([value]) => value === saved.auto_face_fix)?.[1]}`);
+      const saved = await api.updateSettings({ style_art_mode: mode });
+      setStyleArtMode(saved.style_art_mode);
+      toast.info(mode === "on" ? "之后新拍的照片将参照服饰场景图" : "之后新拍的照片改回用文字描述服饰和场景");
+    } catch (err) {
+      setStyleArtMode(previous);
+      toast.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeAutoFaceFix = async (role: "bride" | "groom", method: FaceFixMethod) => {
+    const previous = autoFaceFix;
+    setAutoFaceFix({ ...autoFaceFix, [role]: method });
+    setSaving(true);
+    try {
+      const saved = await api.updateSettings({ [`auto_face_fix_${role}`]: method });
+      setAutoFaceFix({ bride: saved.auto_face_fix_bride, groom: saved.auto_face_fix_groom });
+      toast.info(
+        `之后生成的照片：新娘${methodName(saved.auto_face_fix_bride)}，新郎${methodName(saved.auto_face_fix_groom)}`,
+      );
     } catch (err) {
       setAutoFaceFix(previous);
       toast.error(err);
@@ -195,7 +266,13 @@ export function SettingsPage() {
   };
 
   const selected = models?.find((m) => m.id === defaultModel);
-  const selectedFaceFix = models?.find((m) => m.id === faceFixModel);
+  const allModels = Object.values(modelsByProvider).flat();
+  const providerName = (id: ImageProviderId) => providers.find((item) => item.id === id)?.name ?? id;
+  // What "follow the default model" means on a service: the default model when it offers it, else its first model.
+  const fallbackName = (id: ImageProviderId, list: Model[] = modelsByProvider[id] ?? []) => {
+    const chosen = list.find((m) => m.id === defaultModel) ?? list[0];
+    return chosen?.name ?? defaultModel;
+  };
 
   return (
     <div className="page">
@@ -248,20 +325,25 @@ export function SettingsPage() {
           </p>
           <div className="field">
             <span className="field-label">生成后自动修脸</span>
-            <div className="shot-switch" role="group" aria-label="生成后自动修脸">
-              {AUTO_FACE_FIX_OPTIONS.map(([value, label]) => (
-                <button
-                  key={value}
-                  className={`shot-pill ${autoFaceFix === value ? "active" : ""}`}
-                  disabled={saving || autoFaceFix === value}
-                  onClick={() => changeAutoFaceFix(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {(["bride", "groom"] as const).map((role) => (
+              <div key={role} className="face-fix-row">
+                <span className="face-fix-role">{role === "bride" ? "新娘" : "新郎"}</span>
+                <div className="shot-switch" role="group" aria-label={`${role === "bride" ? "新娘" : "新郎"}生成后自动修脸`}>
+                  {FACE_FIX_METHODS.map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={`shot-pill ${autoFaceFix[role] === value ? "active" : ""}`}
+                      disabled={saving || autoFaceFix[role] === value}
+                      onClick={() => changeAutoFaceFix(role, value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
             <span className="field-hint">
-              每张有人脸的样片和相册照片生成后自动做一次。默认（新娘 AI + 新郎 FaceFusion）：先用 AI 只修新娘，保住她的妆容和美白，每张按「AI 修脸模型」计费一次；再用 FaceFusion 只换新郎的脸，本地处理、不花钱，不会动新郎的发型。没有配置 FaceFusion 时只修新娘。AI 修脸会把整张图重画一遍，FaceFusion 换脸会把妆洗淡一些。照片菜单里的「AI 修脸」「换脸修正」仍是修两个人。
+              每张有人脸的样片和相册照片生成后，按两人各自的选项自动做一次。选了 AI 修脸的人先一起修，只修脸、把脸修得像造型照（每张用「AI 修脸和洗图模型」按配置的尺寸计费一次，两人都选也只修一次），然后 FaceFusion 换选了换脸的人（本地处理、不花钱）；AI 修脸会把整张图重画一遍，所以总是放在换脸之前。默认新娘 AI（保住她的妆容和美白）、新郎 FaceFusion（不会动他的发型）。FaceFusion 换脸会把妆洗淡一些；没有配置 FaceFusion 时，选了换脸的人不修。照片菜单里的「AI 修脸」「换脸修正」仍是修两个人。
             </span>
           </div>
           <span className="field-label">FaceFusion 换脸</span>
@@ -338,26 +420,54 @@ export function SettingsPage() {
             </select>
             {selected && <span className="field-hint">{selected.description}</span>}
           </label>
-          <label className="field" style={{ maxWidth: 420 }}>
-            <span className="field-label">AI 修脸模型</span>
-            <select
-              className="input"
-              value={faceFixModel ?? ""}
-              disabled={saving}
-              onChange={(e) => changeFaceFixModel(e.target.value)}
-            >
-              <option value="">跟随默认模型（{selected?.name ?? defaultModel}）</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-            <span className="field-hint">
-              {selectedFaceFix ? `${selectedFaceFix.description}。` : ""}
-              生成后的自动修脸和照片菜单里的「AI 修脸」都用它；手动修脸时也可以在确认弹窗里临时换用其他模型。
-            </span>
-          </label>
+          {STAGES.map(({ kind, label, hint }) => {
+            const choice = stages[kind] ?? { model: null, provider: null };
+            const service = choice.provider ?? provider;
+            const list = (kind === "regional" ? regionalByProvider : modelsByProvider)[service] ?? [];
+            const chosen = allModels.find((m) => m?.id === choice.model);
+            return (
+              <div key={kind} className="field" style={{ maxWidth: 420 }}>
+                <span className="field-label">{label}</span>
+                <div className="edit-choice">
+                  <select
+                    className="input"
+                    aria-label={`${label}的生图服务`}
+                    value={choice.provider ?? ""}
+                    disabled={saving}
+                    onChange={(e) =>
+                      changeStage(kind, label, { [`${kind}_provider`]: (e.target.value || null) as ImageProviderId | null })
+                    }
+                  >
+                    <option value="">跟随生图服务（{providerName(provider)}）</option>
+                    {providers.map((item) => (
+                      <option key={item.id} value={item.id} disabled={!item.available} title={item.reason ?? undefined}>
+                        {item.name}
+                        {item.available ? "" : "（不可用）"}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="input"
+                    aria-label={`${label}的模型`}
+                    value={choice.model ?? ""}
+                    disabled={saving}
+                    onChange={(e) => changeStage(kind, label, { [`${kind}_model`]: e.target.value || null })}
+                  >
+                    <option value="">跟随默认模型（{fallbackName(service, list)}）</option>
+                    {list.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <span className="field-hint">
+                  {chosen ? `${chosen.description}。` : ""}
+                  {hint}
+                </span>
+              </div>
+            );
+          })}
           <span className="field-hint">生成样片或拍组时，也可以在确认弹窗里为这一次临时换用其他模型。</span>
         </div>
       )}
@@ -467,7 +577,52 @@ export function SettingsPage() {
           </div>
           <span className="field-hint">
             只影响之后新拍的组；已经创建的任务保持不变。哪种更好，建议用同一风格各拍一组对比。
+            {styleArtMode === "on" && "开启「服饰场景参考图」时不再发送样片，服饰和场景由参考图统一。"}
           </span>
+        </div>
+      )}
+
+      {models && (
+        <div
+          className="card"
+          style={{
+            padding: 24,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          <h3>服饰场景参考图</h3>
+          <div className="radio-group">
+            <label className={`radio-card ${styleArtMode === "on" ? "active" : ""}`}>
+              <input
+                type="radio"
+                name="style-art-mode"
+                checked={styleArtMode === "on"}
+                disabled={saving}
+                onChange={() => changeStyleArtMode("on")}
+              />
+              <span className="field-label">参照服饰场景图（推荐）</span>
+              <span className="field-hint">
+                每个风格一张图：这套服饰（看不到人）摆在这个风格的主场景里。样片和照片照着它画服饰和场景，同一组照片更统一；提示词只写光线和色调。整组都在主场景里拍。
+              </span>
+            </label>
+            <label className={`radio-card ${styleArtMode === "off" ? "active" : ""}`}>
+              <input
+                type="radio"
+                name="style-art-mode"
+                checked={styleArtMode === "off"}
+                disabled={saving}
+                onChange={() => changeStyleArtMode("off")}
+              />
+              <span className="field-label">只用文字描述</span>
+              <span className="field-hint">之前的做法：服饰和场景都靠提示词描述，细节在同一组里可能不一致。</span>
+            </label>
+          </div>
+          <span className="field-hint">
+            每张图在第一次拍这个风格时自动生成（3 次付费生成），之后所有项目共用。不满意可以重新生成；只影响之后新拍的照片。
+          </span>
+          <StyleArtPanel enabled={styleArtMode === "on"} />
         </div>
       )}
 

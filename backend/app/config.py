@@ -33,6 +33,9 @@ class Config:
     # The AI director has its own keys, one per service: it never borrows the image keys.
     director_api_key: str = field(default='', repr=False)
     director_pptoken_api_key: str = field(default='', repr=False)
+    # 2026-11-13: 火山方舟 (Volcengine Ark), the official Seedream service; selectable only when its key is filled in.
+    ark_api_key: str = field(default='', repr=False)
+    ark_base_url: str = 'https://ark.cn-beijing.volces.com/api/v3'
 
     def __post_init__(self):
         object.__setattr__(self, 'data_dir', Path(self.data_dir).resolve())
@@ -96,7 +99,8 @@ def load_config() -> Config:
         generator=os.environ.get("VOWFRAME_GENERATOR", local.get('generator', 'mock')),
         mock_delay_seconds=float(os.environ.get("VOWFRAME_MOCK_DELAY", "2")),
         **{key: local[key] for key in ('api_key', 'base_url', 'timeout', 'aspect_ratio', 'resolution', 'pptoken_api_key',
-                                       'pptoken_base_url', 'director_api_key', 'director_pptoken_api_key') if key in local},
+                                       'pptoken_base_url', 'director_api_key', 'director_pptoken_api_key',
+                                       'ark_api_key', 'ark_base_url') if key in local},
         director_model=director_model,
         model=configured_model,
         facefusion_dir=facefusion_dir,

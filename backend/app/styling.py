@@ -1,5 +1,4 @@
 """Looks (V5.0): styled photos the user generates and picks, and which look a shot uses.
-
 The image edit endpoint copies what the reference photos show, so a hairstyle cannot be asked of a shot. Instead
 each person's uploaded photo is edited into "looks" when the user asks for candidates, one edit per hairstyle;
 the user selects some, and every sample is shot from one selected look per person. Photo sets and slot actions
@@ -35,9 +34,15 @@ V4.0 tasks recorded 'styling' instead and styled each photo per style when they 
 automatic styling is retired.
 """
 
+from pathlib import Path
+
+from PIL import Image
+
 from .db import new_id, utc_now
+from .facings import SIDE_FACINGS, direction, upload_column
 from .face_swap import face_swap_reference_ids
-from .prompts import (FACE_SHAPING_LEVELS, HAIRSTYLE_BY_KEY, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLE_OUTFITS, STYLES, STYLING_VERSION,
+from .retouch import candidate_retouch_settings, has_face_shaping
+from .prompts import (HAIRSTYLE_BY_KEY, JEWELRY_BY_ID, MAKEUP_COLOR_BY_ID, STYLE_BY_ID, STYLE_MAKEUP_COLORS, STYLE_OUTFITS, STYLES, STYLING_VERSION,
                       UPDO_STYLES)
 
 # Order of face_swap_reference_ids().
@@ -184,7 +189,7 @@ def auto_select(conn, project, look):
     # the least of it, as for the bride's makeups. Her looks of a style share one makeup and differ only in the hair.
     # V7.22: a groom look made on a retouched photo differs from its siblings only in the hair, as the bride's do.
     scored = [row for row in rows if row['face_score'] is not None
-              and not (row['role'] == 'groom' and row['makeup_id'] is None and row['makeup_level'] in FACE_SHAPING_LEVELS)]
+              and not (row['role'] == 'groom' and row['makeup_id'] is None and has_face_shaping(row))]
     best = max(scored, key=lambda row: row['face_score']) if scored else (current or (rows[0] if rows else None))
     if best is not None and (current is None or best['id'] != current['id']):
         select_only(conn, best, 'auto')
@@ -210,15 +215,17 @@ def auto_select_makeup(conn, project, makeup):
     """Pick the makeup of its style unless the user picked one, as auto_select does for looks: the most similar
     usable one by its likeness score, or the first ready one while none is scored.
 
-    V7.10: a level that reshapes the face a little (FACE_SHAPING_LEVELS) is never picked by score, since the score
-    would favour the candidate that did the least of it; the first ready one stays until the user picks."""
+    A group containing a slimming edit is never ranked by likeness, since that would favour a request that
+    changes the face less. Legacy candidates inherit this rule from their recorded preset."""
     condition, params = _makeup_group(makeup)
     rows = [row for row in conn.execute(f'SELECT * FROM makeups WHERE {condition} ORDER BY rowid', params)
             if makeup_problem(project, row) is None]
     current = next((row for row in rows if row['selected_by'] is not None), None)
     if current is not None and current['selected_by'] != 'auto':
         return
-    scored = [row for row in rows if row['face_score'] is not None and row['makeup_level'] not in FACE_SHAPING_LEVELS]
+    # With mixed settings, a higher likeness can just mean that less slimming was requested.
+    # Keep the current/first ready candidate whenever this group includes a slimming edit.
+    scored = [] if any(has_face_shaping(row) for row in rows) else [row for row in rows if row['face_score'] is not None]
     best = max(scored, key=lambda row: row['face_score']) if scored else (current or (rows[0] if rows else None))
     if best is not None and (current is None or best['id'] != current['id']):
         select_makeup(conn, best, 'auto')
@@ -253,7 +260,8 @@ def reuse_makeup(conn, project, makeup, style_id: str) -> str:
     The style gets its own copy of the makeup (or keeps the one it already has on the same image), and a copy of
     every usable front look made on that image in any style, with its side looks, unless the style already has a
     look on the same image or the hairstyle does not fit the style (an updo style). The copies keep the style the
-    makeup was painted in (makeup_style_id), so the shots describe the makeup the pictures show."""
+    makeup was painted in (makeup_style_id), so the shots describe the makeup the pictures show. A copied look
+    shares the side looks of its image (V7.31), made before or after the reuse."""
     painted = makeup_style_of(makeup)
     makeup_style = painted if painted != style_id else None
     person, now = makeup['person'], utc_now()
@@ -275,10 +283,6 @@ def reuse_makeup(conn, project, makeup, style_id: str) -> str:
         have.add(look['image_asset_id'])
         last = _copy_row(conn, 'looks', look, id=new_id(), style_id=style_id, makeup_id=target_id, makeup_style_id=makeup_style,
                          selected_order=None, selected_by=None, client_request_id=None, created_at=now)
-        for side in conn.execute("SELECT * FROM looks WHERE parent_look_id=? AND status='ready' AND discarded_at IS NULL "
-                                 'ORDER BY rowid', (look['id'],)).fetchall():
-            _copy_row(conn, 'looks', side, id=new_id(), style_id=style_id, parent_look_id=last, makeup_style_id=makeup_style,
-                      selected_order=None, selected_by=None, client_request_id=None, created_at=now)
     target = conn.execute('SELECT * FROM makeups WHERE id=?', (target_id,)).fetchone()
     select_makeup(conn, target)
     if last is not None:
@@ -296,6 +300,7 @@ def makeup_response(project, makeup) -> dict:
         'makeup_style_name': style_name(makeup_style_of(makeup)) if makeup_style_of(makeup) else None,
         'makeup_color': makeup['makeup_color'], 'makeup_color_name': color.name if color else None,
         'makeup_level': makeup['makeup_level'],
+        'retouch_settings': candidate_retouch_settings(makeup),
         'status': makeup['status'], 'error_code': makeup['error_code'], 'error_message': makeup['error_message'],
         'asset_id': makeup['image_asset_id'], 'source_asset_id': makeup['source_asset_id'],
         'selected': makeup['selected_by'] is not None, 'selected_by': makeup['selected_by'],
@@ -323,28 +328,95 @@ def style_outfits(conn, project) -> dict[str, str]:
             for style_id, outfits in STYLE_OUTFITS.items()}
 
 
+def side_by_side(pictures: list[Path], out: Path) -> Path:
+    """Pictures in one row, left to right, at one height with a white gap between: the two looks, the bride on the
+    left (V7.41), or the side looks a shot needs, in reference order (V7.43)."""
+    rows = []
+    for path in pictures:
+        with Image.open(path) as source:
+            rows.append(source.convert('RGB'))
+    height = min(1536, max(picture.height for picture in rows))
+    rows = [picture.resize((round(picture.width * height / picture.height), height), Image.LANCZOS) for picture in rows]
+    gap = 32
+    canvas = Image.new('RGB', (sum(picture.width for picture in rows) + gap * (len(rows) - 1), height), 'white')
+    left = 0
+    for picture in rows:
+        canvas.paste(picture, (left, 0))
+        left += picture.width + gap
+    canvas.save(out)
+    return out
+
+
 def look_snapshot(bride_look_id: str, groom_look_id: str) -> dict:
     return {'version': STYLING_VERSION, 'bride': bride_look_id, 'groom': groom_look_id}
 
 
-def reference_slots(side_references: list[tuple[str, str]], with_preview: bool) -> list:
+def reference_slots(side_references: list[tuple[str, str]], with_preview: bool, art: bool = False) -> list:
     """[role, angle] for each image of app.api._build_references, in its fixed order. Images that are no face source
-    (the sample, and the final looks of V7.18 pictures) have no slot, so side looks and face swaps leave them alone."""
+    (the sample, the style art of V7.33, and the final looks of V7.18 pictures) have no slot, so side looks and face
+    swaps leave them alone. The style art comes last and may be added only when the task runs."""
     slots = [['bride', 'front'], ['groom', 'front']]
     slots.extend([role, facing] for role, facing in side_references)
-    if with_preview:
+    if with_preview or art:
         slots.append(None)
     return slots
 
 
+def current_side_looks(conn, project) -> list[dict]:
+    """For each shown front look and each current side photo, its latest side look (V7.24): the one a new shot uses
+    when ready; since V7.30 also one queued, being made or failed after the user asked for it."""
+    result = []
+    for front in conn.execute("SELECT * FROM looks WHERE project_id=? AND angle='front' AND discarded_at IS NULL "
+                              'ORDER BY created_at,rowid', (project['id'],)):
+        for facing in SIDE_FACINGS:
+            upload = project[upload_column(front['person'], facing)]
+            if not upload:
+                continue
+            angle = direction(facing)
+            row = latest_side_look(conn, front['id'], angle, upload)
+            if row is not None:
+                result.append({'id': row['id'], 'parent_look_id': front['id'], 'person': row['person'], 'role': row['role'],
+                               'angle': angle, 'facing': facing, 'asset_id': row['image_asset_id'], 'source_asset_id': upload,
+                               'status': row['status'], 'error_message': row['error_message'], 'created_at': row['created_at'],
+                               'face_score': row['face_score']})
+    return result
+
+
+# V7.31: a side look shows only what it was made from, the side photo and the front look's image, so it belongs to
+# that image, not to one look row: a look another style reuses (a copy on the same image) shares its side looks.
+_SIDE_LOOKS_OF_IMAGE = (
+    'SELECT side.* FROM looks side JOIN looks front ON front.id=side.parent_look_id '
+    'WHERE front.image_asset_id=(SELECT image_asset_id FROM looks WHERE id=?) AND side.angle=? AND side.source_asset_id=? '
+    'AND side.discarded_at IS NULL')
+
+
+def side_look_key(conn, parent_look_id: str, angle: str, source_asset_id: str) -> tuple:
+    """What makes two side looks the same picture (V7.31): the front look's image, the angle and the side photo."""
+    row = conn.execute('SELECT image_asset_id FROM looks WHERE id=?', (parent_look_id,)).fetchone()
+    return (row['image_asset_id'] if row else parent_look_id, angle, source_asset_id)
+
+
+def latest_side_look(conn, parent_look_id: str, angle: str, source_asset_id: str):
+    """The newest side look of this front look's image, angle and side photo that is not deleted: a ready one
+    first, else the newest queued, running or failed one (V7.30)."""
+    return conn.execute(_SIDE_LOOKS_OF_IMAGE + " ORDER BY side.status='ready' DESC,side.created_at DESC,side.rowid DESC LIMIT 1",
+                        (parent_look_id, angle, source_asset_id)).fetchone()
+
+
 def find_side_look(conn, parent_look_id: str, angle: str, source_asset_id: str) -> str | None:
-    """Image asset of the side look made from this side photo and front look; None when there is none yet."""
-    row = conn.execute(
-        "SELECT image_asset_id FROM looks WHERE parent_look_id=? AND angle=? AND source_asset_id=? AND status='ready' "
-        'AND discarded_at IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1',
-        (parent_look_id, angle, source_asset_id),
-    ).fetchone()
+    """Image asset of the side look made from this side photo and front look's image; None when there is none yet."""
+    row = conn.execute(_SIDE_LOOKS_OF_IMAGE + " AND side.status='ready' ORDER BY side.created_at DESC,side.rowid DESC LIMIT 1",
+                       (parent_look_id, angle, source_asset_id)).fetchone()
     return row['image_asset_id'] if row else None
+
+
+def discard_side_look(conn, side, now: str):
+    """Delete a side look, with any other finished copy of the same picture (an older reuse copied them, V7.21),
+    so a copy does not show up again in its place."""
+    same = _SIDE_LOOKS_OF_IMAGE.replace('SELECT side.*', 'SELECT side.id', 1)
+    conn.execute(f"UPDATE looks SET discarded_at=? WHERE id=? OR id IN ({same} "
+                 "AND side.status IN ('ready','failed','interrupted'))",
+                 (now, side['id'], side['parent_look_id'], side['angle'], side['source_asset_id']))
 
 
 def task_face_swap_reference_ids(conn, project, snapshot: dict, references: list) -> list[str | None]:
@@ -363,7 +435,8 @@ def task_face_swap_reference_ids(conn, project, snapshot: dict, references: list
     used = {}
     for asset_id, slot in zip(references, snapshot.get('reference_slots') or []):
         if slot is not None:
-            used[tuple(slot)] = asset_id
+            # V7.48: a full side the shot used stands for its direction too.
+            used[(slot[0], direction(slot[1]))] = asset_id
     result = []
     for upload, slot in zip(uploads, FACE_SWAP_SLOTS):
         if slot in used:
@@ -392,8 +465,10 @@ def look_response(project, look) -> dict:
     return {
         'id': look['id'], 'person': look['person'], 'role': look['role'], 'style_id': look['style_id'],
         'hairstyle_id': look['hairstyle_id'], 'hairstyle_name': hairstyle.name if hairstyle else look['hairstyle_id'],
+        'jewelry_id': look['jewelry_id'], 'jewelry_name': JEWELRY_BY_ID[look['jewelry_id']].name if look['jewelry_id'] in JEWELRY_BY_ID else None,
         'makeup_color': look['makeup_color'], 'makeup_color_name': color.name if color else None,
         'makeup_level': look['makeup_level'], 'hair_length': look['hair_length'],
+        'retouch_settings': candidate_retouch_settings(look),
         'status': look['status'], 'error_code': look['error_code'], 'error_message': look['error_message'],
         'asset_id': look['image_asset_id'], 'source_asset_id': look['source_asset_id'],
         'selected': look['selected_order'] is not None, 'selected_order': look['selected_order'],

@@ -25,14 +25,14 @@ def test_health_styles_and_pose_library(client_app):
         '港风复古', '城市夜景', '草原旷野', '冬日雪景', '欧式教堂', '黑白经典', '生活日常',
         '玉龙雪山', '草坪花艺', '花园花房', '法式庄园', '极简建筑', '酒店教堂', '湖畔洱海', '复古油画', '黑色影棚',
         '日系清新', '民国旗袍', '汉服古韵', '西北大漠',
-        '欧法千金', '法式复古', '主纱极简', '白马仪式', '蓝调夜景', '森系胶片', '复古红棚', '街拍故事', '喜嫁新中式',
+        '欧法千金', '法式复古', '主纱系列', '白马仪式', '蓝调夜景', '森系胶片', '复古红棚', '街拍故事', '喜嫁新中式', '森系草坪', '花房',
     ]
     assert [s['description'] for s in styles] == [style['description'] for style in STYLES]
-    assert all(set(s) == {'id', 'name', 'description', 'default_preview', 'retired'} for s in styles)
+    assert all(set(s) == {'id', 'name', 'description', 'default_preview', 'retired', 'rooms'} for s in styles)
     assert [p['id'] for p in POSES] == [f'pose_{i:02d}' for i in range(1, 13)]
-    assert '两人相视而笑' in compose_photo_prompt('dark_studio', 'pose_02', '3:4')
+    assert '两人相视而笑' in compose_photo_prompt('city_story', 'pose_02', '3:4')
     assert '不参考其中的人脸、长相和构图' in compose_photo_prompt(
-        'dark_studio', 'pose_02', '3:4', with_preview=True,
+        'city_story', 'pose_02', '3:4', with_preview=True,
     )
 
 
@@ -44,8 +44,8 @@ def test_project_create_list_patch_role_delete(client_app):
     assert datetime.fromisoformat(project['created_at']).utcoffset().total_seconds() == 0
     assert project['name'] == '我的婚纱照'
     assert project['stage'] == 'upload'
-    assert project['person_a'] == {'asset_id': None, 'left_asset_id': None, 'right_asset_id': None, 'role': 'bride'}
-    assert project['person_b'] == {'asset_id': None, 'left_asset_id': None, 'right_asset_id': None, 'role': 'groom'}
+    assert project['person_a'] == {'asset_id': None, 'left_asset_id': None, 'right_asset_id': None, 'left_full_asset_id': None, 'right_full_asset_id': None, 'role': 'bride'}
+    assert project['person_b'] == {'asset_id': None, 'left_asset_id': None, 'right_asset_id': None, 'left_full_asset_id': None, 'right_full_asset_id': None, 'role': 'groom'}
     second = client.post('/api/projects', json={'name': '第二个项目'}).json()
     changed = client.patch(f"/api/projects/{project['id']}", json={'name': '我们的婚纱照', 'person_a_role': 'groom'}).json()
     assert changed['person_a']['role'] == 'groom'
@@ -89,7 +89,7 @@ def test_upload_stage_select_and_replacement_keeps_old_assets(client_app):
         assert project['stage'] == stage
         assert client.get(f"/api/assets/{project[f'person_{person}']['asset_id']}").content == PNG
     old_image = project['person_a']['asset_id']
-    batch = preview_batch(client, project_id, style_ids=['dark_studio'])
+    batch = preview_batch(client, project_id, style_ids=['city_story'])
     wait_batch(client, batch['id'])
     project = client.get(f'/api/projects/{project_id}').json()
     slot = project['previews'][0]
@@ -126,7 +126,8 @@ def test_previews_complete_and_regenerate_same_slot(client_app):
         assert slot['latest_task']['error_code'] is None
         assert slot['latest_task']['model'] == 'gpt-image-2'
         response = client.get(f"/api/assets/{slot['current_version']['asset_id']}")
-        assert response.content == PNG
+        # V7.41: the mock echoes its first picture, now both looks side by side.
+        assert response.content.startswith(PNG[:8])
         assert response.headers['content-type'] == 'image/png'
     original = detail['previews'][0]
     next_batch = preview_batch(client, project['id'], request_id='request-2', style_ids=[active[0]])
@@ -135,7 +136,7 @@ def test_previews_complete_and_regenerate_same_slot(client_app):
     assert regenerated['id'] == original['id']
     assert regenerated['version_count'] == regenerated['current_version']['version_number'] == 2
     assert regenerated['current_version']['id'] != original['current_version']['id']
-    assert client.get(f"/api/assets/{original['current_version']['asset_id']}").content == PNG
+    assert client.get(f"/api/assets/{original['current_version']['asset_id']}").content.startswith(PNG[:8])
     batches = client.get(f"/api/projects/{project['id']}/batches").json()
     assert [b['id'] for b in batches] == [next_batch['id'], batch['id']]
     tasks = client.get('/api/tasks', params={'project_id': project['id'], 'batch_id': batch['id'], 'status': 'completed'}).json()
@@ -257,7 +258,7 @@ def test_invalid_uploads_and_styles(client_app):
         assert client.patch(url, json=body).status_code == 422
     assert client.post(url + '/images', data={'person': 'a'}, files={'file': ('bad.png', b'not an image')}).status_code == 422
     assert client.post(url + '/images', data={'person': 'c'}, files={'file': ('photo.png', PNG)}).status_code == 422
-    for style_ids in ([], ['unknown'], ['dark_studio', 'dark_studio']):
+    for style_ids in ([], ['unknown'], ['city_story', 'city_story']):
         assert client.post(url + '/previews', json={'client_request_id': 'invalid', 'style_ids': style_ids}).status_code == 422
     assert client.post(url + '/select-style', json={'slot_id': 'missing'}).status_code in (404, 405)
 

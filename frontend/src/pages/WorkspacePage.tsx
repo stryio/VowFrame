@@ -1,13 +1,16 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   api,
   assetUrl,
   isBroken,
+  fixLabel,
   isFaceSwapped,
   isGenerating,
-  type BrideHairLength, type Facing, type GroomHairLength, type Look, type LookItem, type LookOptions,
-  type Makeup, type MakeupLevel, type Person,
+  FACING_NAMES,
+  SIDE_FACINGS,
+  type BrideHairLength, type Facing, type GroomHairLength, type Look, type LookItem, type LookOptions, type SideFacing,
+  type Makeup, type Person, type RetouchSettings,
   type ProjectDetail,
   type Role,
   type Slot,
@@ -15,6 +18,7 @@ import {
 } from "../api";
 import { AttemptNotice } from "../components/AttemptNotice";
 import { CompareView } from "../components/CompareView";
+import { MAKEUP_PRESETS, MakeupAdjustments, makeupPresetLabel, retouchSummary } from "../components/MakeupAdjustments";
 import { FaceScore, faceScoreText } from "../components/FaceScore";
 import { EmptyState, Lightbox, useToast } from "../components/feedback";
 import { useGenerateDialog } from "../components/GenerateDialog";
@@ -66,7 +70,7 @@ export function WorkspacePage() {
       <div className="page-header">
         <div>
           <h1>婚纱工作台</h1>
-          <p>选好风格、服饰和两人的妆发，试拍时一起穿上服饰；看过样片，满意后再拍一组。</p>
+          <p>选好风格和两人的妆发，再选服饰和场景试拍；看过样片，满意后再拍一组。</p>
         </div>
         <div className="stepper">
           <button className={`step ${step === "upload" ? "active" : "done"}`} onClick={() => setStep("upload")}>
@@ -99,7 +103,7 @@ export function WorkspacePage() {
       <RecoveryBanner />
 
       {step === "upload" && <UploadStep project={project} onNext={() => setStep("looks")} />}
-      {step === "looks" && <LooksStep project={project} onBack={() => setStep("upload")} onNext={() => setStep("style")} />}
+      {step === "looks" && <LooksStep key={project.id} project={project} onBack={() => setStep("upload")} onNext={() => setStep("style")} />}
       {step === "style" && <StyleStep project={project} onBack={() => setStep("looks")} />}
     </div>
   );
@@ -133,18 +137,6 @@ function RecoveryBanner() {
 }
 
 // ---------- Step 1: upload ----------
-
-const BRIDE_MAKEUP_OPTIONS: [MakeupLevel, string][] = [
-  ["light", "清透新娘妆"],
-  ["natural", "标准婚纱妆"],
-  ["refined", "精致影楼妆"],
-];
-
-const GROOM_MAKEUP_OPTIONS: [MakeupLevel, string][] = [
-  ["light", "清爽"],
-  ["natural", "精修"],
-  ["refined", "精致"],
-];
 
 const BRIDE_HAIR_OPTIONS: [BrideHairLength, string][] = [
   ["long", "长发"],
@@ -199,11 +191,11 @@ function MakeupCard({ project }: { project: ProjectDetail }) {
       <div className="makeup-rows">
         {row("bride_hair_length", "新娘头发", BRIDE_HAIR_OPTIONS)}
         {row("groom_hair_length", "新郎头发", GROOM_HAIR_OPTIONS)}
-        {row("makeup_level", "新娘妆容", BRIDE_MAKEUP_OPTIONS)}
-        {row("groom_makeup_level", "新郎精修", GROOM_MAKEUP_OPTIONS)}
+        {row("makeup_level", "新娘妆容", MAKEUP_PRESETS.bride)}
+        {row("groom_makeup_level", "新郎精修", MAKEUP_PRESETS.groom)}
         <span className="muted">
-          头发长度请按照片里的实际长度选，它决定能做哪些发型，长度保持和照片一致。妆容档位决定造型照的化妆、提白和去瑕疵程度，越高修得越多；
-          妆容档位也决定脸部轮廓修整；新郎只在「精致」一档化淡妆；新娘的妆色和妆面按风格配。改了只影响之后生成的造型，已经生成的不变。
+          头发长度请按照片里的实际长度选，它决定能做哪些发型，长度保持和照片一致。选择妆容预设会同时重设提亮、遮瑕和轮廓选项；
+          可在下面化妆或修脸的「精细调整」中分别修改。新郎只在「精致」档化淡妆；新娘的妆色和妆面按风格配。改了只影响之后新生成的候选图。
         </span>
       </div>
     </div>
@@ -269,7 +261,12 @@ function PersonUpload({
   const { project, refresh } = useCurrentProject();
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
-  const sideInputRefs = { left: useRef<HTMLInputElement>(null), right: useRef<HTMLInputElement>(null) };
+  const sideInputRefs = {
+    left: useRef<HTMLInputElement>(null),
+    right: useRef<HTMLInputElement>(null),
+    left_full: useRef<HTMLInputElement>(null),
+    right_full: useRef<HTMLInputElement>(null),
+  };
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -361,9 +358,9 @@ function PersonUpload({
         </div>
       )}
       <div className="side-upload-grid">
-        {(["left", "right"] as const).map((angle) => {
-          const assetId = angle === "left" ? person.left_asset_id : person.right_asset_id;
-          const label = angle === "left" ? "脸朝画面左" : "脸朝画面右";
+        {SIDE_FACINGS.map((angle) => {
+          const assetId = person[`${angle}_asset_id`];
+          const label = SIDE_UPLOAD_LABELS[angle];
           return (
             <div className="side-upload" key={angle}>
               <div className="side-upload-label">{label}</div>
@@ -376,13 +373,21 @@ function PersonUpload({
           );
         })}
       </div>
+      <p className="side-upload-hint muted">侧脸照可选。传了哪个角度，AI 导演才会设计这个角度、看得清脸的镜头；背影和远景不受限制。</p>
     </div>
   );
 }
 
+const SIDE_UPLOAD_LABELS: Record<SideFacing, string> = {
+  left: "脸朝画面左 · 约 45°",
+  right: "脸朝画面右 · 约 45°",
+  left_full: "脸朝画面左 · 正侧面 约 90°",
+  right_full: "脸朝画面右 · 正侧面 约 90°",
+};
+
 // ---------- Step 2: styles and looks (V5.0; per style since V7.0) ----------
 
-const lookLabel = (look: Look) => look.hairstyle_name;
+const lookLabel = (look: Look) => (look.jewelry_name ? `${look.hairstyle_name} · ${look.jewelry_name}` : look.hairstyle_name);
 
 // Example pictures of a fictional couple, made once by backend/scripts/make_examples.py.
 const hairExample = (role: Role, hairstyleId: string) => `/examples/hair/${role}_${hairstyleId}.webp`;
@@ -430,68 +435,153 @@ function ExampleCard({
 function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack: () => void; onNext: () => void }) {
   const options = usePolledResource(api.lookOptions, []);
   const styles = usePolledResource(api.styles, []);
-  // Styles picked for the bride that have no look yet; styles with looks are always shown.
+  // Keep existing work available even if only the makeup step has been completed.
   const [picked, setPicked] = useState<string[]>([]);
+  const [active, setActive] = useState("groom");
+  const [choosingStyles, setChoosingStyles] = useState(false);
   const [zoom, setZoom] = useState<{ src: string; caption: string } | null>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const stylePickerRef = useRef<HTMLDetailsElement>(null);
+  const id = useId();
   const ready = hasStyleLooks(project);
   const bride = project.person_a.role === "bride" ? "a" : "b";
   const groom = bride === "a" ? "b" : "a";
 
   if (!options.data || !styles.data) return <div className="muted">加载中…</div>;
 
-  const withLooks = new Set(project.looks.filter((look) => look.person === bride && look.style_id).map((look) => look.style_id));
+  const withCandidates = new Set(
+    [...project.looks, ...project.makeups].filter((item) => item.person === bride && item.style_id).map((item) => item.style_id),
+  );
   const sampled = new Set(project.previews.map((slot) => slot.style_id));
   // A retired style may only refresh a sample this project already has.
   const offered = styles.data.filter((style) => !style.retired || sampled.has(style.id));
-  const chosen = offered.filter((style) => withLooks.has(style.id) || picked.includes(style.id));
+  const chosen = offered.filter((style) => withCandidates.has(style.id) || picked.includes(style.id));
+  const activeId = active === "groom" || chosen.some((style) => style.id === active) ? active : "groom";
+  const readyCount = chosen.filter((style) => project.looks.some(
+    (look) => look.person === bride && look.style_id === style.id && look.selected && look.usable,
+  )).length;
+  const selectTab = (value: string) => {
+    setActive(value);
+    workspaceRef.current?.scrollIntoView({ block: "start" });
+    document.getElementById(`${id}-tab-${value}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+  const openStylePicker = () => {
+    setChoosingStyles(true);
+    stylePickerRef.current?.scrollIntoView({ block: "start" });
+  };
+  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const tabs = ["groom", ...chosen.map((style) => style.id)];
+    const index = tabs.indexOf(activeId);
+    let next = index;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowUp" || event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    selectTab(tabs[next]);
+    document.getElementById(`${id}-tab-${tabs[next]}`)?.focus();
+  };
+  const renderTab = (value: string, title: string, person: "a" | "b", style?: Style) => {
+    const looks = project.looks.filter((look) => look.person === person && look.style_id === (style?.id ?? null));
+    const makeups = project.makeups.filter((makeup) => makeup.person === person && makeup.style_id === (style?.id ?? null));
+    const selected = looks.find((look) => look.selected && look.usable);
+    const busy = [...looks, ...makeups].some((item) => item.status === "waiting" || item.status === "running");
+    const failed = [...looks, ...makeups].some((item) => item.status === "failed" || item.status === "interrupted");
+    const status = busy ? "生成中" : selected ? "已选用造型" : failed ? "有任务需处理" :
+      looks.some((look) => look.usable) ? "待选用造型" : makeups.some((makeup) => makeup.selected && makeup.usable) ? "待做发型" : value === "groom" ? "待修脸" : "待做妆容";
+    const tone = busy ? "busy" : selected ? "ready" : failed ? "error" : "pending";
+    const thumbnail = selected?.asset_id ? assetUrl(selected.asset_id) : style ? styleExample(style.id) :
+      assetUrl((person === "a" ? project.person_a : project.person_b).asset_id!);
+    return (
+      <button key={value} type="button" role="tab" id={`${id}-tab-${value}`} aria-controls={`${id}-panel-${value}`}
+        aria-selected={activeId === value} tabIndex={activeId === value ? 0 : -1}
+        className={`looks-nav-item ${activeId === value ? "active" : ""}`} onClick={() => selectTab(value)} onKeyDown={onTabKeyDown}>
+        <img src={thumbnail} alt="" loading="lazy" />
+        <span className="looks-nav-copy">
+          <strong>{title}</strong>
+          <span className={`looks-nav-status ${tone}`}>{status}</span>
+        </span>
+      </button>
+    );
+  };
 
   return (
     <>
-      <div className="page-header">
-        <p className="muted">
-          在这里选好风格、服饰和妆发，下一步试拍时会一起穿上服饰，完成场景、光线和构图。
-          新娘每个风格先选妆容，再在选用的妆容上做发型；新郎先选一张修脸照，再在它上面做发型，所有风格共用。每张妆容、修脸照、造型各是一次付费修图。
-          系统会自动选用候选，也可以手动更换；相似度越接近 1 越像本人。
-        </p>
-      </div>
+      <p className="muted looks-intro">
+        可多选拍摄风格，每次专心调整一套妆发；从造型列表切换，其他风格的选择会保留。
+        每张妆容、修脸照、发型照各是一次付费修图，服饰和场景在下一步选择。
+      </p>
 
-      <MakeupCard project={project} />
+      <details className="card looks-disclosure looks-shared-settings">
+        <summary>
+          <span><strong>共用设置</strong><span className="muted">新娘{BRIDE_HAIR_OPTIONS.find(([value]) => value === project.bride_hair_length)?.[1]} · 新郎{GROOM_HAIR_OPTIONS.find(([value]) => value === project.groom_hair_length)?.[1]} · 妆容预设</span></span>
+          <span className="looks-disclosure-toggle" aria-hidden="true" />
+        </summary>
+        <MakeupCard project={project} />
+      </details>
 
-      <PersonLooks project={project} which={groom} role="groom" options={options.data} />
-
-      <div className="card style-picker">
-        <div className="style-picker-header">
-          <h3>新娘：选择要拍的风格</h3>
-          <span className="muted">已选 {chosen.length} 种；每种风格做一套新娘造型</span>
+      <details className="card looks-disclosure looks-style-picker" ref={stylePickerRef} open={choosingStyles}
+        onToggle={(event) => setChoosingStyles(event.currentTarget.open)}>
+        <summary>
+          <span><strong>拍摄风格</strong><span className="muted">已选 {chosen.length} 种 · 展开可多选或调整</span></span>
+          <span className="looks-disclosure-toggle" aria-hidden="true" />
+        </summary>
+        <div className="looks-style-picker-body">
+          <div className="example-grid style-examples">
+            {offered.map((style) => {
+              const on = chosen.some((item) => item.id === style.id);
+              const locked = withCandidates.has(style.id);
+              return (
+                <ExampleCard
+                  key={style.id}
+                  src={styleExample(style.id)}
+                  label={style.name}
+                  on={on}
+                  disabled={locked}
+                  title={locked ? "这个风格已经有妆容或造型；删掉全部候选后可以取消" : style.description}
+                  onToggle={() => {
+                    setPicked((previous) => on ? previous.filter((key) => key !== style.id) : [...previous, style.id]);
+                    if (!on) setActive(style.id);
+                    else if (activeId === style.id) setActive("groom");
+                  }}
+                  onZoom={() => setZoom({ src: styleExample(style.id), caption: `${style.name}（示例）：${style.description}` })}
+                />
+              );
+            })}
+          </div>
+          <div className="looks-style-picker-footer">
+            <span className="muted">示例使用虚构模特，仅展示风格。已有候选的风格会保留在列表中。</span>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => { setChoosingStyles(false); selectTab(activeId); }}>
+              完成选择，调整造型 →
+            </button>
+          </div>
         </div>
-        <div className="example-grid style-examples">
-          {offered.map((style) => {
-            const on = chosen.some((item) => item.id === style.id);
-            const locked = withLooks.has(style.id);
-            return (
-              <ExampleCard
-                key={style.id}
-                src={styleExample(style.id)}
-                label={style.name}
-                on={on}
-                disabled={locked}
-                title={locked ? "这个风格已经有造型；删掉它的全部造型后可以取消" : style.description}
-                onToggle={() => setPicked(on ? picked.filter((id) => id !== style.id) : [...picked, style.id])}
-                onZoom={() => setZoom({ src: styleExample(style.id), caption: `${style.name}（示例）：${style.description}` })}
-              />
-            );
-          })}
-        </div>
-        <span className="muted">示例图里是虚构的模特，用来看风格的服饰、场景和光线；提供多套服饰的风格可以在下面更换。</span>
-      </div>
+      </details>
       {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
 
-      {chosen.map((style) => (
-        <Fragment key={style.id}>
-          <OutfitPicker project={project} style={style} options={options.data!} onZoom={setZoom} />
-          <PersonLooks project={project} which={bride} role="bride" options={options.data!} style={style} />
-        </Fragment>
-      ))}
+      <div className="looks-workspace" ref={workspaceRef}>
+        <aside className="card looks-navigation">
+          <div className="looks-navigation-heading"><h3>造型列表</h3><span className="muted">{chosen.length ? `新娘 ${readyCount}/${chosen.length} 已就绪` : "尚未选择新娘风格"}</span></div>
+          <div role="tablist" aria-label="选择要调整的造型" aria-orientation="vertical" className="looks-nav-list">
+            {renderTab("groom", "新郎共用造型", groom)}
+            {chosen.map((style) => renderTab(style.id, style.name, bride, style))}
+          </div>
+          {chosen.length === 0 && <p className="muted">添加拍摄风格后，在这里逐套调整新娘妆发。</p>}
+          <button type="button" className="btn btn-sm looks-add-style" onClick={openStylePicker}>＋ 添加 / 调整风格</button>
+        </aside>
+        <div className="looks-panels">
+          {/* Keep panels mounted so switching styles preserves unfinished hair and jewelry choices. */}
+          <section role="tabpanel" id={`${id}-panel-groom`} aria-labelledby={`${id}-tab-groom`} hidden={activeId !== "groom"}>
+            <PersonLooks project={project} which={groom} role="groom" options={options.data} />
+          </section>
+          {chosen.map((style) => (
+            <section key={style.id} role="tabpanel" id={`${id}-panel-${style.id}`} aria-labelledby={`${id}-tab-${style.id}`} hidden={activeId !== style.id}>
+              <PersonLooks project={project} which={bride} role="bride" options={options.data!} style={style} />
+            </section>
+          ))}
+        </div>
+      </div>
 
       <div className="action-bar">
         <button className="btn btn-ghost" onClick={onBack}>
@@ -499,61 +589,10 @@ function LooksStep({ project, onBack, onNext }: { project: ProjectDetail; onBack
         </button>
         {!ready && <span className="muted">请选用新郎的造型和至少一个风格的新娘造型</span>}
         <button className="btn btn-primary btn-lg" disabled={!ready} onClick={onNext}>
-          下一步：穿上服饰试拍 →
+          下一步：选服饰和场景试拍 →
         </button>
       </div>
     </>
-  );
-}
-
-/** The outfit a new sample of this style wears (V7.17), for a style that offers more than one. */
-function OutfitPicker({
-  project,
-  style,
-  options,
-  onZoom,
-}: {
-  project: ProjectDetail;
-  style: Style;
-  options: LookOptions;
-  onZoom: (zoom: { src: string; caption: string }) => void;
-}) {
-  const { refresh } = useCurrentProject();
-  const toast = useToast();
-  const ids = options.style_outfits[style.id] ?? [];
-  if (ids.length < 2) return null;
-  const choose = async (outfitId: string) => {
-    try {
-      await api.chooseStyleOutfit(project.id, style.id, outfitId);
-      await refresh();
-    } catch (err) {
-      toast.error(err);
-    }
-  };
-  return (
-    <div className="card style-picker">
-      <div className="style-picker-header">
-        <h3>{style.name}：选择服饰</h3>
-        <span className="muted">选好后在下一步样片里一起穿上，无需先生成定妆照。更换服饰只影响新样片，已有样片和组照保持原样。</span>
-      </div>
-      <div className="example-grid style-examples">
-        {ids.map((id) => {
-          const outfit = options.outfits.find((item) => item.id === id)!;
-          const src = `/examples/outfits/${id}.webp`;
-          return (
-            <ExampleCard
-              key={id}
-              src={src}
-              label={outfit.name}
-              on={project.style_outfits[style.id] === id}
-              title={outfit.bride}
-              onToggle={() => void choose(id)}
-              onZoom={() => onZoom({ src, caption: `${outfit.name}（示例）：${outfit.bride}${outfit.groom}` })}
-            />
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -588,8 +627,12 @@ function PersonLooks({
   const initialPicks = () =>
     Object.fromEntries(hairstyles.map((hairstyle) => [hairstyle.id, defaults.includes(hairstyle.id)])) as Record<string, boolean>;
   const [picks, setPicks] = useState(initialPicks);
+  // V7.61: the bride's earrings and necklace for the looks made next; none unless picked.
+  const [jewelry, setJewelry] = useState<string | null>(null);
+  const suggestedJewelry = style ? options.style_jewelry[style.id] : undefined;
   const [submitting, setSubmitting] = useState(false);
-  const [viewing, setViewing] = useState<Look | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const viewing = project.looks.find((look) => look.id === viewingId) ?? null;
   const [zoom, setZoom] = useState<{ src: string; caption: string } | null>(null);
   const looks = project.looks.filter((look) => look.person === which && look.style_id === (style?.id ?? null));
   const inUse = looks.find((look) => look.selected && look.usable);
@@ -605,7 +648,9 @@ function PersonLooks({
   const defaultsKey = JSON.stringify([defaults, hairstyles.map((item) => item.id)]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setPicks(initialPicks()), [defaultsKey]);
-  const chosen: LookItem[] = hairstyles.filter((hairstyle) => picks[hairstyle.id]).map((hairstyle) => ({ hairstyle_id: hairstyle.id }));
+  const chosen: LookItem[] = hairstyles
+    .filter((hairstyle) => picks[hairstyle.id])
+    .map((hairstyle) => ({ hairstyle_id: hairstyle.id, jewelry_id: style ? jewelry : null }));
   const checkAll = (on: (id: string) => boolean) =>
     setPicks((prev) => Object.fromEntries(Object.keys(prev).map((id) => [id, on(id)])));
 
@@ -661,6 +706,26 @@ function PersonLooks({
             />
           ))}
         </div>
+        {style && (
+          <div className="field">
+            <span className="field-label">首饰（耳饰和项链，戴在造型照上，拍照时照着画；不需要首饰的服饰就选用不戴首饰的造型）</span>
+            <div className="count-options jewelry-options">
+              {[{ id: null as string | null, name: "不戴" }, ...options.jewelry].map((item) => (
+                <button
+                  key={item.id ?? "none"}
+                  type="button"
+                  className={`count-option ${jewelry === item.id ? "active" : ""}`}
+                  title={"text" in item ? (item as { text: string }).text : "不戴耳饰和项链"}
+                  onClick={() => setJewelry(item.id)}
+                >
+                  {item.name}
+                  {item.id !== null && item.id === suggestedJewelry ? "（建议）" : ""}
+                </button>
+              ))}
+            </div>
+            <span className="field-hint">搭配建议：抹胸、方领可选项链组合；高领、挂脖或领口装饰较多时，优先选单独耳饰。</span>
+          </div>
+        )}
         <div className="look-form-actions">
           <button className="btn btn-ghost btn-sm" onClick={() => checkAll(() => true)}>
             全选（{hairstyles.length} 种）
@@ -687,11 +752,19 @@ function PersonLooks({
           {looks.map((look) => {
             const busy = look.status === "waiting" || look.status === "running";
             const used = look.selected && look.usable;
+            const sides = project.side_looks.filter((side) => side.parent_look_id === look.id);
+            // V7.30: side photos of this person that have no side look made or on its way for this look.
+            const person = look.person === "a" ? project.person_a : project.person_b;
+            const sideToMake = SIDE_FACINGS.filter(
+              (facing) =>
+                person[`${facing}_asset_id`] &&
+                !sides.some((side) => side.facing === facing && side.status !== "failed" && side.status !== "interrupted"),
+            ).length;
             return (
               <div key={look.id} className={`look-tile ${used ? "on" : ""}`}>
                 <div className="look-photo">
                   {look.asset_id ? (
-                    <img src={assetUrl(look.asset_id)} alt={lookLabel(look)} onClick={() => setViewing(look)} />
+                    <img src={assetUrl(look.asset_id)} alt={lookLabel(look)} onClick={() => setViewingId(look.id)} />
                   ) : busy ? (
                     <div className="overlay">
                       <div className="spinner" />
@@ -723,6 +796,60 @@ function PersonLooks({
                   {makeupInUse && look.makeup_id && look.makeup_id !== makeupInUse.id && (
                     <span className="muted">用的不是当前选用的{noun}</span>
                   )}
+                  {(sides.length > 0 || (used && look.status === "ready" && sideToMake > 0)) && (
+                    <div className="side-looks">
+                      <span className="muted">侧面造型（拍组时侧脸镜头用它）</span>
+                      {sides.length > 0 && (
+                        <div className="side-look-row">
+                          {sides.map((side) => {
+                            const facing = FACING_NAMES[side.facing];
+                            const sideBusy = side.status === "waiting" || side.status === "running";
+                            return (
+                              <div key={side.id} className="side-look">
+                                {side.asset_id ? (
+                                  <img
+                                    src={assetUrl(side.asset_id)}
+                                    alt={`侧面造型 · ${facing}`}
+                                    onClick={() =>
+                                      setZoom({ src: assetUrl(side.asset_id!), caption: `${lookLabel(look)} · 侧面造型 · ${facing}` })
+                                    }
+                                  />
+                                ) : (
+                                  <div className="side-look-empty" title={side.error_message ?? undefined}>
+                                    {sideBusy ? <div className="spinner spinner-sm" /> : <span className="error-text">失败</span>}
+                                  </div>
+                                )}
+                                <span className="muted">{sideBusy ? (side.status === "running" ? "正在生成" : "排队中") : facing}</span>
+                                {side.face_score !== null && (
+                                  <span className="muted" title="与上传的这张侧脸照比较">
+                                    相似度 {side.face_score.toFixed(2)}
+                                  </span>
+                                )}
+                                {!sideBusy && side.asset_id && (
+                                  <button
+                                    className="btn btn-ghost btn-sm"
+                                    title="删除后可以再点「做侧面造型」重做；没做的话，拍组遇到这个角度时会自动补做一张。已经拍好的照片和它们的「重新生成」不受影响"
+                                    onClick={() => act(() => api.deleteSideLook(side.id))}
+                                  >
+                                    删除
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {used && look.status === "ready" && sideToMake > 0 && (
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => act(() => api.makeSideLooks(look.id))}
+                          title="用上传的侧脸照，做成和这套正面造型同样妆发的侧面照；拍组时侧脸镜头用它当参考"
+                        >
+                          做侧面造型（{sideToMake} 次修图）
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <div className="look-actions">
                     {look.status === "ready" && look.usable && (
                       <button
@@ -735,7 +862,7 @@ function PersonLooks({
                     {look.status === "ready" && (
                       <button
                         className="btn btn-ghost btn-sm"
-                        onClick={() => generate([{ hairstyle_id: look.hairstyle_id }])}
+                        onClick={() => generate([{ hairstyle_id: look.hairstyle_id, jewelry_id: look.jewelry_id }])}
                         disabled={submitting || needsMakeup || !hairstyles.some((item) => item.id === look.hairstyle_id)}
                         title={`同样的发型，在当前选用的${noun}上再修一张（1 次修图）`}
                       >
@@ -759,7 +886,7 @@ function PersonLooks({
         <CompareView
           title={`${title} · ${lookLabel(viewing)}`}
           aligned
-          onClose={() => setViewing(null)}
+          onClose={() => setViewingId(null)}
           items={[
             { key: "source", assetId: viewing.source_asset_id, title: "上传的照片", subtitle: "", actions: [] },
             ...(viewing.makeup_asset_id
@@ -810,14 +937,30 @@ function MakeupPicker({
 }) {
   const [count, setCount] = useState(3);
   const [submitting, setSubmitting] = useState(false);
-  const [viewing, setViewing] = useState<Makeup | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const viewing = project.makeups.find((makeup) => makeup.id === viewingId) ?? null;
   const noun = role === "bride" ? "妆容" : "修脸照";
   const styleId = style?.id ?? null;
   const makeups = project.makeups.filter((makeup) => makeup.person === which && makeup.style_id === styleId);
   const label = (makeup: Makeup) => `${noun} ${makeups.indexOf(makeup) + 1}`;
   const level = role === "bride" ? project.makeup_level : project.groom_makeup_level;
-  // The refined level narrows the jawline a little, so the likeness score cannot pick its best candidate (V7.10).
-  const shaping = (makeup: Makeup) => makeup.makeup_level === "refined";
+  const settingsField = role === "bride" ? "bride_retouch_settings" : "groom_retouch_settings";
+  const settings = project[settingsField];
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  // Different slimming requests cannot be ranked fairly by likeness alone.
+  const shapingGroup = makeups.some((makeup) => makeup.usable && makeup.retouch_settings.slimming !== "off");
+  const updateSettings = async (patch: Parameters<typeof api.updateProject>[1]) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await act(() => api.updateProject(project.id, patch));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
   // V7.21: ready makeups of other styles, one per image, that this style does not have yet.
   const ownImages = new Set(makeups.map((makeup) => makeup.asset_id));
   const others: Makeup[] = [];
@@ -852,8 +995,11 @@ function MakeupPicker({
       <h4 className="look-step-title">
         {role === "bride" ? "第一步：化妆（头发不动），挑一张最好的" : "第一步：修脸（头发不动，所有风格共用），挑一张最好的"}
       </h4>
-      {level === "refined" && (
-        <span className="muted">精致档会轻微收窄下颌线，相似度会比其他档低一些，系统不按相似度挑，请自己选最满意的一张。</span>
+      <MakeupAdjustments role={role} level={level} settings={settings} disabled={saving || submitting} saving={saving}
+        onChange={(next: RetouchSettings) => updateSettings({ [settingsField]: next })}
+        onPreset={(next) => updateSettings({ [role === "bride" ? "makeup_level" : "groom_makeup_level"]: next })} />
+      {(settings.slimming !== "off" || shapingGroup) && (
+        <span className="muted">候选中包含瘦脸调整时，相似度不能单独代表修图效果，系统保留先选用的候选，请对比后自己选最满意的一张。</span>
       )}
       <div className="look-form-actions">
         <label className="muted">
@@ -867,7 +1013,7 @@ function MakeupPicker({
           </select>{" "}
           张
         </label>
-        <button className="btn btn-primary btn-sm" onClick={() => generate(count)} disabled={submitting}>
+        <button className="btn btn-primary btn-sm" onClick={() => generate(count)} disabled={submitting || saving}>
           生成{noun}（{count} 次修图）
         </button>
       </div>
@@ -880,7 +1026,7 @@ function MakeupPicker({
               <div key={makeup.id} className={`look-tile ${used ? "on" : ""}`}>
                 <div className="look-photo">
                   {makeup.asset_id ? (
-                    <img src={assetUrl(makeup.asset_id)} alt={label(makeup)} onClick={() => setViewing(makeup)} />
+                    <img src={assetUrl(makeup.asset_id)} alt={label(makeup)} onClick={() => setViewingId(makeup.id)} />
                   ) : busy ? (
                     <div className="overlay">
                       <div className="spinner" />
@@ -900,17 +1046,19 @@ function MakeupPicker({
                       title={
                         makeup.selected_by !== "auto"
                           ? undefined
-                          : shaping(makeup)
-                            ? "精致档不按相似度挑，先用第一张生成好的；点别的「选用」可以换"
+                          : shapingGroup
+                            ? "候选包含瘦脸调整，不按相似度排序，保留先选用的；点别的「选用」可以换"
                             : "相似度最高，自动选用；点别的「选用」可以换"
                       }
                     >
-                      {makeup.selected_by !== "auto" ? "选用中" : shaping(makeup) ? "选用中 · 先生成的" : "选用中 · 最像"}
+                      {makeup.selected_by !== "auto" ? "选用中" : shapingGroup ? "选用中 · 待对比" : "选用中 · 最像"}
                     </span>
                   )}
                 </div>
                 <div className="look-body">
                   <strong>{label(makeup)}</strong>
+                  <span className="muted">{makeupPresetLabel(makeup.role, makeup.makeup_level)}</span>
+                  <span className="muted">{retouchSummary(makeup.retouch_settings)}</span>
                   {style && makeup.makeup_style_id !== style.id && (
                     <span className="muted">复用自「{makeup.makeup_style_name}」的妆</span>
                   )}
@@ -949,12 +1097,13 @@ function MakeupPicker({
                     <img
                       src={assetUrl(makeup.asset_id!)}
                       alt={`${makeup.makeup_style_name}的妆容`}
-                      onClick={() => setViewing(makeup)}
+                      onClick={() => setViewingId(makeup.id)}
                     />
                   </div>
                   <div className="look-body">
                     <strong>来自「{makeup.makeup_style_name}」</strong>
                     {makeup.makeup_color_name && <span className="muted">{makeup.makeup_color_name}</span>}
+                    <span className="muted">{retouchSummary(makeup.retouch_settings)}</span>
                     {makeup.face_score !== null && <span className="muted">相似度 {makeup.face_score.toFixed(2)}</span>}
                     <span className="muted">{hair > 0 ? `带 ${hair} 张发型图` : "还没有发型图"}</span>
                     <div className="look-actions">
@@ -979,14 +1128,14 @@ function MakeupPicker({
                 }`
           }
           aligned
-          onClose={() => setViewing(null)}
+          onClose={() => setViewingId(null)}
           items={[
             { key: "source", assetId: viewing.source_asset_id, title: "上传的照片", subtitle: "", actions: [] },
             {
               key: "makeup",
               assetId: viewing.asset_id,
               title: viewing.style_id === styleId ? label(viewing) : `来自「${viewing.makeup_style_name}」`,
-              subtitle: viewing.face_score !== null ? `与上传照片的相似度 ${viewing.face_score.toFixed(2)}` : "",
+              subtitle: `${makeupPresetLabel(viewing.role, viewing.makeup_level)} · ${retouchSummary(viewing.retouch_settings)}${viewing.face_score !== null ? ` · 相似度 ${viewing.face_score.toFixed(2)}` : ""}`,
               actions: [],
             },
           ]}
@@ -1004,10 +1153,14 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
   const toast = useToast();
   const { ask, dialog } = useGenerateDialog();
   const styles = usePolledResource(api.styles, []);
-  const [viewing, setViewing] = useState<Slot | null>(null);
+  const lookOptions = usePolledResource(api.lookOptions, []);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const viewing = project.previews.find((slot) => slot.id === viewingId) ?? null;
   const [viewingLook, setViewingLook] = useState<{ assetId: string; caption: string } | null>(null);
   const [zoom, setZoom] = useState<{ src: string; caption: string } | null>(null);
   const [chosen, setChosen] = useState<string[] | null>(null);
+  /** V7.56: the rooms picked for each chosen style with rooms; a style left out takes its first room without a sample. */
+  const [chosenRooms, setChosenRooms] = useState<Record<string, string[]>>({});
   const [versionsFor, setVersionsFor] = useState<Slot | null>(null);
   const [planning, setPlanning] = useState<Slot | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -1032,9 +1185,24 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
     },
     {
       label: "AI 修脸",
+      divider: true,
       onSelect: () => actions.faceFix([slot]),
       disabled: !idle(slot),
       title: "用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致；每张修一次，按模型计费",
+    },
+    {
+      label: "修手…",
+      onSelect: () => actions.handFix(slot),
+      disabled: !idle(slot),
+      title: "涂出要修的手，只把手放大修好贴回原图，其余保持不变；修一次，按模型计费",
+    },
+    { label: "局部编辑…", onSelect: () => actions.regionalEdit(slot), disabled: !idle(slot),
+      title: "圈出要改的位置，或涂抹蒙版，再描述修改要求；原图保留" },
+    {
+      label: "洗图（4K）",
+      onSelect: () => actions.wash([slot]),
+      disabled: !idle(slot),
+      title: "整张重绘得更干净清晰，按 4K 输出；洗一次，按模型计费。建议在修脸、修手之后最后再洗",
     },
     {
       label: "换脸修正",
@@ -1048,26 +1216,71 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
     ...(isFaceSwapped(slot) ? [{ label: "对比原图", onSelect: () => setSourceCompare(slot) }] : []),
     {
       label: `历史版本（${slot.version_count}）`,
+      divider: true,
       onSelect: () => setVersionsFor(slot),
       disabled: slot.version_count === 0,
     },
   ];
 
+  // V7.56: a style has a sample per room, so a style may have several samples.
   const slotByStyle = new Map(project.previews.map((s) => [s.style_id, s]));
-  const setByStyle = new Map(project.photo_sets.map((s) => [s.style_id, s]));
+  const roomsWithSample = (styleId: string) =>
+    project.previews.filter((s) => s.style_id === styleId && s.room).map((s) => s.room!.id);
+  /** The set photos shot from this sample's style and room. */
+  const shotsOf = (slot: Slot) =>
+    project.photos.filter((p) => p.style_id === slot.style_id && (p.room?.id ?? null) === (slot.room?.id ?? null)).length;
   const anyStale = project.previews.some((s) => s.is_stale);
   const allFailed =
     project.previews.length > 0 && project.previews.every((s) => !s.current_version && isBroken(s));
 
-  // Styles that already have a sample; "regenerate all" covers only these, not every built-in style.
-  const generatedStyleIds = styles.data.filter((s) => slotByStyle.has(s.id)).map((s) => s.id);
+  /** A sample to make: a style, in one of its rooms (V7.56) or without a room. */
+  type Target = { styleId: string; roomId: string | null };
+  const keyOf = (target: Target) => `${target.styleId}:${target.roomId ?? ""}`;
+  const targetOf = (slot: Slot): Target => ({ styleId: slot.style_id, roomId: slot.room?.id ?? null });
+  // The samples there are; "regenerate all" covers only these, not every built-in style.
+  const existing = project.previews.map(targetOf);
   /** A new sample of a style uses its selected bride look and the groom's selected look (V7.0). */
   const hasLooks = (styleId: string) => Boolean(project.style_looks[styleId]?.bride && project.style_looks[styleId]?.groom);
-  const pickable = styles.data.filter((style) => !style.retired && !slotByStyle.has(style.id));
-  const chosenStyles = (chosen ?? (project.previews.length === 0 ? pickable.map((s) => s.id) : [])).filter(hasLooks);
+  // V7.56: first a style, then its outfit (V7.60) and rooms. Every live style stays in the picker, so a scene that has a
+  // sample can be shot again, for instance in another outfit.
+  const pickable = styles.data.filter((style) => !style.retired);
+  const chosenStyles = (chosen ?? (project.previews.length === 0 ? pickable.map((s) => s.id) : [])).filter(
+    (id) => hasLooks(id) && pickable.some((style) => style.id === id),
+  );
+  /** The rooms a chosen style will be shot in: the picked ones, else its first room without a sample. */
+  const roomsOf = (style: Style): string[] => {
+    const picked = (chosenRooms[style.id] ?? []).filter((id) => style.rooms.some((room) => room.id === id));
+    if (picked.length > 0) return picked;
+    const sampled = roomsWithSample(style.id);
+    return [(style.rooms.find((room) => !sampled.includes(room.id)) ?? style.rooms[0]).id];
+  };
+  const chosenTargets: Target[] = chosenStyles.flatMap((styleId): Target[] => {
+    const style = styles.data!.find((s) => s.id === styleId)!;
+    return style.rooms.length === 0 ? [{ styleId, roomId: null }] : roomsOf(style).map((roomId) => ({ styleId, roomId }));
+  });
+  const toggleRoom = (style: Style, roomId: string) => {
+    const current = roomsOf(style);
+    const next = current.includes(roomId) ? current.filter((id) => id !== roomId) : [...current, roomId];
+    // At least one room stays picked; keep the rooms' own order.
+    if (next.length > 0) setChosenRooms({ ...chosenRooms, [style.id]: style.rooms.map((room) => room.id).filter((id) => next.includes(id)) });
+  };
+  const chooseOutfit = async (styleId: string, outfitId: string) => {
+    try {
+      await api.chooseStyleOutfit(project.id, styleId, outfitId);
+      await refresh();
+    } catch (err) {
+      toast.error(err);
+    }
+  };
   const describe = (lookId: string | null | undefined) => (lookId && lookById.get(lookId) ? lookLabel(lookById.get(lookId)!) : "未选");
+  const nameOf = (target: Target) => {
+    const style = styles.data!.find((s) => s.id === target.styleId);
+    const room = style?.rooms.find((r) => r.id === target.roomId);
+    return `${style?.name ?? target.styleId}${room ? ` · ${room.name}` : ""}`;
+  };
 
-  const regenerate = async (styleIds: string[], label: string) => {
+  const regenerate = async (targets: Target[], label: string) => {
+    const styleIds = [...new Set(targets.map((target) => target.styleId))];
     const missing = styleIds.filter((styleId) => !hasLooks(styleId)).map((styleId) => styles.data!.find((s) => s.id === styleId)?.name ?? styleId);
     if (missing.length > 0) {
       toast.info(`「${missing.join("」「")}」还没有选用的造型，请先在「风格与造型」里做好并选用`);
@@ -1078,16 +1291,32 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
       const pair = project.style_looks[styleId];
       return `${name}：新娘 ${describe(pair.bride)}，新郎 ${describe(pair.groom)}`;
     });
+    // V7.56: the rooms come from the cards; each picked room of a style is one sample.
+    const rooms: Record<string, string[]> = {};
+    for (const target of targets) if (target.roomId) (rooms[target.styleId] ??= []).push(target.roomId);
+    // V7.60: the outfit is the style's choice, picked in the style picker above its rooms.
+    const outfitLines = styleIds.flatMap((styleId) => {
+      const ids = lookOptions.data?.style_outfits[styleId] ?? [];
+      if (ids.length < 2) return [];
+      const name = lookOptions.data!.outfits.find((item) => item.id === project.style_outfits[styleId])?.name;
+      return name ? [`${styles.data!.find((s) => s.id === styleId)?.name ?? styleId}穿「${name}」`] : [];
+    });
+    const again = targets.some((target) => existing.some((item) => keyOf(item) === keyOf(target)));
     const choice = await ask({
       title: label,
-      message: `${generatedStyleIds.some((id) => styleIds.includes(id)) ? "已有的样片会保留为历史版本。" : ""}试拍会按所选服饰一起完成穿衣、场景、光线和构图。使用的妆发——${lines.join("；")}。出图后请先检查人物、服饰和整体效果，满意后再拍组照。`,
-      taskCount: styleIds.length,
+      message: `将生成：${targets.map(nameOf).join("、")}。${again ? "重新生成的样片，旧图会保留为历史版本。" : ""}试拍会按所选服饰一起完成穿衣、场景、光线和构图${outfitLines.length > 0 ? `（${outfitLines.join("，")}）` : ""}。使用的妆发——${lines.join("；")}。出图后请先检查人物、服饰和整体效果，满意后再拍组照。`,
+      taskCount: targets.length,
     });
     if (!choice) return;
-    setBusy(styleIds.length === 1 ? styleIds[0] : "all");
+    setBusy(targets.length === 1 ? keyOf(targets[0]) : "all");
     try {
-      await api.createPreviews(project.id, { styleIds, model: choice.model });
+      await api.createPreviews(project.id, {
+        styleIds,
+        model: choice.model,
+        rooms: Object.keys(rooms).length > 0 ? rooms : undefined,
+      });
       setChosen([]);
+      setChosenRooms({});
       await refresh();
     } catch (err) {
       toast.error(err);
@@ -1098,7 +1327,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
 
   const retry = async (slot: Slot) => {
     if (!slot.latest_task) return;
-    setBusy(slot.style_id);
+    setBusy(slot.id);
     try {
       await api.retryTask(slot.latest_task.id);
       await refresh();
@@ -1129,19 +1358,19 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
         <p className="muted">
           每种风格先试拍 1 张：按选好的妆发和服饰，一起完成穿衣、场景、光线和构图。
           放大检查人物是否像本人、服饰是否合适、整体效果是否满意，再点「确认样片，拍一组」。
-          要换服饰或妆发，回到「风格与造型」修改后重新试拍；已有样片及用它拍的组照会保留原来的选择。每种风格都可以拍多组。
+          要换服饰，在下面选好再试拍；要换妆发，回到「风格与造型」修改后重新试拍；已有样片及用它拍的组照会保留原来的选择。每种风格都可以拍多组。
         </p>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-ghost" onClick={onBack}>
-            ← 修改服饰与妆发
+            ← 修改妆发
           </button>
           <button className="btn" onClick={() => (selecting ? exitSelecting() : setSelecting(true))}>
             {selecting ? "退出对比选择" : "对比样片"}
           </button>
           <button
             className="btn"
-            onClick={() => regenerate(generatedStyleIds, "重新生成已有的全部样片")}
-            disabled={busy !== null || generatedStyleIds.length === 0}
+            onClick={() => regenerate(existing, "重新生成已有的全部样片")}
+            disabled={busy !== null || existing.length === 0}
           >
             重新生成全部
           </button>
@@ -1152,7 +1381,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
         <div className="card style-picker">
           <div className="style-picker-header">
             <h3>选择要生成样片的风格</h3>
-            <span className="muted">已选 {chosenStyles.length} 种；没有选用造型的风格要先回上一步做造型</span>
+            <span className="muted">已选 {chosenStyles.length} 种，共 {chosenTargets.length} 张；在下面选每个风格的服饰和场景；没有选用造型的风格要先回上一步做造型</span>
             {chosenStyles.length > 0 && (
               <button className="btn btn-ghost btn-sm" onClick={() => setChosen([])}>
                 清空
@@ -1166,7 +1395,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
                 <ExampleCard
                   key={style.id}
                   src={styleExample(style.id)}
-                  label={style.name}
+                  label={slotByStyle.has(style.id) ? `${style.name}（已有样片）` : style.name}
                   on={on}
                   disabled={!hasLooks(style.id)}
                   title={hasLooks(style.id) ? style.description : "还没有这个风格的新娘造型，请先在「风格与造型」里做好并选用"}
@@ -1176,13 +1405,87 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
               );
             })}
           </div>
+          {chosenStyles.map((styleId) => {
+            const style = styles.data!.find((s) => s.id === styleId)!;
+            const outfitIds = lookOptions.data?.style_outfits[style.id] ?? [];
+            const picked = roomsOf(style);
+            const sampled = roomsWithSample(style.id);
+            return (
+              <Fragment key={`choice-${style.id}`}>
+                {outfitIds.length > 1 && (
+                  <div className="field">
+                    <span className="field-label">「{style.name}」穿哪套服饰（这个风格的所有场景都穿它；已有样片和组照保持原样）</span>
+                    <div className="room-options">
+                      {outfitIds.map((id) => {
+                        const outfit = lookOptions.data!.outfits.find((item) => item.id === id);
+                        const src = `/examples/outfits/${id}.webp`;
+                        return (
+                          <div className="room-option-wrap" key={id}>
+                            <button
+                              type="button"
+                              className={`room-option outfit-option ${project.style_outfits[style.id] === id ? "active" : ""}`}
+                              onClick={() => void chooseOutfit(style.id, id)}
+                              title={outfit ? `${outfit.bride}${outfit.groom}` : id}
+                            >
+                              <img src={src} alt={outfit?.name ?? id} loading="lazy" />
+                              <span>{outfit?.name ?? id}</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="example-zoom"
+                              aria-label="看大图"
+                              title="看大图"
+                              onClick={() => setZoom({ src, caption: outfit ? `${outfit.name}：${outfit.bride}${outfit.groom}${outfit.headwear}` : id })}
+                            >
+                              ⤢
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {style.rooms.length > 0 && (
+                  <div className="field">
+                    <span className="field-label">「{style.name}」在哪些场景拍（可多选，每个场景一张样片）</span>
+                    <div className="room-options">
+                      {style.rooms.map((room) => (
+                        <div className="room-option-wrap" key={room.id}>
+                          <button
+                            type="button"
+                            className={`room-option ${picked.includes(room.id) ? "active" : ""}`}
+                            onClick={() => toggleRoom(style, room.id)}
+                            title={room.areas.map((area) => area.name).join("、")}
+                          >
+                            <img src={room.areas[0].image_url ?? undefined} alt={room.name} loading="lazy" />
+                            <span>{room.name}{sampled.includes(room.id) ? "（已有样片）" : ""}</span>
+                          </button>
+                          {room.areas[0].image_url && (
+                            <button
+                              type="button"
+                              className="example-zoom"
+                              aria-label="看大图"
+                              title="看大图"
+                              onClick={() => setZoom({ src: room.areas[0].image_url!, caption: `${style.name} · ${room.name}` })}
+                            >
+                              ⤢
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
           <div className="style-picker-actions">
             <button
               className="btn btn-primary"
-              disabled={chosenStyles.length === 0 || busy !== null}
-              onClick={() => regenerate(chosenStyles, "生成风格样片")}
+              disabled={chosenTargets.length === 0 || busy !== null}
+              onClick={() => regenerate(chosenTargets, "生成风格样片")}
             >
-              生成所选风格的样片（{chosenStyles.length} 张）
+              生成所选的样片（{chosenTargets.length} 张）
             </button>
           </div>
         </div>
@@ -1200,51 +1503,53 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           title="样片全部生成失败"
           description="可能是网络或模型服务暂时不可用，也可能是照片未通过审核。请检查设置后重试。"
           action={
-            <button className="btn btn-primary" onClick={() => regenerate(generatedStyleIds, "重新生成全部样片")}>
+            <button className="btn btn-primary" onClick={() => regenerate(existing, "重新生成全部样片")}>
               全部重试
             </button>
           }
         />
       ) : (
         <div className="preview-grid">
-          {styles.data.filter((style) => slotByStyle.has(style.id)).map((style) => (
-            <PreviewCard
-              key={style.id}
-              style={style}
-              slot={slotByStyle.get(style.id)}
-              shotCount={setByStyle.get(style.id)?.slot_count ?? 0}
-              busy={busy === style.id || busy === "all"}
-              onView={setViewing}
-              onRegenerate={() => regenerate([style.id], `${slotByStyle.get(style.id) ? "重新生成" : "生成"}「${style.name}」样片`)}
-              looks={(() => {
-                const slot = slotByStyle.get(style.id);
-                if (!slot) return null;
-                // The looks the style uses now (what the next sample is shot from); the sample's own looks where none
-                // is selected, and its styled photos for pictures from before looks.
-                const now = project.style_looks[style.id];
-                return (["bride", "groom"] as const).map((role) => {
-                  const lookId = now?.[role] ?? slot.look_ids?.[role];
-                  const look = lookId ? lookById.get(lookId) : undefined;
-                  const assetId = look?.asset_id ?? slot.styled_asset_ids?.[role] ?? null;
-                  return { role, assetId, label: look ? lookLabel(look) : null };
-                });
-              })()}
-              looksChanged={(() => {
-                const own = slotByStyle.get(style.id)?.look_ids;
-                const now = project.style_looks[style.id];
-                return Boolean(own && now?.bride && now?.groom && (own.bride !== now.bride || own.groom !== now.groom));
-              })()}
-              onViewLook={(assetId, caption) => setViewingLook({ assetId, caption: `${style.name} · ${caption}` })}
-              onRetry={retry}
-              onShoot={shoot}
-              menu={slotByStyle.get(style.id) ? menuFor(slotByStyle.get(style.id)!) : null}
-              onOpenAlbum={() => navigate(`/projects/${project.id}/album?style=${style.id}`)}
-              selecting={selecting}
-              selected={picked.includes(slotByStyle.get(style.id)?.id ?? "")}
-              onToggle={togglePick}
-              onCompareSource={setSourceCompare}
-            />
-          ))}
+          {project.previews.map((slot) => {
+            const style = styles.data!.find((item) => item.id === slot.style_id);
+            if (!style) return null;
+            return (
+              <PreviewCard
+                key={slot.id}
+                style={style}
+                slot={slot}
+                shotCount={shotsOf(slot)}
+                busy={busy === keyOf(targetOf(slot)) || busy === slot.id || busy === "all"}
+                onView={(slot) => setViewingId(slot.id)}
+                onRegenerate={() => regenerate([targetOf(slot)], `重新生成「${nameOf(targetOf(slot))}」样片`)}
+                looks={(() => {
+                  // The looks the style uses now (what the next sample is shot from); the sample's own looks where none
+                  // is selected, and its styled photos for pictures from before looks.
+                  const now = project.style_looks[style.id];
+                  return (["bride", "groom"] as const).map((role) => {
+                    const lookId = now?.[role] ?? slot.look_ids?.[role];
+                    const look = lookId ? lookById.get(lookId) : undefined;
+                    const assetId = look?.asset_id ?? slot.styled_asset_ids?.[role] ?? null;
+                    return { role, assetId, label: look ? lookLabel(look) : null };
+                  });
+                })()}
+                looksChanged={(() => {
+                  const own = slot.look_ids;
+                  const now = project.style_looks[style.id];
+                  return Boolean(own && now?.bride && now?.groom && (own.bride !== now.bride || own.groom !== now.groom));
+                })()}
+                onViewLook={(assetId, caption) => setViewingLook({ assetId, caption: `${style.name} · ${caption}` })}
+                onRetry={retry}
+                onShoot={shoot}
+                menu={menuFor(slot)}
+                onOpenAlbum={() => navigate(`/projects/${project.id}/album?style=${style.id}`)}
+                selecting={selecting}
+                selected={picked.includes(slot.id)}
+                onToggle={togglePick}
+                onCompareSource={setSourceCompare}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -1259,7 +1564,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           ]
             .filter(Boolean)
             .join(" · ")}
-          onClose={() => setViewing(null)}
+          onClose={() => setViewingId(null)}
         />
       )}
       {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
@@ -1297,12 +1602,12 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
           aligned={false}
           onClose={() => setComparing(false)}
           items={pickedSlots.slice(0, 4).map((slot) => {
-            const shot = setByStyle.get(slot.style_id)?.slot_count ?? 0;
+            const shot = shotsOf(slot);
             return {
               key: slot.id,
               assetId: slot.current_version!.asset_id,
               scores: slot.current_version!.face_scores,
-              title: slot.style_name,
+              title: `${slot.style_name}${slot.room ? ` · ${slot.room.name}` : ""}`,
               subtitle: [`V${slot.current_version!.version_number}`, slot.current_version!.model]
                 .filter(Boolean)
                 .join(" · "),
@@ -1326,7 +1631,7 @@ function StyleStep({ project, onBack }: { project: ProjectDetail; onBack: () => 
         <ShootPlanner
           projectId={project.id}
           preview={planning}
-          shotCount={setByStyle.get(planning.style_id)?.slot_count ?? 0}
+          shotCount={shotsOf(planning)}
           onClose={() => setPlanning(null)}
           onShot={async () => {
             const styleId = planning.style_id;
@@ -1427,8 +1732,8 @@ function PreviewCard({
           <span className={`checkbox ${selected ? "checked" : ""}`}>{selected ? "✓" : ""}</span>
         )}
         {version && slot && isFaceSwapped(slot) && !selecting && (
-          <button className="status-chip swap-chip" onClick={() => onCompareSource(slot)} title="与修脸前的原图对比">
-            修脸 · 对比
+          <button className="status-chip swap-chip" onClick={() => onCompareSource(slot)} title={`与${fixLabel(slot)}前的原图对比`}>
+            {fixLabel(slot)} · 对比
           </button>
         )}
         {shotCount > 0 && !selecting && (
@@ -1442,7 +1747,7 @@ function PreviewCard({
 
       <div className="preview-body">
         <div className="preview-title">
-          <h3>{style.name}</h3>
+          <h3>{style.name}{slot?.room ? ` · ${slot.room.name}` : ""}</h3>
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             {version?.model && <span className="tag">{version.model}</span>}
             {version && slot && slot.version_count > 1 && <span className="tag">V{version.version_number}</span>}
@@ -1452,6 +1757,13 @@ function PreviewCard({
         <p className="muted" style={{ fontSize: 12 }}>
           {style.description}
         </p>
+        {slot?.room && <span className="field-hint">场景：{slot.room.name}（整组在这个场景里拍）</span>}
+        {slot?.style_art_asset_id && (
+          <a className="preview-art" href={assetUrl(slot.style_art_asset_id)} target="_blank" rel="noreferrer" title="这张样片用的服饰场景参考图（衣服和场景照它画，图里没有人）">
+            <img src={assetUrl(slot.style_art_asset_id)} alt="服饰场景参考图" loading="lazy" />
+            <span className="field-hint">服饰场景参考图：衣服和场景照它画，点开检查</span>
+          </a>
+        )}
         <FaceScore scores={version?.face_scores} />
         {version?.size_warning && <span className="error-text">尺寸不符：{version.size_warning}</span>}
         {looks && looks.some((item) => item.assetId) && (

@@ -14,6 +14,7 @@ import {
   type ShotSize,
   type Slot,
 } from "../api";
+import { StyleArtPanel } from "./StyleArtPanel";
 
 const PHOTO_COUNTS = [4, 8, 12, 20];
 
@@ -140,6 +141,13 @@ export function ShootPlanner({
                 请确认这张样片的人物、服饰和整体效果。本组沿用它创建时的服饰与妆发选择。
                 想更换服饰或妆发，请先关闭，回到工作台修改并重新试拍。
               </p>
+            </div>
+            <div className="field">
+              <span className="field-label">这一组用的服饰场景参考图</span>
+              <span className="field-hint">
+                照片会照着这些图画衣服和场景（图里没有人），画错的地方照片也会跟着错。请先检查，不对就重新生成；还没生成的会在拍到这个区域时自动生成，也可以现在先生成看看。
+              </span>
+              <StyleArtPanel enabled slotId={preview.id} />
             </div>
             <div className="field">
               <span className="field-label">生成数量</span>
@@ -362,7 +370,7 @@ function FacingSelector({ label, value, disabled, onChange }: {
   disabled: boolean;
   onChange: (facing: Facing) => void;
 }) {
-  const options: [Facing, string][] = [["front", "正面"], ["left", "左"], ["right", "右"]];
+  const options: [Facing, string][] = [["front", "正面"], ["left", "左"], ["right", "右"], ["left_full", "左·正侧"], ["right_full", "右·正侧"]];
   return (
     <div className="shot-switch" role="group" aria-label={`${label}面部朝向`} title="只决定传哪张参考照，不改动镜头描述">
       <span className="facing-label">{label}：</span>

@@ -2,6 +2,15 @@
 
 export type Role = "bride" | "groom";
 export type MakeupLevel = "light" | "natural" | "refined";
+export type AdjustmentLevel = "off" | "minimal" | "subtle" | "light" | "mild" | "balanced" | "moderate" | "enhanced" | "strong" | "intense" | "maximum";
+export type ConcealingLevel = Exclude<AdjustmentLevel, "balanced" | "maximum"> | "standard" | "full";
+export interface RetouchSettings {
+  slimming: AdjustmentLevel;
+  brightening: AdjustmentLevel;
+  concealing: ConcealingLevel;
+  chin: AdjustmentLevel;
+  nasolabial: AdjustmentLevel;
+}
 export type BrideHairLength = "long" | "medium" | "short";
 export type GroomHairLength = "buzz" | "short" | "medium";
 export type Stage = "upload" | "style" | "shooting";
@@ -16,10 +25,42 @@ export type TaskStatus =
 export type BatchStatus = "running" | "held" | "needs_attention" | "completed";
 export type BatchType = "preview" | "photo" | "regenerate";
 
+export interface HandRegion {
+  label: string;
+  status: "repair" | "reconstruct" | "uncertain";
+  /** Normalized coordinates in the EXIF-oriented full image. */
+  bbox: [number, number, number, number];
+  evidence: string[];
+  problems: string[];
+  goal: string;
+  preserve: string[];
+  uncertainties: string[];
+}
+
+export interface HandAnalysis {
+  status: "repair" | "reconstruct" | "normal" | "uncertain";
+  summary: string;
+  regions: HandRegion[];
+  source_version_id: string;
+  scope: "detect" | "selection";
+  model: string;
+  provider: ImageProviderId;
+  image_size: [number, number];
+  annotation_sha256: string | null;
+  annotation_kind: "crop" | "reference" | "markup" | "mask" | null;
+  created_at: string;
+  selected_region_index: number | null;
+  repair_prompts: string[];
+}
+
 export interface Person {
   asset_id: string | null;
+  /** The half side photos (about 45°). */
   left_asset_id: string | null;
   right_asset_id: string | null;
+  /** V7.48: the full side photos (profiles, about 90°). */
+  left_full_asset_id: string | null;
+  right_full_asset_id: string | null;
   role: Role;
 }
 
@@ -37,6 +78,8 @@ export interface VersionRef {
   model: string | null;
   /** Face-swap versions point at the version they were swapped from (same composition). */
   source_version_id: string | null;
+  /** V7.25: how this version was made; null for a first generation. */
+  regenerate_mode?: VersionMode | null;
   /** Null until measured (and for pictures without faces to measure). */
   face_scores?: FaceScores | null;
   /** The service returned another size than requested. */
@@ -71,6 +114,26 @@ export interface Slot {
   styled_asset_ids: { bride: string; groom: string } | null;
   /** The looks the current version was shot from (V5.0); null for older pictures. */
   look_ids: LookPair | null;
+  /** The room the current version was shot in (V7.34); null for styles without rooms and older pictures. */
+  room?: ShotRoom | null;
+  /** The style art (outfit in the scene) the current version was shot from (V7.35); null without one. */
+  style_art_asset_id?: string | null;
+}
+
+export interface ShotRoom {
+  id: string;
+  name: string;
+  /** 1 is the room's main picture, where samples are shot. */
+  area: number | null;
+  area_name: string | null;
+}
+
+/** A room a style is shot in (V7.34): the user picks it for a sample; its set is spread over the room's areas. */
+export interface Room {
+  id: string;
+  name: string;
+  /** image_url is null while an area other than the main one is not made yet (V7.38). */
+  areas: { name: string; image_url: string | null }[];
 }
 
 export interface LookPair {
@@ -89,10 +152,14 @@ export interface Look {
   style_id: string | null;
   hairstyle_id: string;
   hairstyle_name: string;
+  /** V7.61: the earrings and necklace the bride wears on this look; null for none. */
+  jewelry_id: string | null;
+  jewelry_name: string | null;
   makeup_color: string | null;
   makeup_color_name: string | null;
   makeup_level: MakeupLevel;
   hair_length: string;
+  retouch_settings: RetouchSettings;
   status: LookStatus;
   error_code: string | null;
   error_message: string | null;
@@ -115,6 +182,26 @@ export interface Look {
   makeup_style_id: string | null;
 }
 
+/** A side photo edited into the same look as its front look (V5.0), made when a shot first needs that angle. */
+export interface SideLook {
+  id: string;
+  parent_look_id: string;
+  person: "a" | "b";
+  role: Role;
+  angle: "left" | "right";
+  /** V7.48: the side photo it was made from: half side ("left"/"right") or profile ("left_full"/"right_full"). */
+  facing: SideFacing;
+  /** V7.30: made in the look step on request; queued and running ones have no image yet. */
+  status: LookStatus;
+  error_message: string | null;
+  asset_id: string | null;
+  /** The uploaded side photo it was made from. */
+  source_asset_id: string;
+  created_at: string;
+  /** V7.45: likeness to that side photo; null until scored or when no face was found. */
+  face_score: number | null;
+}
+
 /** The bride's makeup for one style, hair unchanged (V7.8); new bride looks of the style use the selected one. */
 export interface Makeup {
   id: string;
@@ -130,6 +217,7 @@ export interface Makeup {
   makeup_color_name: string | null;
   makeup_level: MakeupLevel;
   status: LookStatus;
+  retouch_settings: RetouchSettings;
   error_code: string | null;
   error_message: string | null;
   asset_id: string | null;
@@ -145,6 +233,8 @@ export interface Makeup {
 
 export interface LookItem {
   hairstyle_id: string;
+  /** V7.61: the bride's earrings and necklace; none when omitted. */
+  jewelry_id?: string | null;
 }
 
 export interface LookOptions {
@@ -154,6 +244,9 @@ export interface LookOptions {
   /** The fixed outfits (V7.17), and which of them each style offers, the default first. */
   outfits: { id: string; name: string; bride: string; groom: string; headwear: string }[];
   style_outfits: Record<string, string[]>;
+  /** V7.61: the bride's jewelry to choose from on a look, and the one each style suggests first. */
+  jewelry: { id: string; name: string; text: string }[];
+  style_jewelry: Record<string, string>;
 }
 
 export interface PhotoSet {
@@ -177,8 +270,12 @@ export interface ProjectSummary {
 }
 
 export interface ProjectDetail extends ProjectSummary {
+  /** Background similarity scoring continues after image generation completes. */
+  has_pending_face_scores: boolean;
   makeup_level: MakeupLevel;
   groom_makeup_level: MakeupLevel;
+  bride_retouch_settings: RetouchSettings;
+  groom_retouch_settings: RetouchSettings;
   bride_hair_length: BrideHairLength;
   groom_hair_length: GroomHairLength;
   person_a: Person;
@@ -188,6 +285,8 @@ export interface ProjectDetail extends ProjectSummary {
   photos: Slot[];
   /** Front look candidates of both people (V5.0), oldest first. */
   looks: Look[];
+  /** V7.24: the side looks new shots of these front looks use; deleting one makes the next shot edit a new one. */
+  side_looks: SideLook[];
   /** Per style, the looks a new sample uses (V7.0): the bride's selected look for it and the groom's selected look. */
   style_looks: Record<string, { bride: string | null; groom: string | null }>;
   /** Per style, the fixed outfit a new sample wears (V7.17). */
@@ -236,10 +335,12 @@ export interface Task {
 export type RegenerateMode = "same" | "identity_boost";
 /** Paid actions: they go through the model / cost confirmation dialog. */
 export type SlotAction = RegenerateMode | "change_pose" | "change_shot";
-/** Everything that can produce a version; face_swap is local and free, face_fix is one paid edit. */
-export type VersionMode = SlotAction | "face_swap" | "face_fix";
+/** Everything that can produce a version; face_swap is local and free, face_fix and hand_fix are one paid edit each. */
+export type VersionMode = SlotAction | "face_swap" | "face_fix" | "hand_fix" | "wash" | "regional_edit";
 /** What follows each generated picture with faces; "split" fixes the bride by AI, then swaps the groom locally. */
 export type AutoFaceFix = "split" | "ai" | "facefusion" | "off";
+/** V7.29: what one person gets after a picture is generated. */
+export type FaceFixMethod = "ai" | "facefusion" | "off";
 /** Wide plus the four studio framings (V3.14); the only sizes new shots can use. */
 export type ShotSize = "wide" | "full" | "three_quarter" | "half" | "close";
 /** Works from V3.4–V3.11 may still carry retired sizes and faceless detail shots. */
@@ -260,7 +361,17 @@ export const SHOT_LABEL: Record<StoredShotSize, string> = {
 export const hasFaces = (slot: Slot) => slot.shot_size !== "detail";
 
 export type Orientation = "portrait" | "landscape";
-export type Facing = "front" | "left" | "right";
+export type Facing = "front" | "left" | "right" | "left_full" | "right_full";
+export type SideFacing = Exclude<Facing, "front">;
+/** V7.48: the side photo slots, half sides first. */
+export const SIDE_FACINGS: SideFacing[] = ["left", "right", "left_full", "right_full"];
+export const FACING_NAMES: Record<Facing, string> = {
+  front: "正面",
+  left: "朝左半侧",
+  right: "朝右半侧",
+  left_full: "朝左正侧面",
+  right_full: "朝右正侧面",
+};
 export const ORIENTATIONS: Orientation[] = ["portrait", "landscape"];
 export const ORIENTATION_LABEL: Record<Orientation, string> = { portrait: "竖版", landscape: "横版" };
 
@@ -313,19 +424,25 @@ export interface Style {
   default_preview: boolean;
   /** Hidden from new picks; still shown where a project already has its sample. */
   retired: boolean;
+  /** V7.34: the rooms a sample can be shot in; empty for styles without rooms. */
+  rooms: Room[];
 }
 
 export interface Model {
   id: string;
   name: string;
-  family: "openai" | "gemini";
+  family: "openai" | "gemini" | "seedream";
   max_reference_images: number;
   description: string;
   /** The image services offering it (V7.11). */
   providers: ImageProviderId[];
 }
 
-export type ImageProviderId = "88api" | "pptoken";
+export type ImageProviderId = "88api" | "pptoken" | "ark";
+
+/** Steps with their own image service and model in Settings ("face_fix" is the hand fix; "face" the AI face fix). */
+export type StageKind = "makeup" | "look" | "style_art" | "face_fix" | "face" | "wash" | "regional";
+export type StageChoice = { model: string | null; provider: ImageProviderId | null };
 
 export interface ImageProvider {
   id: ImageProviderId;
@@ -342,15 +459,66 @@ export interface Settings {
   batch_reference_mode: BatchReferenceMode;
   director_model: string | null;
   portrait_ratio: PortraitRatio;
-  auto_face_fix: AutoFaceFix;
-  /** The AI face fix's model, automatic and by hand; null follows default_model. */
+  /** The preset the two people's methods make, or "custom" (V7.29); PATCH may still send a preset. */
+  auto_face_fix: AutoFaceFix | "custom";
+  auto_face_fix_bride: FaceFixMethod;
+  auto_face_fix_groom: FaceFixMethod;
+  /** The hand fix's model ("face_fix" predates V7.32); null follows default_model. */
   face_fix_model: string | null;
+  /** V7.26: the wash's image model; null follows the default model. */
+  wash_model: string | null;
+  /** V7.27: the image service of hand fixes and of washes; null follows image_provider. */
+  face_fix_provider: ImageProviderId | null;
+  wash_provider: ImageProviderId | null;
+  /** 2026-11-13: the other steps' own service and model (see StageKind); null follows image_provider / default_model. */
+  face_model: string | null;
+  face_provider: ImageProviderId | null;
+  regional_model: string | null;
+  regional_provider: ImageProviderId | null;
+  makeup_model: string | null;
+  makeup_provider: ImageProviderId | null;
+  look_model: string | null;
+  look_provider: ImageProviderId | null;
+  style_art_model: string | null;
+  style_art_provider: ImageProviderId | null;
   /** V7.11: the image service models both services offer go to. */
   image_provider: ImageProviderId;
   image_providers: ImageProvider[];
   /** The service the AI director uses; director_model is that service's model. */
   director_provider: ImageProviderId;
   director_providers: ImageProvider[];
+  /** V7.33: whether new shots of a live style copy the clothes and the place from its style art. */
+  style_art_mode: "on" | "off";
+}
+
+/** V7.33: a live style's art, its outfit worn by no one in its main scene; shared by every project. */
+export interface StyleArt {
+  style_id: string;
+  style_name: string;
+  outfit_id: string;
+  outfit_name: string;
+  /** V7.34: the room this art shows (V7.50: one art per room, of its main picture, area 1); null for a style's
+   * single main-scene art. */
+  room_id?: string | null;
+  room_name?: string | null;
+  area?: number | null;
+  area_name?: string | null;
+  area_image_url?: string | null;
+  /** The latest attempt; null fields while the style has none (it is made when a shot first needs it). */
+  id: string | null;
+  status: "running" | "ready" | "failed" | "interrupted" | null;
+  model: string | null;
+  error_message: string | null;
+  created_at: string | null;
+  finished_at: string | null;
+  /** The pictures of the art shots use, or of the latest attempt while there is none. */
+  product_url: string | null;
+  scene_url: string | null;
+  image_url: string | null;
+  /** The art new shots use; differs from id while a new one is made or after one failed. */
+  in_use_id: string | null;
+  /** Paid edits that making it (again) costs now (V7.35). */
+  cost: number;
 }
 
 export interface FaceSwapStatus {
@@ -408,9 +576,33 @@ export const assetUrl = (assetId: string) => `/api/assets/${assetId}`;
 export const api = {
   health: () => request<Health>("/health"),
   styles: () => request<Style[]>("/styles"),
-  models: () => request<Model[]>("/models"),
+  /** The models of an image service (V7.27), or of the one Settings selects. */
+  models: (provider?: ImageProviderId) => request<Model[]>(provider ? `/models?provider=${provider}` : "/models"),
+  regionalEditModels: (provider: ImageProviderId) => request<Model[]>(`/regional-edit/models?provider=${provider}`),
+  regionalEditOptions: (provider: ImageProviderId) => request<{
+    models: Model[];
+    /** models: the ids that can do this method (Nano Banana 2.1 only "crop"). */
+    methods: { id: "crop" | "reference" | "markup" | "mask"; name: string; available: boolean; description: string; models: string[] }[];
+  }>(`/regional-edit/options?provider=${provider}`),
+  regionalEdit: (slotId: string, data: FormData) => request<Batch>(`/slots/${slotId}/regional-edit`, { method: "POST", body: data }),
+  analyzeHands: (slotId: string, data: FormData) => request<HandAnalysis>(`/slots/${slotId}/hand-analysis`, { method: "POST", body: data }),
   settings: () => request<Settings>("/settings"),
   updateSettings: (patch: Partial<Settings>) => request<Settings>("/settings", json("PATCH", patch)),
+  styleArts: () => request<StyleArt[]>("/style-arts"),
+  /** Make a room area's picture again from the room's main picture: one paid edit (V7.38). */
+  /** The arts a set from this sample uses (V7.35): one per area of its room, in its outfit. */
+  slotStyleArts: (slotId: string) => request<StyleArt[]>(`/slots/${slotId}/style-arts`),
+  /** Make a style's art (again) with the default model; costs StyleArt.cost paid edits (V7.33–V7.35). */
+  generateStyleArt: (styleId: string, options: { room?: { id: string; area: number }; outfit?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (options.room) {
+      query.set("room", options.room.id);
+      query.set("area", String(options.room.area));
+    }
+    if (options.outfit) query.set("outfit", options.outfit);
+    const suffix = query.toString();
+    return request<StyleArt>(`/style-arts/${styleId}/generate${suffix ? `?${suffix}` : ""}`, json("POST"));
+  },
 
   listProjects: () => request<ProjectSummary[]>("/projects"),
   getProject: (id: string) => request<ProjectDetail>(`/projects/${id}`),
@@ -421,6 +613,8 @@ export const api = {
     person_a_role?: Role;
     makeup_level?: MakeupLevel;
     groom_makeup_level?: MakeupLevel;
+    bride_retouch_settings?: RetouchSettings;
+    groom_retouch_settings?: RetouchSettings;
     bride_hair_length?: BrideHairLength;
     groom_hair_length?: GroomHairLength;
   }) =>
@@ -434,16 +628,24 @@ export const api = {
     form.append("file", file);
     return request<ProjectDetail>(`/projects/${id}/images`, { method: "POST", body: form });
   },
-  deleteSideImage: (id: string, person: "a" | "b", angle: Exclude<Facing, "front">) =>
+  deleteSideImage: (id: string, person: "a" | "b", angle: SideFacing) =>
     request<void>(`/projects/${id}/images/${person}/${angle}`, { method: "DELETE" }),
 
-  createPreviews: (id: string, options: { styleIds: string[]; model?: string }) =>
+  /** rooms: the room each style with rooms is shot in (V7.34); a style left out takes its first room. */
+  createPreviews: (
+    id: string,
+    options: { styleIds: string[]; model?: string; rooms?: Record<string, string[]>; outfits?: Record<string, string> },
+  ) =>
     request<Batch>(
       `/projects/${id}/previews`,
       json("POST", {
         client_request_id: crypto.randomUUID(),
         style_ids: options.styleIds,
         model: options.model,
+        // V7.56: one sample per picked room of a style.
+        rooms: options.rooms,
+        // V7.37: the outfit picked with the room; it also becomes the project's choice for the style.
+        outfits: options.outfits,
       }),
     ),
   lookOptions: () => request<LookOptions>("/look-options"),
@@ -459,6 +661,8 @@ export const api = {
   selectLook: (lookId: string) => request<Look>(`/looks/${lookId}/select`, { method: "POST" }),
   unselectLook: (lookId: string) => request<Look>(`/looks/${lookId}/unselect`, { method: "POST" }),
   deleteLook: (lookId: string) => request<void>(`/looks/${lookId}`, { method: "DELETE" }),
+  deleteSideLook: (lookId: string) => request<void>(`/side-looks/${lookId}`, { method: "DELETE" }),
+  makeSideLooks: (lookId: string) => request<SideLook[]>(`/looks/${lookId}/side-looks`, { method: "POST" }),
   /** count makeup candidates of the bride for one style, one paid edit each (V7.8). */
   /** styleId null: the groom's retouched photos (V7.22), shared by every style. */
   createMakeups: (projectId: string, person: "a" | "b", styleId: string | null, count: number) =>
@@ -518,6 +722,10 @@ export const api = {
     request<Batch>(`/slots/${slotId}/face-swap`, json("POST", { client_request_id: crypto.randomUUID() })),
   faceFix: (slotId: string, model: string) =>
     request<Batch>(`/slots/${slotId}/face-fix`, json("POST", { client_request_id: crypto.randomUUID(), model })),
+  wash: (slotId: string, model: string) =>
+    request<Batch>(`/slots/${slotId}/wash`, json("POST", { client_request_id: crypto.randomUUID(), model })),
+  handFix: (slotId: string, model: string) =>
+    request<Batch>(`/slots/${slotId}/hand-fix`, json("POST", { client_request_id: crypto.randomUUID(), model })),
   batchFaceFix: (slotIds: string[], model: string) =>
     request<Batch>(
       "/slots/batch-action",
@@ -561,14 +769,15 @@ export const api = {
   /** Cancels the queue and stops the tasks being generated; their results are discarded (V7.12). */
   stopBatch: (id: string) => request<Batch>(`/batches/${id}/stop`, json("POST")),
 
-  listTasks: (params: { project_id?: string; batch_id?: string; status?: TaskStatus }) => {
+  listTasks: (params: { project_id?: string; batch_id?: string; target_slot_id?: string; status?: TaskStatus }) => {
     const query = new URLSearchParams(
       Object.entries(params).filter((e): e is [string, string] => Boolean(e[1])),
     );
     return request<Task[]>(`/tasks?${query}`);
   },
   retryTask: (id: string) => request<Task>(`/tasks/${id}/retry`, json("POST")),
-  cancelTask: (id: string) => request<Task>(`/tasks/${id}/cancel`, json("POST")),
+  cancelTask: (id: string, expectedStatus?: TaskStatus) =>
+    request<Task>(`/tasks/${id}/cancel${expectedStatus ? `?expected_status=${expectedStatus}` : ""}`, json("POST")),
   pauseTask: (id: string) => request<Task>(`/tasks/${id}/pause`, json("POST")),
   continueTask: (id: string) => request<Task>(`/tasks/${id}/continue`, json("POST")),
 };
@@ -603,9 +812,18 @@ export const VERSION_MODE_LABEL: Record<VersionMode, string> = {
   ...SLOT_ACTION_LABEL,
   face_swap: "换脸修正",
   face_fix: "AI 修脸",
+  hand_fix: "修手",
+  wash: "洗图",
+  regional_edit: "局部编辑",
 };
 
-/** The current version is a face swap or AI face fix whose source can be compared in place. */
+/** What the fix chip on a picture says: the current version corrects faces or hands of the version it came from. */
+export const fixLabel = (slot: Slot) => {
+  const mode = slot.current_version?.regenerate_mode;
+  return mode === "regional_edit" ? "局部编辑" : mode === "hand_fix" ? "修手" : mode === "wash" ? "洗图" : "修脸";
+};
+
+/** The current version is a face swap, AI face fix or hand fix whose source can be compared in place. */
 export const isFaceSwapped = (slot: Slot) => Boolean(slot.current_version?.source_version_id);
 
 export const BATCH_TYPE_LABEL: Record<BatchType, string> = {

@@ -61,7 +61,8 @@ STYLE_HAIR = {'korean_minimal': 'low_bun', 'french_vintage': 'low_bun', 'forest_
               'republic_qipao': 'finger_waves',
               'european_heirloom': 'high_bun', 'french_couture': 'french_bun', 'minimal_bridal': 'low_bun',
               'white_horse_ceremony': 'half_up', 'blue_hour_veil': 'low_bun', 'forest_film': 'half_up',
-              'retro_red_studio': 'low_bun', 'city_story': 'low_bun', 'chinese_celebration': 'chinese_bun'}
+              'retro_red_studio': 'low_bun', 'city_story': 'low_bun', 'chinese_celebration': 'chinese_bun',
+              'garden_lawn': 'half_up', 'flower_house': 'half_up'}
 DEFAULT_STYLE_HAIR = 'soft_waves'
 # The bride's hairstyle examples wear one neutral makeup: the first style's.
 HAIR_MAKEUP_STYLE = 'korean_minimal'

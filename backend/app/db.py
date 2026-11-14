@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .aspect import DEFAULT_PORTRAIT_RATIO, PORTRAIT_RATIOS
-from .models import DEFAULT_MODEL, MODELS_BY_ID
+from .models import DEFAULT_MODEL, DIRECTOR_PROVIDERS, MODELS_BY_ID, PROVIDERS, provider_models
 
 
 def new_id() -> str:
@@ -23,6 +23,7 @@ MAKEUPS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     person TEXT NOT NULL CHECK(person IN ('a','b')), role TEXT NOT NULL CHECK(role IN ('bride','groom')), style_id TEXT,
     makeup_color TEXT, makeup_level TEXT NOT NULL,
+    retouch_settings TEXT CHECK(retouch_settings IS NULL OR json_valid(retouch_settings)),
     source_asset_id TEXT NOT NULL REFERENCES image_assets(id), styling_version INTEGER NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('waiting','running','ready','failed','interrupted')),
     error_code TEXT, error_message TEXT, model TEXT, prompt TEXT NOT NULL,
@@ -41,14 +42,20 @@ CREATE TABLE IF NOT EXISTS projects (
     person_a_image_id TEXT REFERENCES image_assets(id),
     person_a_left_image_id TEXT REFERENCES image_assets(id),
     person_a_right_image_id TEXT REFERENCES image_assets(id),
+    person_a_left_full_image_id TEXT REFERENCES image_assets(id),
+    person_a_right_full_image_id TEXT REFERENCES image_assets(id),
     person_a_role TEXT NOT NULL DEFAULT 'bride' CHECK(person_a_role IN ('bride','groom')),
     person_b_image_id TEXT REFERENCES image_assets(id),
     person_b_left_image_id TEXT REFERENCES image_assets(id),
     person_b_right_image_id TEXT REFERENCES image_assets(id),
+    person_b_left_full_image_id TEXT REFERENCES image_assets(id),
+    person_b_right_full_image_id TEXT REFERENCES image_assets(id),
     selected_style_id TEXT REFERENCES style_presets(id),
     selected_preview_version_id TEXT REFERENCES photo_versions(id),
     makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(makeup_level IN ('light','natural','refined')),
     groom_makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(groom_makeup_level IN ('light','natural','refined')),
+    bride_retouch_settings TEXT CHECK(bride_retouch_settings IS NULL OR json_valid(bride_retouch_settings)),
+    groom_retouch_settings TEXT CHECK(groom_retouch_settings IS NULL OR json_valid(groom_retouch_settings)),
     bride_hair_length TEXT NOT NULL DEFAULT 'long' CHECK(bride_hair_length IN ('long','medium','short')),
     groom_hair_length TEXT NOT NULL DEFAULT 'short' CHECK(groom_hair_length IN ('buzz','short','medium')),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -76,9 +83,11 @@ CREATE TABLE IF NOT EXISTS photo_slots (
     kind TEXT NOT NULL CHECK(kind IN ('preview','photo')),
     style_id TEXT NOT NULL REFERENCES style_presets(id),
     current_version_id TEXT REFERENCES photo_versions(id), created_at TEXT NOT NULL,
-    pose_id TEXT, pose_name TEXT, shot_size TEXT
+    pose_id TEXT, pose_name TEXT, shot_size TEXT,
+    -- V7.56: the room (scene) a sample is shot in; a project has one sample per style and room (NULL: no room).
+    -- Its unique index is made in Database.initialize, after older databases have the column.
+    room_id TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS preview_style ON photo_slots(project_id,style_id) WHERE kind='preview';
 CREATE TABLE IF NOT EXISTS generation_tasks (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     batch_id TEXT NOT NULL REFERENCES generation_batches(id) ON DELETE CASCADE,
@@ -93,7 +102,7 @@ CREATE TABLE IF NOT EXISTS generation_tasks (
     error_code TEXT, error_message TEXT,
     auto_retry_count INTEGER NOT NULL DEFAULT 0 CHECK(auto_retry_count BETWEEN 0 AND 2),
     retry_of_task_id TEXT REFERENCES generation_tasks(id),
-    regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap','face_fix')),
+    regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap','face_fix','hand_fix','wash','regional_edit')),
     source_version_id TEXT,
     created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
 );
@@ -144,7 +153,9 @@ CREATE TABLE IF NOT EXISTS looks (
     image_asset_id TEXT REFERENCES image_assets(id), face_score REAL, selected_order INTEGER,
     client_request_id TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT,
     hair_prompt TEXT, makeup_asset_id TEXT REFERENCES image_assets(id), makeup_face_score REAL, selected_by TEXT,
-    makeup_id TEXT REFERENCES makeups(id), makeup_style_id TEXT
+    makeup_id TEXT REFERENCES makeups(id), makeup_style_id TEXT,
+    jewelry_id TEXT,
+    retouch_settings TEXT CHECK(retouch_settings IS NULL OR json_valid(retouch_settings))
 );
 CREATE INDEX IF NOT EXISTS look_project ON looks(project_id,person,angle);
 CREATE INDEX IF NOT EXISTS look_queue ON looks(status,created_at);
@@ -184,6 +195,27 @@ CREATE TABLE IF NOT EXISTS moment_drafts (
     director_model TEXT, moments TEXT NOT NULL CHECK(json_valid(moments)), used_by_batch_id TEXT REFERENCES generation_batches(id),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+-- V7.33: one picture of a style's outfit standing in its main scene, shared by every project. Made in three edits
+-- (product on white, empty scene, the two combined); files live under data/style_art/<id>/. A project's task
+-- refers to it through an image_assets row of its own that points at the shared file. V7.34: room_id and area name
+-- the room area of a style with rooms (app/rooms.py), one art each; both are null for a style's main-scene art.
+CREATE TABLE IF NOT EXISTS style_arts (
+    id TEXT PRIMARY KEY, style_id TEXT NOT NULL, outfit_id TEXT NOT NULL, art_version INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('running','ready','failed','interrupted')),
+    model TEXT NOT NULL, product_path TEXT, scene_path TEXT, image_path TEXT,
+    error_code TEXT, error_message TEXT, created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT,
+    room_id TEXT, area INTEGER, scene_version INTEGER, aspect_ratio TEXT
+);
+CREATE INDEX IF NOT EXISTS style_art_key ON style_arts(style_id,outfit_id,art_version,created_at);
+-- V7.38: the picture of a room area other than the main one, made from the main picture when a shot first needs it
+-- and shared by every project; files live under data/room_area/<id>/. V7.50: no longer made or read (a room has only
+-- its main picture); kept for the rows already there.
+CREATE TABLE IF NOT EXISTS room_areas (
+    id TEXT PRIMARY KEY, style_id TEXT NOT NULL, room_id TEXT NOT NULL, area INTEGER NOT NULL, room_version INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('running','ready','failed','interrupted')),
+    model TEXT NOT NULL, image_path TEXT, error_code TEXT, error_message TEXT,
+    created_at TEXT NOT NULL, finished_at TEXT, discarded_at TEXT
+);
 """
 
 BATCH_REFERENCE_MODES = ('prompt_only', 'with_preview')
@@ -191,8 +223,20 @@ DIRECTOR_MODEL_KEYS = {'88api': 'director_model', 'pptoken': 'director_model_ppt
 DEFAULT_PPTOKEN_DIRECTOR_MODEL = 'gpt-6.1-sol'
 # V7.1: replaces the on/off auto_face_swap setting, which is no longer read.
 AUTO_FACE_FIX_MODES = ('split', 'ai', 'facefusion', 'off')
-IMAGE_PROVIDERS = ('88api', 'pptoken')
+# V7.29: what each person gets after a picture is generated; the presets above are pairs of these.
+FACE_FIX_METHODS = ('ai', 'facefusion', 'off')
+AUTO_FACE_FIX_PRESETS = {'split': ('ai', 'facefusion'), 'ai': ('ai', 'ai'), 'facefusion': ('facefusion', 'facefusion'),
+                         'off': ('off', 'off')}
+IMAGE_PROVIDERS = tuple(PROVIDERS)
+# Steps with their own image service and model in Settings ('{kind}_provider', '{kind}_model'); null follows the
+# image service and the default model. 'face_fix' is the hand fix (its key predates V7.32); 2026-11-13, user: 每个步骤/
+# 阶段的修图模型都可以自定义选择 — the AI face fix ('face') no longer shares the wash's, and the makeup, the look (side
+# looks too), the style art and the regional edit's preselected model got their own.
+STAGE_KINDS = ('makeup', 'look', 'style_art', 'face_fix', 'face', 'wash', 'regional')
 DEFAULT_BATCH_REFERENCE_MODE = 'prompt_only'
+# V7.33: whether new shots of a live style copy the clothes and the place from its style art.
+STYLE_ART_MODES = ('on', 'off')
+DEFAULT_STYLE_ART_MODE = 'on'
 
 
 class Database:
@@ -234,6 +278,10 @@ class Database:
                 if name not in columns:
                     connection.execute(f'ALTER TABLE {table} ADD COLUMN {definition}')
 
+            add_column('style_arts', 'room_id TEXT')
+            add_column('style_arts', 'area INTEGER')
+            add_column('style_arts', 'scene_version INTEGER')
+            add_column('style_arts', 'aspect_ratio TEXT')  # V7.49: the scene's shape
             add_column('generation_batches', 'style_id TEXT REFERENCES style_presets(id)')
             add_column('generation_batches', 'paused_at TEXT')
             add_column('looks', 'style_id TEXT')
@@ -243,23 +291,37 @@ class Database:
             add_column('looks', 'selected_by TEXT')
             add_column('looks', 'makeup_id TEXT REFERENCES makeups(id)')
             add_column('looks', 'makeup_style_id TEXT')
+            add_column('looks', 'jewelry_id TEXT')  # V7.61: the bride's earrings and necklace, none if null
             add_column('makeups', 'makeup_style_id TEXT')
             self._upgrade_makeups(connection)
+            for table in ('makeups', 'looks'):
+                add_column(table, 'retouch_settings TEXT CHECK(retouch_settings IS NULL OR json_valid(retouch_settings))')
             add_column('image_assets', 'source_asset_id TEXT REFERENCES image_assets(id)')
             add_column('photo_versions', 'face_scores TEXT')
             add_column('photo_versions', 'size_warning TEXT')
+            # Generation may finish before its background face score is ready.
+            for table in ('photo_versions', 'looks', 'makeups'):
+                add_column(table, 'face_score_pending INTEGER NOT NULL DEFAULT 0')
             add_column('projects', 'person_a_left_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_a_right_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_b_left_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', 'person_b_right_image_id TEXT REFERENCES image_assets(id)')
+            # V7.48: a full side (profile) photo per direction next to the half side one.
+            for person in ('a', 'b'):
+                for side in ('left', 'right'):
+                    add_column('projects', f'person_{person}_{side}_full_image_id TEXT REFERENCES image_assets(id)')
             add_column('projects', "makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(makeup_level IN ('light','natural','refined'))")
             add_column('projects', "groom_makeup_level TEXT NOT NULL DEFAULT 'natural' CHECK(groom_makeup_level IN ('light','natural','refined'))")
+            for role in ('bride', 'groom'):
+                add_column('projects', f'{role}_retouch_settings TEXT CHECK({role}_retouch_settings IS NULL OR json_valid({role}_retouch_settings))')
             add_column('projects', "bride_hair_length TEXT NOT NULL DEFAULT 'long' CHECK(bride_hair_length IN ('long','medium','short'))")
             add_column('projects', "groom_hair_length TEXT NOT NULL DEFAULT 'short' CHECK(groom_hair_length IN ('buzz','short','medium'))")
             add_column('generation_batches', 'reference_preview_version_id TEXT REFERENCES photo_versions(id)')
             add_column('photo_slots', 'pose_id TEXT')
             add_column('photo_slots', 'pose_name TEXT')
             add_column('photo_slots', 'shot_size TEXT')
+            add_column('photo_slots', 'room_id TEXT')
+            self._upgrade_preview_rooms(connection)
             add_column('generation_tasks', 'moment_title TEXT')
             add_column('generation_tasks', 'moment_shot_size TEXT')
             self._upgrade_generation_tasks(connection)
@@ -310,6 +372,12 @@ class Database:
                 "INSERT OR IGNORE INTO app_settings (key,value) VALUES ('director_model',?)",
                 (director_model or '',),
             )
+            # 2026-11-13: the AI face fix used the wash's service and model (V7.32); it starts with what it used.
+            if connection.execute("SELECT 1 FROM app_settings WHERE key='face_model'").fetchone() is None:
+                for name in ('model', 'provider'):
+                    connection.execute(
+                        "INSERT OR IGNORE INTO app_settings (key,value) "
+                        f"SELECT 'face_{name}', COALESCE((SELECT value FROM app_settings WHERE key='wash_{name}'), '')")
             connection.commit()
             connection.execute('PRAGMA foreign_keys=ON')
             violations = connection.execute('PRAGMA foreign_key_check').fetchall()
@@ -317,6 +385,33 @@ class Database:
                 raise sqlite3.IntegrityError('Foreign key violations found after schema upgrade')
         finally:
             connection.close()
+
+    @staticmethod
+    def _upgrade_preview_rooms(connection: sqlite3.Connection):
+        """V7.56 (2026-11-05, user: 同一种风格不同场景都弄): a sample belongs to its style and its room, so one style
+        has a sample per room. A sample from before keeps the room of its latest picture (from its task's snapshot)."""
+        import json
+        from .rooms import get_room
+        rows = connection.execute(
+            "SELECT s.id, s.style_id, s.current_version_id FROM photo_slots s WHERE s.kind='preview' AND s.room_id IS NULL").fetchall()
+        for slot_id, style_id, version_id in rows:
+            task = None
+            if version_id is not None:
+                task = connection.execute(
+                    'SELECT t.model_config_snapshot FROM photo_versions v JOIN generation_tasks t ON t.id=v.generation_task_id '
+                    'WHERE v.id=?', (version_id,)).fetchone()
+            if task is None:
+                task = connection.execute('SELECT model_config_snapshot FROM generation_tasks WHERE target_slot_id=? '
+                                          'ORDER BY created_at DESC,rowid DESC LIMIT 1', (slot_id,)).fetchone()
+            try:
+                room = json.loads(task[0]).get('room') if task is not None else None
+            except (TypeError, ValueError):
+                room = None
+            if isinstance(room, dict) and get_room(style_id, room.get('id')) is not None:
+                connection.execute('UPDATE photo_slots SET room_id=? WHERE id=?', (room['id'], slot_id))
+        connection.execute('DROP INDEX IF EXISTS preview_style')
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS preview_style_room ON photo_slots(project_id,style_id,COALESCE(room_id,'')) "
+                           "WHERE kind='preview'")
 
     @staticmethod
     def _upgrade_makeups(connection: sqlite3.Connection):
@@ -344,7 +439,7 @@ class Database:
         table_sql = (sql_row[0] or '') if sql_row else ''
         needs_rebuild = (
             'regenerate_mode' not in columns or slot_foreign_key is not None
-            or 'face_fix' not in table_sql or 'moment_title' not in columns
+            or "'regional_edit'" not in table_sql or 'moment_title' not in columns
             or 'source_version_id' not in columns
         )
         if not needs_rebuild:
@@ -368,7 +463,7 @@ class Database:
                 error_code TEXT, error_message TEXT,
                 auto_retry_count INTEGER NOT NULL DEFAULT 0 CHECK(auto_retry_count BETWEEN 0 AND 2),
                 retry_of_task_id TEXT REFERENCES generation_tasks_new(id),
-                regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap','face_fix')),
+                regenerate_mode TEXT CHECK(regenerate_mode IS NULL OR regenerate_mode IN ('same','identity_boost','change_pose','change_shot','face_swap','face_fix','hand_fix','wash','regional_edit')),
                 source_version_id TEXT,
                 created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
             )
@@ -435,6 +530,22 @@ class Database:
                 (mode,),
             )
 
+    def get_style_art_mode(self) -> str:
+        with self.connect() as connection:
+            row = connection.execute("SELECT value FROM app_settings WHERE key='style_art_mode'").fetchone()
+        value = row['value'] if row else DEFAULT_STYLE_ART_MODE
+        return value if value in STYLE_ART_MODES else DEFAULT_STYLE_ART_MODE
+
+    def set_style_art_mode(self, mode: str):
+        if mode not in STYLE_ART_MODES:
+            raise ValueError('invalid style art mode')
+        with self.connect(write=True) as connection:
+            connection.execute(
+                "INSERT INTO app_settings (key,value) VALUES ('style_art_mode',?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (mode,),
+            )
+
     def get_portrait_ratio(self) -> str:
         with self.connect() as connection:
             row = connection.execute("SELECT value FROM app_settings WHERE key='portrait_ratio'").fetchone()
@@ -451,36 +562,80 @@ class Database:
                 (ratio,),
             )
 
-    def get_auto_face_fix(self) -> str:
-        """What is done to every generated picture with faces (V7.1): 'split' (V7.13, the default: the AI face fix
-        for the bride, then FaceFusion for the groom), 'ai' (the AI face fix for both), 'facefusion' (FaceFusion's
-        swap for both) or 'off'. The original stays in the version history either way."""
+    def get_auto_face_fix_roles(self) -> dict[str, str]:
+        """What is done to each person in every generated picture with faces (V7.29): 'ai' (the AI face fix),
+        'facefusion' (FaceFusion's swap) or 'off'. Before V7.29 one preset set both (V7.1, V7.13); a database that
+        only has the preset reads as its pair, 'split' (bride AI, groom FaceFusion) when there is nothing."""
         with self.connect() as connection:
-            row = connection.execute("SELECT value FROM app_settings WHERE key='auto_face_fix'").fetchone()
-        return row['value'] if row is not None and row['value'] in AUTO_FACE_FIX_MODES else 'split'
+            rows = dict(connection.execute(
+                "SELECT key,value FROM app_settings WHERE key IN ('auto_face_fix','auto_face_fix_bride','auto_face_fix_groom')"
+            ).fetchall())
+        preset = AUTO_FACE_FIX_PRESETS.get(rows.get('auto_face_fix'), AUTO_FACE_FIX_PRESETS['split'])
+        return {role: rows[f'auto_face_fix_{role}'] if rows.get(f'auto_face_fix_{role}') in FACE_FIX_METHODS else default
+                for role, default in zip(('bride', 'groom'), preset)}
+
+    def set_auto_face_fix_roles(self, *, bride: str | None = None, groom: str | None = None):
+        current = self.get_auto_face_fix_roles()
+        chosen = {'bride': bride or current['bride'], 'groom': groom or current['groom']}
+        if any(method not in FACE_FIX_METHODS for method in chosen.values()):
+            raise ValueError(f'unknown face fix method {chosen}')
+        with self.connect(write=True) as connection:
+            for role, method in chosen.items():
+                connection.execute('INSERT INTO app_settings (key,value) VALUES (?,?) '
+                                   'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (f'auto_face_fix_{role}', method))
+
+    def get_auto_face_fix(self) -> str:
+        """The preset the two people's methods make (V7.1, V7.13), or 'custom' for another pair (V7.29)."""
+        pair = tuple(self.get_auto_face_fix_roles().values())
+        return next((name for name, preset in AUTO_FACE_FIX_PRESETS.items() if preset == pair), 'custom')
 
     def set_auto_face_fix(self, mode: str):
+        """Set both people from a preset."""
         if mode not in AUTO_FACE_FIX_MODES:
             raise ValueError(f'unknown auto face fix mode {mode}')
-        with self.connect(write=True) as connection:
-            connection.execute(
-                "INSERT INTO app_settings (key,value) VALUES ('auto_face_fix',?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (mode,),
-            )
+        bride, groom = AUTO_FACE_FIX_PRESETS[mode]
+        self.set_auto_face_fix_roles(bride=bride, groom=groom)
 
-    def get_face_fix_model(self) -> str | None:
-        """The image model of AI face fixes, automatic and by hand; None follows the default model (also when the
-        stored model has left the registry)."""
+    def get_stage_model(self, kind: str) -> str | None:
+        """The image model one step uses (STAGE_KINDS); None follows the default model (also when the stored model has
+        left the registry)."""
+        if kind not in STAGE_KINDS:
+            raise ValueError('unsupported stage')
         with self.connect() as connection:
-            row = connection.execute("SELECT value FROM app_settings WHERE key='face_fix_model'").fetchone()
+            row = connection.execute('SELECT value FROM app_settings WHERE key=?', (f'{kind}_model',)).fetchone()
         return row['value'] if row is not None and row['value'] in MODELS_BY_ID else None
 
-    def set_face_fix_model(self, model: str | None):
+    def set_stage_model(self, kind: str, model: str | None):
+        if kind not in STAGE_KINDS:
+            raise ValueError('unsupported stage')
         with self.connect(write=True) as connection:
-            connection.execute(
-                "INSERT INTO app_settings (key,value) VALUES ('face_fix_model',?) "
-                'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (model or '',))
+            connection.execute('INSERT INTO app_settings (key,value) VALUES (?,?) '
+                               'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (f'{kind}_model', model or ''))
+
+    def get_edit_provider(self, kind: str) -> str | None:
+        """The image service of one step (STAGE_KINDS; V7.27); None follows the image service of everything else."""
+        with self.connect() as connection:
+            row = connection.execute('SELECT value FROM app_settings WHERE key=?', (f'{kind}_provider',)).fetchone()
+        return row['value'] if row is not None and row['value'] in IMAGE_PROVIDERS else None
+
+    def set_edit_provider(self, kind: str, provider: str | None):
+        if provider is not None and provider not in IMAGE_PROVIDERS:
+            raise ValueError('unsupported image provider')
+        with self.connect(write=True) as connection:
+            connection.execute('INSERT INTO app_settings (key,value) VALUES (?,?) '
+                               'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (f'{kind}_provider', provider or ''))
+
+    def get_edit_choice(self, kind: str) -> tuple[str, str]:
+        """(service, model) a new request of one step (STAGE_KINDS) uses (V7.27): the step's own service, else the
+        image service; its own model when that service offers it, else the default model when it does, else the
+        service's first model."""
+        provider = self.get_edit_provider(kind) or self.get_image_provider()
+        model = self.get_stage_model(kind)
+        if model is None or provider not in MODELS_BY_ID[model].providers:
+            default = self.get_default_model()
+            model = default if default in MODELS_BY_ID and provider in MODELS_BY_ID[default].providers \
+                else provider_models(provider)[0].id
+        return provider, model
 
     def get_image_provider(self) -> str:
         """The image service models both services offer go to (V7.11); 88API until Settings changes it."""
@@ -500,10 +655,10 @@ class Database:
         """The service the AI director's text requests go to; separate from the image service."""
         with self.connect() as connection:
             row = connection.execute("SELECT value FROM app_settings WHERE key='director_provider'").fetchone()
-        return row['value'] if row is not None and row['value'] in IMAGE_PROVIDERS else '88api'
+        return row['value'] if row is not None and row['value'] in DIRECTOR_PROVIDERS else '88api'
 
     def set_director_provider(self, provider: str):
-        if provider not in IMAGE_PROVIDERS:
+        if provider not in DIRECTOR_PROVIDERS:
             raise ValueError('unsupported director provider')
         with self.connect(write=True) as connection:
             connection.execute(

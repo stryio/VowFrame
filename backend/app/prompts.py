@@ -3,7 +3,11 @@
 import re
 from typing import NamedTuple
 
+from .facings import facing_phrase
+from .models import require_model
 from .reference_styles import REFERENCE_OUTFIT_DATA, REFERENCE_STYLES
+from .rooms import get_room, room_area
+from .retouch import RetouchSettings, retouch_preset
 
 
 _STYLE_DATA = (
@@ -59,21 +63,22 @@ _STYLE_DATA = (
         'avoid': '树叶硬影横跨面部、杂乱的灌木和落枝、白纱过曝、荧光绿、肤色染绿、全画面泛黄',
     },
     {
+        # V7.72 (2026-11-06, user: 开始做海岛海岸的场景图 参考 参考照\海岛海岸 … 1，可以): rewritten after the reference
+        # photos, with five sets (app/rooms.py) and eight outfits; the id stays so earlier pictures keep their style.
         'id': 'seaside_sunset',
-        'shooting': '有海风的海岸婚礼。情绪自由、亲密，以并肩走动、迎风停步和短暂拥抱表现，笑容自然变化。低机位与开阔横向画面交替，海平线避开头颈，利用潮线和浪花引导视线。以同一段海岸为主；日落场景才使用晚霞色，不把日间海岸统一染成橙黄。',
-        'preview': '镜头：35mm 镜头，低机位，全身。两人沿湿润沙面斜向走近，新娘一手轻提裙摆，另一手牵着新郎，重心随步伐自然变化；海平线落在肩线以下，两人占画面主要部分，侧边留出浪花。上午阳光照亮礼服与沙面，海水反光柔和。新娘朝镜头开心地笑，新郎笑着跟上，衣料随海风轻动。',
+        'shooting': '海边的婚纱照，开阔、自由又浪漫，一组照片里几种拍法交替：长焦的近景，用 135mm 左右的长焦把背景拉近，海面的波光虚化成一颗颗大光斑，新郎从身后拥抱新娘，两人额头相抵、脸贴脸，新郎低头亲吻新娘的额角，逆光里头纱透亮；动态的瞬间，两人牵着手跳舞转圈，牵着手在浅浪边走，新娘提着裙摆奔跑回头笑，新郎把新娘抱起，新娘把长头纱迎风扬起，花瓣撒向空中；俏皮的互动，两人把捧花高高举起欢呼、比 V、比心，新郎单膝跪地递上捧花；过肩的镜头，前景是新郎虚化的背影和肩膀，焦点在对面笑着看他的新娘脸上；低机位仰拍，天空占大半个画面；安静的远景，两人站在礁石或木栈台上看海，或背对镜头坐在栈台边，只占画面一小部分。全身和远景把海平线、礁石和天空拍进来，海平线不穿过头颈。头纱只在服饰有头纱时出现。两人互相看着的镜头多于看镜头的，露齿大笑和安静对视交替。',
+        'preview': '镜头：135mm 长焦镜头，机位略高于两人、轻微俯拍，七分身。两人在所选海岸场景里，新郎从身后环抱新娘，双手搭在她腰前，下巴靠近她的肩头，新娘一手捧着花，一手搭在新郎的手臂上；画面下缘在两人大腿处，头顶上方留出一些空间。身后铺满海面，海面上有波光时，长焦把它虚化成一颗颗柔和的大光斑；机位略高，海平线落在两人头顶上方，不穿过头颈。人物的受光与所选场景的光一致，面部保留自然明暗。两人的脸正对镜头，开心地露齿笑。',
         'name': '海岸海岛',
-        'description': '蔚蓝海岸、海边悬崖、礁石海湾',
-        'costume': '新娘穿轻盈飘逸的婚纱，配一条长头纱；新郎穿浅色西装。妆容方向：通透有光泽的底妆，香槟色细闪眼影，珊瑚色的腮红和唇。',
-        'look': '清透开阔的海岸，白色、蔚蓝与浅灰岩石的配色，色温中性，明亮通透的自然光，画面干净。',
+        'description': '黑礁石波光、卵石海滩、悬崖暮色、夕阳木栈台、夕阳沙滩',
+        'costume': '新娘穿白色抹胸蓬裙、缎面或蕾丝鱼尾、轻纱婚纱，也可以是粉色纱裙或黑色抹胸礼服；新郎穿黑色礼服或白色西装。妆容方向：通透有光泽的底妆，香槟色细闪眼影，珊瑚色的腮红和唇。',
+        'look': '海岸海岛婚纱照：开阔的海面和天空占据大片画面，光线跟着所在的场景。白天是晴朗的强阳光，海水是深浅有层次的蔚蓝色，海面上闪着大片细碎的波光，礁石和卵石有清楚的明暗，画面清楚利落，色温中性；夕阳是明亮柔和的蜜桃金色逆光，空气里有一层薄薄的暖色雾气，反差低，暗部通透，天空是淡淡的蜜桃粉和金色，太阳是一个柔和的小光球，海面铺着一条金色的光带，逆光勾出发丝和头纱的轮廓；日落后是柔和的粉紫色天光。逆光时用天空和海面的反光把脸照亮，不拍成剪影；肤色是通透的暖调自然肤色，不偏粉。夕阳的暖色明亮干净，白纱是带一点暖意的干净白色，保留纹理不过曝；头纱和裙摆被海风吹动。',
         'variants': (
-            ('蔚蓝海岸', '干净开阔的海岸线，层次分明的蔚蓝海水推着细白的浪花涌上浅色沙滩，湿润的沙面映着天光，远处是平直的海平线；上午明亮的阳光在海面上闪着细碎的光。'),
-            ('海边悬崖', '高耸海崖上一片平坦的草石平台，崖下是深邃的蓝绿色海水，远处海岸线层层延伸；平台上有几组贴地延展的白玫瑰与绿枝花艺，不遮挡海景；薄云下柔和的天光。'),
-            ('海岛秘境', '一处被浅色岩壁和热带绿植环抱的小海湾，细腻的浅色沙滩，清澈见底的蓝绿色海水，岸边散落几块浅色礁石；上午的阳光从侧面照来，海水通透。'),
-            ('礁石海岸', '宽阔平坦的深灰色礁石平台，石面被海水浸润后微微反光，后方蓝灰色的海浪拍出白色浪花，远处是柔和的薄云；散射光均匀。'),
-            ('日落海滩', '日落前的海滩，平静的海面和湿润的沙面倒映着淡粉与浅紫的晚霞，低垂的太阳在两人侧后方勾出一圈柔和的轮廓光；明亮的天空散射光同时照着两人、沙滩和海面，肤色自然。'),
+            ('礁石波光', '一大片平整的黑色火山礁石海岸，海面在阳光下闪着大片细碎的波光，远处海平线上有一座淡淡的海岛；晴朗白天的侧逆光，色温中性。'),
+            ('卵石海滩', '一片干净的灰色卵石海滩，蔚蓝的海水翻着白色浪花，晴朗的蓝天飘着白云；明亮的日光，海水通透。'),
+            ('夕阳沙滩', '平整细软的沙滩，浅浪一层层涌上来，夕阳低挂在海平线上方，天空是淡淡的蜜桃粉和金色，空气里有薄薄的暖色雾气；明亮柔和的逆光，反差低，面部受光清楚。'),
         ),
-        'avoid': '剪影、逆光下脸部发黑、海水颜色过度饱和、画面偏黄',
+        'avoid': '剪影、逆光下脸部发黑、正面平光、海水发灰发白、画面过亮发白、浓重的橙红色夕阳、发灰发褐的暗黄、海边的垃圾和杂乱海草、海平线穿过头颈、所有照片并排站立',
+        'atmospheric': True,
     },
     {
         'id': 'chinese_traditional',
@@ -578,7 +583,10 @@ RETIRED_STYLE_IDS = frozenset({'hongkong_retro', 'city_night', 'snow_winter', 'b
                                'white_floral', 'minimal_architecture', 'hanfu', 'republic_qipao', 'vintage_interior',
                                'northwest_desert', 'japanese_film', 'flower_field', 'korean_minimal', 'french_vintage',
                                'forest_natural', 'new_chinese', 'snow_mountain', 'luxury_interior',
-                               'cinematic_light'})
+                               'cinematic_light', 'lawn_floral', 'lakeside', 'dark_studio', 'french_estate',
+                               'retro_red_studio',  # V7.67: its red backdrop lives on in 喜嫁 (复古红底)
+                               # V7.73 (2026-11-06, user: 还有欧法千金 白马仪式，蓝调夜景 中式国风 这三个风格删掉)
+                               'european_heirloom', 'white_horse_ceremony', 'blue_hour_veil', 'chinese_traditional'})
 # Samples generated when the user picks no style: the first six active styles in the built-in order.
 DEFAULT_PREVIEW_STYLE_IDS = tuple(style['id'] for style in STYLES if style['id'] not in RETIRED_STYLE_IDS)[:6]
 
@@ -605,10 +613,26 @@ POSE_BY_ID = {pose['id']: pose for pose in POSES}
 # Retired styles retain the old sample; every active style defines its own representative shot (V7.19).
 PREVIEW_MOMENT = '镜头：两人并肩站立，新娘轻挽新郎的手臂，身体自然靠近，肩颈放松，两人开心地露齿笑着看向镜头，七分身构图，两人面部清晰。'
 GENERAL_AVOID = '网红脸、整容脸、幼态脸、五官欧美化、过度磨皮的塑料皮肤、皮肤暗沉、痘印和临时的色斑、厚重结块的底妆、面部大面积油光或汗珠、生硬的贴片状发际线、面部被遮挡、多余的人物、手部或手指畸形、人物像抠图贴在背景上、杂乱的地面和背景、影楼廉价感、过度锐化、粗糙的数码噪点、HDR 感、文字和水印'
-QUALITY_PARAGRAPH = (
-    '画面质感：真实相机拍摄的婚纱摄影作品。人物与环境的主光、环境反射光和必要的补光具有合理的方向、色温与明暗关系，光线与所选场景一致，人物脚下或身后有自然的接触阴影；脚下的地面和背景都干净整齐、有美感，保留场景本身的材质和空间层次；两人面部清晰可辨，亮度跟随场景的光线；表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；焦外自然虚化，影调柔和、细节细腻，带有轻微的胶片颗粒感；反差、色彩和光晕按风格决定，保留亮部织物纹理和暗部层次；白色面料呈现当前光源下合理的冷暖与明暗；肤色自然，皮肤干净细腻、有真实纹理，是柔和的哑光质感，只在额头、鼻梁和颧骨有很小、很柔的自然高光；光泽只属于缎面等面料，皮肤上不出现油亮反光。'
+# One lighting contract for the director and every generated shot, including the front-facing sample.
+LIGHTING_RULES = (
+    '主光的来源、方向、软硬和色温以所选场景为准，两人按各自的位置和朝向受光，受光处到背光处自然衰减，阴影与光源方向一致。'
+    # V7.97: the two sides of the face follow the set's lighting (喜嫁 is lit flat from the front), not always unequal.
+    '补光只来自合理的环境反射或已明确的拍摄布光，保留既定反差，两侧脸的明暗差按所选场景的布光，不把人物提亮到脱离环境。'
+    '轮廓亮边只出现在场景侧后光实际照到的局部，不添加无来源的发光描边。'
 )
-_FACE_CLEAR_SENTENCE = '两人面部清晰可辨，亮度跟随场景的光线；'
+_FACE_CLEAR_SENTENCE = ('两人面部清晰可辨，亮度跟随场景的光线；鼻翼、眼窝、下颌与颈部的自然阴影随光线和头部朝向表现，'
+                        '不为看清面部而抹平，柔光下也保留细微的立体过渡；')
+QUALITY_PARAGRAPH = (
+    '画面质感：真实相机拍摄并经过专业精修的婚纱摄影作品。' + LIGHTING_RULES +
+    '人物脚下或身后、手臂与身体以及相触的衣料之间有自然的接触阴影，深浅与场景光线一致；'
+    '脚下的地面和背景都干净整齐、有美感，保留场景本身的材质和空间层次；' + _FACE_CLEAR_SENTENCE +
+    '表情和视线按镜头描写表现，微笑、露齿笑或开怀大笑的程度与当下互动一致，笑容与面部其余表情自然协调；'
+    '两人的手比例自然、关节清楚，每只手五根手指，相握或相触时能分清各自的手指；'
+    '焦外自然虚化，影调与所选场景一致、细节细腻，带有轻微的胶片颗粒感；反差、色彩和光晕按风格决定，'
+    '高光柔和过渡，保留亮部织物纹理和暗部层次，不把所有暗部提亮到同一曝光；白色面料呈现当前光源下合理的冷暖与明暗，黑色礼服保留布料层次；'
+    '肤色自然，皮肤干净细腻、有真实纹理，修饰临时瑕疵但保留当前景别能看见的微纹理与细微色彩变化；'
+    '局部高光随主光方向、头部朝向和妆面出现，柔和克制，不固定添加鼻梁亮条或全脸油亮反光。'
+)
 # Atmosphere shots (back view, silhouette, tiny figures, foreground cover) do not show the faces clearly (V3.35).
 _ATMOSPHERE_SENTENCE = '这是一张氛围照片，不追求看清两人的面部：按镜头的描述表现背影、剪影、远处很小的人物或前景的遮挡，亮度跟随场景的光线；'
 ATMOSPHERE_QUALITY_PARAGRAPH = QUALITY_PARAGRAPH.replace(_FACE_CLEAR_SENTENCE, _ATMOSPHERE_SENTENCE)
@@ -702,7 +726,7 @@ def _makeup_sentence(makeup: Makeup) -> str:
             # Clean but real skin: blemishes go, texture and identifying marks stay (V3.42).
             '皮肤瑕疵按档位减弱，但保留真实细腻的皮肤纹理：毛孔细小但仍可见，细纹淡化而不完全抹除，'
             '不做全脸模糊、塑料感的磨皮；明显的痣、胎记和疤痕是本人的特征，保留不去；'
-            '提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉；两人脸、脖子和手臂的肤色一致，提白但不是惨白，'
+                   '提白时同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉；两人脸、脖子和手臂的肤色一致，提白但不是惨白，'
             '并保留场景光线在本人骨相上形成的自然明暗；底妆轻薄服帖，不卡粉，没有大面积油光和汗光，皮肤保留自然的光泽。'
             # Both hairstyles are concrete targets in the style paragraph; locking the groom's amount, head shape and
             # forehead exposure froze his hair (V3.44). The hairstyle is picked for the length the project states,
@@ -758,16 +782,28 @@ _JAW_NARROW = ('；可在本人原有结构基础上极轻微地收窄下颌两�
 _CONTOUR_EXCEPTION = ('除本档位「脸部轮廓」部分明确允许的轻微软组织修整或外轮廓调整外，五官结构、骨相和脸部比例保持本人原样；不以妆容或光影掩盖、重画或替代这些结构。')
 # Levels whose edit reshapes the face a little: their likeness score cannot pick the best candidate.
 FACE_SHAPING_LEVELS = frozenset({'refined'})
-_BRIDE_STYLING = {
-    'light': ('新娘化清透但妆色清楚的婚礼新娘妆。底妆：皮肤比原照片白半个到一个色号，修匀轻微的泛红和暗沉，减弱痘痘和痘印，淡化黑眼圈，'
-              '底妆轻薄服帖、肤色均匀；眉妆：' + _BROW_TIDY + '在原眉主体轮廓内的局部空缺轻补少量自然毛流，着色轻透，保留自然透肤感；'
+_BRIDE_MAKEUP_INTRO = {
+    'light': '新娘化清透但妆色清楚的婚礼新娘妆。',
+    'natural': '新娘化妆色鲜明、完成度高的标准婚纱照新娘妆。',
+    'refined': '新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆。',
+}
+_BRIDE_LEGACY_SKIN = {
+    'light': ('底妆：皮肤比原照片白半个到一个色号，修匀轻微的泛红和暗沉，减弱痘痘和痘印，淡化黑眼圈，'
+              '底妆轻薄服帖、肤色均匀；'),
+    'natural': ('底妆：皮肤白皙透亮，比原照片白一到两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
+                '遮盖痘痘、痘印和临时色斑，淡化黑眼圈和干纹，遮瑕充分、妆面平整服帖；' + _CHIN_TIDY + '；'),
+    'refined': ('底妆：皮肤非常白皙透亮，比原照片白两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
+                '充分遮盖痘痘、痘印和临时色斑，淡化黑眼圈和疲态，保留与年龄相符的细纹，妆面细腻平整、遮瑕完整服帖；'
+                + _CHIN_TIDY + _JAW_NARROW + '；'),
+}
+_BRIDE_COSMETICS = {
+    'light': ('眉妆：' + _BROW_TIDY + '在原眉主体轮廓内的局部空缺轻补少量自然毛流，着色轻透，保留自然透肤感；'
               + _BROW_KEEP + '；眼影：在本人原有上眼睑内清楚着色，近睫毛处略深、向上柔和过渡，有可辨的底色和轻度深浅层次；'
               '眼线：沿本人上睫毛根部画极细的棕色眼线，只填满睫毛根之间的空隙，' + _LINER_KEEP + '；'
               '睫毛：卷翘清晰、显色自然，根根可辨；假睫毛：在本人上睫毛根部贴短而稀疏的自然款分束假睫毛，' + _LASH_KEEP + '；'
               '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：颜色清楚、轻盈晕开，与周围肤色有自然区别；'
               '唇妆：在原唇形内均匀着色，所选唇色清楚可见，保留少量自身唇色'),
-    'natural': ('新娘化妆色鲜明、完成度高的标准婚纱照新娘妆。底妆：皮肤白皙透亮，比原照片白一到两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
-                '遮盖痘痘、痘印和临时色斑，淡化黑眼圈和干纹，遮瑕充分、妆面平整服帖；' + _CHIN_TIDY + '；眉妆：' + _BROW_TIDY +
+    'natural': ('眉妆：' + _BROW_TIDY +
                 '在原眉主体轮廓内的局部空缺轻补自然毛流，颜色与周围眉毛自然衔接，保留自然透肤感；' + _BROW_KEEP + '；'
                 '眼影：在本人原有上眼睑内充分着色，底色与加深色层次清楚，近睫毛处加深、向上细腻过渡，明暗贴合原有眼睑结构；'
                 '眼线：沿本人上睫毛根部画一条细而清晰的眼线，填满睫毛根之间的空隙，' + _LINER_KEEP + '；'
@@ -775,9 +811,7 @@ _BRIDE_STYLING = {
                 '假睫毛：在本人上睫毛根部贴自然款分束假睫毛，长度和浓密度适中，' + _LASH_KEEP + '；'
                 '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：显色清楚、气色鲜明，着色中心明确、边缘自然晕开；'
                 '唇妆：在原唇形内充分着色，所选色系显色鲜明、覆盖均匀，唇缘贴合本人原有边界'),
-    'refined': ('新娘化妆色饱满、层次鲜明、细节精致的影楼婚礼新娘妆。底妆：皮肤非常白皙透亮，比原照片白两个色号，修正泛红、偏黄和暗沉，肤色均匀；'
-                '充分遮盖痘痘、痘印和临时色斑，淡化黑眼圈和疲态，保留与年龄相符的细纹，妆面细腻平整、遮瑕完整服帖；' + _CHIN_TIDY + _JAW_NARROW +
-                '；眉妆：' + _BROW_TIDY +
+    'refined': ('眉妆：' + _BROW_TIDY +
                 '在原眉主体轮廓内的局部空缺细致补出自然毛流，着色细腻，保留自然透肤感，不整片填实；' + _BROW_KEEP + '；'
                 '眼影：在本人原有上眼睑内饱满着色，底色、加深色和过渡色层次分明，近睫毛处加深，颜色对比鲜明、边缘细腻，明暗贴合原有眼睑结构；'
                 '眼线：沿本人上睫毛根部画一条细而清晰、线条流畅的眼线，填满睫毛根之间的空隙，' + _LINER_KEEP + '；'
@@ -786,6 +820,8 @@ _BRIDE_STYLING = {
                 '卧蚕：微弱提亮，不改变眼睛大小；修容：极轻微的光影修饰，不重塑骨骼；腮红：显色充分、颜色鲜活，着色中心与边缘过渡细腻，不形成生硬色块；'
                 '唇妆：在原唇形内饱满显色、完整覆盖，所选色系色彩浓郁鲜明，唇缘准确、表面细腻'),
 }
+_BRIDE_STYLING = {level: _BRIDE_MAKEUP_INTRO[level] + _BRIDE_LEGACY_SKIN[level] + _BRIDE_COSMETICS[level]
+                  for level in MAKEUP_LEVELS}
 # V6.4: the brows are tidied only outside their own outline; V7.6: also combed, never filled or darkened.
 # V7.15: the groom's contour is the bride's, level by level; his makeup stays as it was.
 _GROOM_BROWS = ('眉毛沿各部位原有生长方向梳顺乱翘毛流，只清理原眉主体轮廓外零散的杂毛，略剪梳顺后仍明显伸出主体轮廓的个别过长毛尖，'
@@ -797,61 +833,113 @@ _GROOM_STYLING = {
     'refined': '新郎化淡淡的男士妆：皮肤比原照片白一个色号，肤色均匀，轻薄的底妆遮住痘印、色斑和黑眼圈，没有大面积油光；'
                + _CHIN_TIDY + _JAW_NARROW + '；' + _GROOM_BROWS + '；唇色自然红润',
 }
-_HAIR_FINISH = {
-    'bride': {'light': '头发梳理整齐，碎发和毛躁收干净', 'natural': '发丝光洁服帖', 'refined': '发丝光亮、整齐有层次'},
-    # Worded to fit every groom hairstyle, buzz cut included.
-    'groom': {'light': '干净整齐，光泽克制', 'natural': '干净整齐，定型自然，发束不结块',
-              'refined': '干净整齐，定型清楚，带有克制的光泽'},
-}
-_STYLING_AVOID = '避免：照搬原照片的头发状态、毛躁乱翘的头发、油腻扁塌的头发、头盔一样僵硬的头发、生硬的贴片状发际线、改变脸和五官、磨皮、文字和水印。'
 # What may not change about a person, in every image that has to keep them (V7.5, with Codex): the structure, not a
 # description of their looks; expressions may still move the face in shots and the face fix.
-_IDENTITY_INVARIANTS = ('保留本人固有的骨相与脸部比例、眼睛间距及眼部结构、眉毛主体的位置与轮廓（包括眉头、眉峰、眉尾的位置、主体粗细、弧度和倾斜角度）、'
+_IDENTITY_FEATURES = ('保留本人固有的骨相与脸部比例、眼睛间距及眼部结构、眉毛主体的位置与轮廓（包括眉头、眉峰、眉尾的位置、主体粗细、弧度和倾斜角度）、'
                         '鼻部和嘴唇结构、下颌与下巴特征，以及可见耳朵的位置和形态；保留左右眉原有差异、可见的痣、胎记、疤痕等辨识特征和本人年龄感。'
-                        '不按模板审美重塑五官结构，不减龄，不瘦脸，不重塑骨相，不混入其他人的特征。')
+                        '不按模板审美重塑五官结构，不减龄，')
+_IDENTITY_INVARIANTS = _IDENTITY_FEATURES + '不瘦脸，不重塑骨相，不混入其他人的特征。'
+_RETOUCH_IDENTITY = (_IDENTITY_FEATURES + '不重塑骨相，不混入其他人的特征。'
+                     '仅下文「精细调整」明确开启的项目允许对应的皮肤或下颌软组织修整，其余本人特征保持原样；'
+                     '各项目独立执行，关闭的项目不因妆感档位提高而开启。')
 _EXPRESSION_ALLOWANCE = '上述特征自然呈现在当前角度和表情下，允许微笑、张嘴、眯眼产生合理的形变，不要求轮廓与正面静态参考逐像素相同。'
 # What retouching and makeup may change on a face (looks; the shot in V6.x). V6.4: aegyo-sal and contour are
 # allowed as the levels word them; nose shadow and drawn highlights stay out. V7.6: colour may be strong, structure
 # may not change; the brow shape is the main outline (strays are not), eyeliner and false lashes stay on the roots.
-_RETOUCH_LIMITS = ('精修和妆容只按各自档位调整肤色、皮肤的干净程度、妆色的覆盖与显色、贴合本人原有结构的深浅层次和表面质感，以及明确要求的眉毛局部整理；'
-                   '妆色可以清楚鲜明，五官结构与比例保持本人原样：保留原本的眉形（眉毛主体轮廓）、眉头、眉峰、眉尾的位置、主体粗细、弧度和倾斜角度，'
+_RETOUCH_SHARED_LIMITS = ('妆色可以清楚鲜明，五官结构与比例保持本人原样：保留原本的眉形（眉毛主体轮廓）、眉头、眉峰、眉尾的位置、主体粗细、弧度和倾斜角度，'
                    '以及眼型、双眼皮、鼻子和嘴唇的形状；眼线只沿上睫毛根部，不外延、不上挑、不拉长眼尾，'
                    '假睫毛贴合本人睫毛根部，不改变眼型和眼睛大小，不以眼影重画眼窝；'
                    '不另画鼻影和高光亮条，不用妆色、修容或光影改变鼻部、颧骨、脸颊或下颌的骨骼结构与体积，皮肤的细微亮泽只跟随场景主光；'
-                   '保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；明显的痣、胎记和疤痕是本人的特征，保留不去；'
-                   '提白只提高明度，不改变肤色的冷暖底调，同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，脸和脖子的肤色衔接自然，提白但不是惨白；'
-                   '底妆服帖，不卡粉，没有大面积油光、浮粉和结块。')
+                   '保留真实细腻的皮肤纹理，毛孔细小但仍可见，不做全脸模糊的磨皮；明显的痣、胎记和疤痕是本人的特征，保留不去；')
+_RETOUCH_LEGACY_TONE = '提白只提高明度，不改变肤色的冷暖底调，同时修正泛红、偏黄和暗沉，肤色自然，不偏灰、不偏粉，脸和脖子的肤色衔接自然，提白但不是惨白；'
+_RETOUCH_FINISH = '底妆服帖，不卡粉，没有大面积油光、浮粉和结块。'
+_RETOUCH_LIMITS = ('精修和妆容只按各自档位调整肤色、皮肤的干净程度、妆色的覆盖与显色、贴合本人原有结构的深浅层次和表面质感，以及明确要求的眉毛局部整理；'
+                   + _RETOUCH_SHARED_LIMITS + _RETOUCH_LEGACY_TONE + _RETOUCH_FINISH)
 
 
-# Written after every hairstyle (V5.1): the photo's hair is not kept, only its length limits the hairstyle.
-# V5.2: the outline is spelled out, since the photo's flyaways at the sides survived. V7.5 (Codex): "may be
-# completely different" licensed changing the face too; the hair still changes, the face, ears and hairline do not,
-# and the hair never covers the eyes or the cheeks to slim the face.
+def _fine_retouch(settings: RetouchSettings, role: str) -> str:
+    brightening = {
+        'off': '保持原肤色明度，不提白；仅修匀局部泛红、偏黄和暗沉，不抬高整张脸的明度',
+        'light': '比原照片轻微提亮，' + ('约半个到一个色号' if role == 'bride' else '不到半个色号'),
+        'moderate': '比原照片适度提亮，' + ('约一到两个色号' if role == 'bride' else '约半个到一个色号'),
+        'minimal': '比原照片极轻提亮，仅减轻少量暗沉，整体肤色明度几乎保持原样',
+        'subtle': '比原照片很轻地提亮，肤色略显通透，提亮幅度低于轻微档',
+        'mild': '比原照片偏轻提亮，明度略高于轻微档，仍保留明显的原肤色特征',
+        'balanced': '比原照片中等提亮，整体明度介于轻微档与适中档之间，肤色过渡均匀',
+        'enhanced': '比原照片偏强提亮，整体明度略高于适中档，脸与脖子同步自然衔接',
+        'strong': '比原照片明显提亮，新娘呈现更白皙的底妆，新郎呈现清楚提亮但仍自然的肤色，保留冷暖底调',
+        'intense': '比原照片很强地提亮，白皙效果比明显档更突出，保留面部明暗层次，不产生灰白或粉白皮肤',
+        'maximum': '在肤色仍自然且亮部有细节的范围内最大程度提亮，脸、脖子与可见皮肤统一，不过曝或变成惨白',
+    }[settings.brightening]
+    concealing = {
+        'light': '轻度遮瑕，减弱痘痘、痘印和黑眼圈，保留可见的自然皮肤细节',
+        'standard': '标准遮瑕，遮盖痘痘、痘印和临时色斑，淡化黑眼圈和干纹，保留自然皮肤纹理',
+        'full': '充分遮瑕，充分遮盖痘痘、痘印和临时色斑，淡化黑眼圈和疲态，保留与年龄相符的细纹和真实皮肤纹理',
+        'off': '关闭，保留原有痘痘、痘印、临时色斑和黑眼圈，不额外遮盖或淡化，底妆不掩盖这些皮肤细节',
+        'minimal': '极轻遮瑕，只减弱最突出的局部色差，痘印和黑眼圈基本保留',
+        'subtle': '很轻遮瑕，略淡化痘印和黑眼圈的颜色，瑕疵仍清楚可见',
+        'mild': '偏轻遮瑕，比轻度档多覆盖一些痘印和黑眼圈，较浅的瑕疵仍可见',
+        'moderate': '适中遮瑕，比标准档更充分地覆盖痘印、临时色斑和黑眼圈，仍保留少量自然色差',
+        'enhanced': '偏强遮瑕，进一步压低明显痘印和黑眼圈的色差，皮肤干净但纹理清楚',
+        'strong': '明显遮瑕，覆盖大部分临时瑕疵，深色痘印与黑眼圈仅保留轻微痕迹，不模糊皮肤',
+        'intense': '很强遮瑕，接近完整覆盖痘印、临时色斑和黑眼圈，保留毛孔、细纹与本人辨识特征',
+    }[settings.concealing]
+    slimming = {
+        'off': '关闭，保留下颌两侧原有宽度与外轮廓，不瘦脸',
+        'light': '轻微，仅极轻微地收窄下颌两侧软组织的外轮廓，保持本人原有脸型和辨识度',
+        'moderate': '适中，在本人原有结构上适度收窄下颌两侧软组织的外轮廓，幅度比轻微档清楚，保持自然和本人辨识度',
+        'minimal': '极轻，仅对下颌两侧软组织外缘做几乎不可察觉的收整，原有脸宽基本保持',
+        'subtle': '很轻，对下颌两侧软组织外缘做细微收窄，幅度低于轻微档，不改变原有脸型特征',
+        'mild': '偏轻，下颌两侧软组织外轮廓比轻微档略收窄，仍以原有自然轮廓为主',
+        'balanced': '中等，收窄下颌两侧软组织外轮廓，幅度介于轻微档和适中档之间，左右过渡自然',
+        'enhanced': '偏强，下颌两侧软组织收窄比适中档更清楚，保留原有下颌转折与本人脸型特征',
+        'strong': '明显，清楚收窄下颌两侧软组织外轮廓，保留原有下巴形状和自然下颌转折，不削改骨骼',
+        'intense': '很强，比明显档进一步收窄下颌两侧软组织，仍保留本人原有脸型的主要特征，不做模板化尖脸',
+        'maximum': '在保持本人辨识度与自然下颌转折的前提下，最大程度收整下颌两侧软组织外轮廓，不改颧骨、下巴形状和五官比例',
+    }[settings.slimming]
+    chin = {
+        'off': '关闭，保留下巴下方软组织的原有体积与下颌至颈部的过渡',
+        'light': '轻微，仅当照片中清楚可见下巴下方由松弛软组织形成的堆积时，才轻柔收整该处，没有明显堆积时保持原样',
+        'moderate': '适中，仅在照片中确有明显下巴下方软组织堆积时适度收整，使下颌至颈部过渡清楚自然，没有明显堆积时保持原样',
+        'minimal': '极轻，仅在明显下巴下方软组织堆积的最外缘做细微整理，没有明显堆积时保持原样',
+        'subtle': '很轻，略收整清楚可见的下巴下方软组织堆积，保留大部分原有体积，没有明显堆积时保持原样',
+        'mild': '偏轻，比轻微档略多收整明显下巴下方软组织，使下颌至颈部的过渡更顺，没有明显堆积时保持原样',
+        'balanced': '中等，收整明显下巴下方软组织堆积，幅度介于轻微档与适中档之间，没有明显堆积时保持原样',
+        'enhanced': '偏强，比适中档更清楚地收整下巴下方堆积，仍保留自然软组织起伏，没有明显堆积时保持原样',
+        'strong': '明显，明显减少下巴下方可见的软组织堆积，使下颌至颈部的过渡清楚，不改下巴骨性形状，没有堆积时保持原样',
+        'intense': '很强，进一步收整明显下巴下方堆积，保留颈部自然褶皱与真实过渡，没有明显堆积时保持原样',
+        'maximum': '在自然真实的范围内最大程度收整已存在的下巴下方软组织堆积，不拉长下巴或颈部，没有明显堆积时保持原样',
+    }[settings.chin]
+    nasolabial = {
+        'off': '保留，保留原有鼻唇沟的阴影与折痕，不额外淡化',
+        'light': '轻微，轻度淡化鼻唇沟的阴影与折痕，保留表情和自然纹理',
+        'moderate': '适中，适度淡化鼻唇沟的阴影与折痕，仍保留自然起伏与年龄感，不完全抹平',
+        'minimal': '极轻，仅略减弱鼻唇沟最深处的阴影，原有折痕基本保留',
+        'subtle': '很轻，小幅减弱鼻唇沟的阴影，折痕仍清楚可见',
+        'mild': '偏轻，比轻微档多淡化一些鼻唇沟阴影与折痕，保留主要起伏',
+        'balanced': '中等，淡化鼻唇沟的阴影与折痕，幅度介于轻微档和适中档之间，表情纹理自然',
+        'enhanced': '偏强，比适中档更明显地淡化鼻唇沟阴影与折痕，仍保留沟槽的自然起伏',
+        'strong': '明显，明显淡化鼻唇沟的阴影与折痕，保留浅淡的自然起伏，不改变嘴角和脸颊体积',
+        'intense': '很强，进一步减弱鼻唇沟阴影与折痕，仍保留笑容产生的合理纹路与本人年龄感',
+        'maximum': '在保留自然表情、真实皮肤纹理和本人年龄感的前提下，最大程度淡化鼻唇沟阴影与折痕，不完全抹平',
+    }[settings.nasolabial]
+    return (f'精细调整：肤色提亮：{brightening}；遮瑕程度：{concealing}；瘦脸程度：{slimming}；'
+            f'下巴轮廓整理：{chin}；法令纹淡化：{nasolabial}。'
+            '各项目互不代替：遮瑕不额外淡化法令纹，整理下巴不收窄下颌两侧；'
+            '轮廓调整仅限明确开启的软组织区域，不改变下巴形状、颧骨、脸颊丰润度和五官比例，不重塑骨相。'
+            '提亮程度只按本段执行，不随妆感档位增加；保留肤色的冷暖底调，脸与脖子肤色自然衔接。'
+            + _RETOUCH_SHARED_LIMITS + _RETOUCH_FINISH)
+
+
+# Shared instructions appended after each selected hairstyle.
+# V7.112: describe natural hair texture without imposing one finish or volume on every hairstyle.
+# Makeup levels stay out of the hair step; the previously removed hairline and density-filling rules stay out.
 _HAIR_RULES = ('头发部分完全重新画：形状、体积、分布和轮廓都按上面的发型来，除了发型里写明沿用的地方，不保留原照片头发的样子；'
                '改变头发不授权改变脸部、耳朵或颅骨。'
-               # V7.7 (Codex): the hairline's main border stays; only thin patches inside it are filled (B).
-               '真实发际线的主体位置、整体走向、两侧转折及原有 M 形特征保持原样：仅在主体边界靠头发一侧的局部稀疏处，'
-               '沿原有毛发生长方向补出疏密自然的细短发丝，减轻零散透空和不均匀感；保留自然的细微起伏和绒发过渡，'
-               '不修成连续、等密度的整齐边线；不向额头延伸，不填平 M 形后退区域，不重画鬓角，不改变可见额头的高度与宽度；'
-               '边界被刘海遮住或看不清时，不推测补画。'
-               '不把明确的无发生长区域当作局部稀疏处补满；已经自然浓密的部位不额外堆积发量。'
-               '头发不遮挡眼睛，不用新增的发束覆盖两颊或下颌来制造瘦脸效果；是否露耳按发型要求，不改变可见耳朵的位置和形态。'
-               '原照片里的毛躁、乱翘、碎发、扁塌、油腻、打结和发丝走向凌乱的地方都不保留；'
-               '头部两侧和头顶的外轮廓是光滑整齐的线条，没有任何翘起的细碎毛发。'
-               '按造型师洗吹、梳理、定型后的样子画，发丝干净顺滑，有健康的光泽。'
-               '不凭空加长头发；盘发和编发把头发收起来，看到的头发变短是正常的。'
-               '头发有真实的重量，以整齐的发束为主；发际线边缘用细软的绒发自然过渡。')
-
-# V7.7 (Codex): fuller-looking hair inside its own growing area (A), by role; the part keeps a little scalp, since
-# asking for none gives black patches or a wig.
-_HAIR_DENSITY = {
-    'bride': ('在原有头发生长区域内整理发束的疏密与走向，减轻分缝两侧和头顶因发束分散、贴伏而形成的大片露头皮，使视觉发量自然充盈。'
-              '分缝仍保留细窄、自然的透肤感，不涂成整片实色。发根的支撑和头顶体积服从所选发型：蓬松发型有自然空气感，'
-              '光洁盘发和后梳发型仍保持服帖，不额外撑大头顶和两侧轮廓；不改变颅骨形状，不向额头或鬓角外扩头发生长边界。'),
-    'groom': ('在原有头发生长区域内梳顺发流，整理顶部和分缝两侧的发束分布，减轻因发束分散、贴伏而形成的大片露头皮，使视觉发量自然充盈。'
-              '分缝保持清楚、细窄，保留自然透肤感。顶部的蓬松度按所选发型表现，两侧仍按发型要求贴服，不把头发整体垫高、撑宽；'
-              '不改变真实发际线、鬓角边界和颅骨形状。'),
-}
+               '毛发质感：真实自然的毛发结构，发根密度与生长方向合理；头发由粗细和数量不一的自然发束组成，'
+               '发束之间有不规则的交叠、疏密变化与局部空隙。蓬松度和服帖程度服从所选发型；'
+               '发型中需要的碎发自然分散、弯曲和垂落，符合重力关系。发质干爽、轻盈，'
+               '高光沿发束方向产生细微变化，避免机械排列、重复丝线纹理、塑料质感和过度锐化。')
 
 
 class Hairstyle(NamedTuple):
@@ -863,38 +951,49 @@ class Hairstyle(NamedTuple):
     text: str
 
 
-# A few common wedding hairstyles (V5.0); keeping the photo's own hairstyle changes the face least. Each says what
-# a head-and-shoulders photo shows from the front (V5.2): a bun at the back alone left the hair down.
+# Describe placement, hair flow, curl/braid structure and the front view for each wedding hairstyle.
+# IDs, supported lengths and updo compatibility remain stable; texture and volume follow the selected style.
 HAIRSTYLES = (
-    Hairstyle('keep', '保留原发型', 'bride', BRIDE_HAIR_LENGTHS, False, '沿用原照片发型的分缝方向和长度，重新吹整：发根蓬松，发丝顺滑有光泽，发尾整齐'),
+    Hairstyle('keep', '保留原发型', 'bride', BRIDE_HAIR_LENGTHS, False,
+              '沿用原照片发型的分缝方向、刘海、长度和整体轮廓，重新吹整；发根形成自然支撑，发束顺着原有方向梳理，保留原本的直卷关系和发尾走向'),
     Hairstyle('low_bun', '低盘发', 'bride', ('long', 'medium'), True,
-              '低盘发，头发全部向后梳顺，在脑后低处盘成饱满的发髻；正面看，脸两侧和肩上没有任何垂下的头发，耳朵和脖子完整露出，头顶和两侧的头发光滑地贴着头型向后收'),
+              '低盘发，头发顺着头型向后梳拢，在后脑接近后颈的位置扭转盘成紧凑饱满的发髻，盘绕的发束层次可辨；头顶自然贴合头型，两侧向耳后收拢；正面看，脸两侧和肩上没有垂下的长发，耳朵和脖子完整露出'),
     Hairstyle('high_bun', '赫本高盘发', 'bride', ('long',), True,
-              '赫本高盘发，头发全部向上梳顺，在头顶偏后的位置盘成饱满的发髻，正面能看到头顶上方的发髻轮廓；脸两侧、耳后和肩上没有任何垂下的头发，脖子完整露出'),
+              '赫本高盘发，两侧和后脑的头发向上收拢，在头顶偏后盘成圆润饱满的高发髻，发束盘绕出清楚的层次；额前至头顶有平顺的抬升，正面能看到高于头顶的发髻轮廓；脸两侧和肩上没有垂下的长发，耳朵和脖子露出'),
     Hairstyle('french_bun', '法式慵懒低盘发', 'bride', ('long', 'medium'), True,
-              '法式慵懒低盘发，头发松松地向后挽起，在脑后低处盘成蓬松柔软的发髻，脸两侧各垂下一两缕修饰脸型的细发丝；正面看，肩上没有垂下的头发，耳朵和脖子露出'),
+              '法式慵懒低盘发，顶部和两侧的头发松松向后拢起，在后脑低处扭转挽成柔软的发髻；发根轻轻撑起，表层发束交叠疏松，留有细小空隙；耳侧各留一两缕弯曲的细碎发，自然垂落、发尾微翘；正面看，肩上没有垂下的长发，耳朵和脖子露出'),
     Hairstyle('chinese_bun', '中式发髻', 'bride', ('long', 'medium'), True,
-              '中式发髻，头发中分后全部向后梳得光洁服帖，在脑后盘成端庄饱满的发髻；正面看，脸两侧和肩上没有任何垂下的头发，耳朵和脖子完整露出'),
+              '中式发髻，头发中分，分缝两侧沿头型向耳后梳拢，在后脑低处盘成端庄饱满的发髻；顶部和两侧服帖，梳拢与盘绕的发流清楚，表面有柔和光泽；正面看，脸两侧和肩上没有垂下的长发，耳朵和脖子完整露出'),
     Hairstyle('finger_waves', '复古手推波纹', 'bride', ('long', 'medium'), True,
-              '复古手推波纹，头发侧分，头顶到耳侧的头发推出规则的 S 形波纹，贴着头型、有光泽，其余头发在脑后低处挽起；正面看，肩上没有垂下的头发，脖子露出'),
+              '复古手推波纹，头发侧分，从分缝沿额侧至耳侧推出连贯的 S 形波纹，波峰略微隆起、波谷顺着头型贴伏，呈宽窄自然变化的弧线；其余头发在后脑低处挽起，正面能看到额侧波纹，肩上没有垂下的长发，脖子露出'),
     Hairstyle('half_up', '半扎公主头', 'bride', ('long', 'medium'), False,
-              '半扎公主头，头顶和两侧耳上的头发向后挽起，在脑后固定，下半部分头发顺滑地垂在背后和肩后；正面看，两侧耳上的头发收起，脸周干净'),
-    Hairstyle('big_waves', '披发大波浪', 'bride', ('long',), False, '披发大波浪，头发梳顺后从耳朵以下做饱满的大波浪卷，蓬松有光泽，垂在肩前和背后'),
-    Hairstyle('soft_waves', '披发微卷', 'bride', ('long', 'medium'), False, '披发微卷，头发梳顺后从耳朵以下做柔和的大弧度微卷，垂在肩前和背后，蓬松有光泽'),
+              '半扎公主头，头顶和两侧耳上的头发分束向后轻轻扭转，在后脑中上部交叠固定；顶部有轻盈的支撑，下半部分从耳下形成松缓的 S 形微卷，垂在背后和肩后；正面看，两侧耳上的头发收起，能看出上半部扎起、下半部披散的层次'),
+    Hairstyle('big_waves', '披发大波浪', 'bride', ('long',), False,
+              '披发大波浪，顶部发根自然撑起，从颧骨下方至耳下开始形成约 32mm 卷棒效果的宽大卷度，纵向 S 形波纹饱满连贯；各束卷发有自然错落，发尾带 C 形外翻，两侧发束垂在肩前，其余落在背后，正面能看到清楚的大波浪轮廓'),
+    Hairstyle('soft_waves', '披发微卷', 'bride', ('long', 'medium'), False,
+              '披发微卷，顶部发根轻盈自然，耳朵以上的头发基本顺直，从耳下至发尾形成松缓的大弧度微卷，波峰和波谷浅而舒展；发束自然分开，发尾轻轻弯曲，垂在肩前和背后，整体柔软松弛'),
     Hairstyle('low_ponytail', '低马尾', 'bride', ('long', 'medium'), False,
-              '低马尾，头发全部向后梳顺，在后颈处扎成光洁的低马尾，马尾垂在一侧肩前，发尾微卷；正面看，头顶和两侧光滑贴服，耳朵露出'),
+              '低马尾，头发顺着头型向后梳拢，在后颈处扎成低马尾，扎点贴近颈根，表层保留清楚的发流；马尾从一侧肩前垂落，中下段形成松缓的大弧度卷，发尾轻轻外翻；正面看，两侧头发收向耳后，耳朵露出'),
     Hairstyle('side_braid', '侧编发', 'bride', ('long', 'medium'), False,
-              '侧编发，头发全部梳到一侧，编成一条饱满的麻花辫垂在这一侧肩前；另一侧没有垂下的头发，耳朵露出'),
-    Hairstyle('short_inward', '短发内扣', 'bride', ('short',), False, '短发内扣，头发梳顺后吹出弧度，发尾整齐地向内扣，头顶蓬松，轮廓圆润'),
-    Hairstyle('short_curls', '复古短卷', 'bride', ('short',), False, '复古短卷，头发侧分，吹出饱满有光泽的复古卷度，轮廓蓬松有型'),
+              '侧编发，头发全部拢向一侧，从这一侧耳下开始编成一条松松的三股麻花辫，垂在同侧肩前；编好后把每节辫股轻轻向外拉松，交叠纹理清楚，辫身饱满、各节略有疏密变化，末端留一小段弯曲发尾；另一侧头发收至耳后，耳朵露出'),
+    Hairstyle('short_inward', '短发内扣', 'bride', ('short',), False,
+              '短发内扣，沿现有短发长度吹出柔和的圆弧，发根自然撑起，耳侧发束顺着头型垂落，发尾向内弯成 C 形；各束发尾略有错落，正面轮廓圆润轻盈'),
+    Hairstyle('short_curls', '复古短卷', 'bride', ('short',), False,
+              '复古短卷，头发侧分，从耳侧开始做饱满的复古卷度，侧面发束形成相互承接的 S 形弧线，发尾向外轻翘或自然回卷；顶部有支撑，两侧轮廓蓬松，卷束大小略有变化'),
     # Sleek enough for the Chinese styles' headwear, like an updo.
-    Hairstyle('slick_short', '后梳光洁短发', 'bride', ('short',), True, '后梳光洁短发，头发全部向后梳得光滑服帖，露出额头和耳朵，轮廓利落'),
-    Hairstyle('keep', '保留原发型', 'groom', GROOM_HAIR_LENGTHS, False, '沿用原照片发型的分缝方向和长度，重新修剪吹整：两侧和后颈修得短而干净，头顶发丝整齐有型'),
-    Hairstyle('side_part', '侧分短发', 'groom', ('short', 'medium'), False, '侧分短发，清楚的侧分线，头发从分线向一侧梳顺，顶部有蓬松度，两侧修短贴服'),
-    Hairstyle('textured', '自然纹理短发', 'groom', ('short', 'medium'), False, '自然纹理短发，顶部抓出蓬松有层次的纹理，两侧和后颈修短贴服'),
+    Hairstyle('slick_short', '后梳光洁短发', 'bride', ('short',), True,
+              '后梳光洁短发，额前和两侧的头发顺着头型向后梳拢，后梳发流清楚，表层服帖、发束之间仍有细微层次；短发发尾自然贴向后脑，露出额头和耳朵，整体轮廓利落'),
+    Hairstyle('keep', '保留原发型', 'groom', GROOM_HAIR_LENGTHS, False,
+              '沿用原照片的发长、分缝方向、刘海和整体轮廓，只做梳理与自然定型；头发沿原有生长方向排列，两侧和后颈边缘干净，顶部保留原发型的自然层次'),
+    Hairstyle('side_part', '侧分短发', 'groom', ('short', 'medium'), False,
+              '侧分短发，清楚的侧分线，顶部头发从分线向一侧梳拢，发根轻轻立起，发束形成自然错落的弧线；两侧修短贴服，顶部与两侧衔接自然，额前发束随侧分方向收拢'),
+    Hairstyle('textured', '自然纹理短发', 'groom', ('short', 'medium'), False,
+              '自然纹理短发，顶部发根自然撑起，用粗细不一的小束头发抓出松散的纹理，发束方向略有交错、间距疏密自然；额前碎发轻轻分开，两侧和后颈修短贴服，顶部与两侧自然衔接'),
     # Side-swept at most, never a full slicked-back look (V3.9).
-    Hairstyle('side_back', '侧背头', 'groom', ('short', 'medium'), False, '侧背头，头发从侧分线向一侧后方梳顺，露出部分额头，顶部有蓬松度，两侧修短贴服'),
-    Hairstyle('korean_part', '韩式三七分', 'groom', ('short', 'medium'), False, '韩式三七分，刘海按三七分自然分开垂在额前，顶部蓬松有层次，两侧修短'),
+    Hairstyle('side_back', '侧背头', 'groom', ('short', 'medium'), False,
+              '侧背头，从侧分线将顶部头发梳向一侧后方，发根立起后以自然弧线向后落下，露出部分额头；后梳发束有清楚层次，两侧修短贴服，轮廓向后收拢'),
+    Hairstyle('korean_part', '韩式三七分', 'groom', ('short', 'medium'), False,
+              '韩式三七分，刘海按三七比例自然分开，分缝附近发根轻轻撑起，两侧刘海形成松缓的 C 形弧度垂在额前；顶部发束蓬松错落，两侧修短贴服，正面能看出左右不等分的刘海轮廓'),
 )
 HAIRSTYLE_BY_KEY = {(item.role, item.id): item for item in HAIRSTYLES}
 
@@ -1021,7 +1120,7 @@ _OUTFIT_DATA = (
     ('city_satin_veil', '街拍缎面长纱',
      '新娘穿纯白色轻缎婚纱。浅方领，两条窄肩带，无袖；上身合体，腰线在自然腰部，裙身沿身体自然垂落，膝下略微展开，前摆及地，后摆形成约三十厘米的短拖尾。面料细腻、光泽柔和；整件无蕾丝、刺绣、珠片和立体花饰。配纯白色细跟鞋。',
      '新郎穿纯白色羊毛礼服上衣，单排一粒扣、同色缎面青果领，配黑色直筒西裤；内搭白色翻领长袖衬衫，佩戴黑色缎面领结，配黑色系带皮鞋。左胸别一枚小型白花胸花，不配马甲和口袋巾。',
-     '头纱与配饰：新娘配单层纯白色薄纱长头纱，长度约一米五，素净窄边，从后脑垂落；戴小型珍珠耳钉，不另加头饰，不改变造型照的发型。捧花是小束白色马蹄莲和细长绿叶，用素白缎带束起，不加文字和吊牌。'),
+     '头纱与配饰：新娘配单层纯白色薄纱长头纱，长度约一米五，素净窄边，从后脑垂落；不另加头饰，不改变造型照的发型。捧花是小束白色马蹄莲和细长绿叶，用素白缎带束起，不加文字和吊牌。'),
     ('satin_a_line', '缎面A字婚纱',
      '新娘穿干净的纯白色缎面A字婚纱，底色不偏黄。平直抹胸领口，无肩带、无袖。上身合体，腰线在自然腰部，不加腰带。裙身从腰部向下逐渐展开，前摆及地，后摆比前摆长约半米，形成短拖尾。缎面平整细腻、有柔和光泽，腰下只有少量宽褶；整件无蕾丝、刺绣、珠片和立体花饰。',
      _BLACK_SUIT, _VEIL_WAIST),
@@ -1061,13 +1160,25 @@ _OUTFIT_DATA = (
 )
 OUTFITS = tuple(Outfit(*item) for item in _OUTFIT_DATA + REFERENCE_OUTFIT_DATA)
 OUTFIT_BY_ID = {item.id: item for item in OUTFITS}
+# V7.51: outfits no style offers any more; kept so the pictures shot in them still read, replay and show their name.
+# V7.60: the three French outfits of V7.35/V7.51 gave way to three after the user's reference collage.
+# V7.107: french_halter_mermaid is offered again (a new outfit picture, without the bride's shoes and earrings).
+RETIRED_OUTFIT_IDS = frozenset({'french_flower_hat', 'french_rose_taffeta', 'french_offshoulder_train',
+                                'french_lace_mermaid', 'celebration_qipao',  # V7.67: replaced by the five 喜嫁 outfits
+                                'celebration_qipao_brocade', 'celebration_red_drape', 'celebration_white_bows',
+                                'celebration_red_ruffle', 'celebration_ivory_lace',  # V7.68: modern 喜嫁 outfits instead
+                                'celebration_cape_column', 'celebration_vermilion_offshoulder',  # V7.69: young 喜嫁 outfits instead
+                                'celebration_pouf_tulle', 'celebration_bow_sleeve'})  # Withdrawn; retain existing photo history.
 # The outfits offered per style, the default first. Styles retired before V7.17 have none and keep their one-line
 # costume; those retired later (V7.23) keep theirs, so their existing samples refresh in the same outfit.
 STYLE_OUTFITS = {
     'korean_minimal': ('studio_satin', 'satin_a_line'),
     'french_vintage': ('city_satin_veil', 'city_light'),
     'forest_natural': ('forest_lace_veil', 'forest_lace'),
-    'seaside_sunset': ('flowing_chiffon',),
+    # V7.98 (user: 精简吧): the four seaside outfits and the pink tiered gown; flowing_chiffon, french_lace_offshoulder and
+    # lawn_satin_mermaid are no longer offered here (pictures already shot in them keep them).
+    'seaside_sunset': ('seaside_bow_ballgown', 'seaside_puff_offshoulder', 'seaside_bateau_satin', 'seaside_black_strapless',
+                       'lawn_pink_tiered'),
     'chinese_traditional': ('xiuhe',),
     'cinematic_light': ('satin_mermaid',),
     'dark_studio': ('satin_mermaid',),
@@ -1084,10 +1195,211 @@ OUTFIT_RULE = ('整组照片都穿这一套服饰，不换装、不增减配件�
                '远景按实际比例表现轮廓和色块，不强求近景级别的纹样细节。')
 
 
+# V7.36 (2026-11-04, user: 有帽子时，生成的图片帽子就像搭在头上，放在头上，而不是服帖着真实戴着帽子的样子): the
+# shots kept the look's whole hairstyle and hairline (as the identity paragraph and "不改变造型照的发型" ask) and
+# so set the hat on top of the updo; with the style art nothing said the hat is worn at all. A hat outfit now says
+# how a hat sits on a head, and that the hair under its crown is hidden, not changed.
+# V7.47 (2026-11-05, user: 法式复古还是有几率这个帽子感觉是盖在头上…放宽，直接改): the outfit pictures drew the hat as a
+# shallow saucer floating over the dress, a shape that cannot hold a head, and "not over the brows" pushed it up
+# further. The crown is now deep enough to take most of the head top, the low side of a tilted brim may touch the
+# brow tail, and with a style art the hat in the picture gives only its look, not its height or depth.
+HAT_RULE = ('帽子真实地戴在新娘头上，贴合头型、有重量感：帽冠有足够的深度，罩住大半个头顶，帽冠底边压在发际线上方和头两侧的头发上，'
+            '和头部之间没有空隙；宽檐礼帽略向一侧斜戴，压低的一侧帽檐可以轻轻压到眉尾和额角；小礼帽侧扣在头的一侧，紧贴头发。'
+            '帽冠盖住的头发自然被遮住，其余部分保持造型照的发型；帽檐不遮住眼睛。帽子不放在发髻顶上，不悬浮或撑高在头顶上方。')
+HAT_ART_NOTE = '参考图里的帽子是悬空展示的，只参考帽子的款式、颜色和装饰，戴的位置和深度按上面的写法。'
+# The outfit picture's hat: one a head fits in, not the flat saucer the first pictures drew.
+_ART_HAT = ('礼帽按真实能戴的尺寸和结构画：帽冠圆润、有足够的深度，内圈和成年人的头一样大，能罩住大半个头顶；'
+            '从略高于正面的角度能看出帽冠的深度，不画成扁平的碟形。')
+# V7.47: outfits whose style art is made again; the others keep STYLE_ART_VERSION.
+# V7.109: every outfit +1 (and STYLE_ART_VERSION 1 → 2): the outfit picture is on light gray now, so every art is made
+# again the next time a shot needs it.
+# V7.61: the outfit pictures of these were made again without earrings or a necklace.
+_OUTFIT_ART_VERSIONS = {'french_flower_hat': 3, 'french_rose_taffeta': 3, 'french_lace_offshoulder': 3, 'french_hat_ballgown': 3,
+                        'forest_lace_halter': 3, 'forest_rose_straps': 3,  # V7.65: veils instead of flower crowns
+                        # V7.92 (user: 衣服也是，那么亮…可以): matte crepe instead of liquid-shine silk satin, a new outfit picture
+                        'celebration_halter_scarf': 4,  # 2026-11-14: empty sandals beside the hem
+                        'french_halter_mermaid': 4,  # V7.107: offered again; 2026-11-14: flatter lace bodice
+                        'city_draped_ballgown': 4,  # V7.107: red roses in black paper; 2026-11-14: smooth taffeta
+                        # 2026-11-14 (fix-20261114): AI flaws edited out of the outfit picture
+                        'bridal_petal_tulle': 3, 'bridal_beaded_vneck': 3, 'celebration_dragon_phoenix': 3,
+                        'forest_satin_gloves': 3, 'flowerhouse_lace_highneck': 3}
+
+
+def style_art_version(outfit_id: str) -> int:
+    """Version of an outfit's style art: a new one makes every art of the outfit again."""
+    return _OUTFIT_ART_VERSIONS.get(outfit_id, STYLE_ART_VERSION)
+
+
+def has_hat(outfit_id: str | None) -> bool:
+    """Whether the outfit's headwear is a hat (V7.36), whose shots say how it is worn."""
+    return outfit_id is not None and '帽' in OUTFIT_BY_ID[outfit_id].headwear
+
+
 def outfit_text(outfit_id: str) -> str:
     """What the outfit says, as the sample, the shots and the director all read it."""
     outfit = OUTFIT_BY_ID[outfit_id]
     return outfit.bride + outfit.groom + outfit.headwear
+
+
+# V7.33 (2026-11-04): the style art. Each live style gets one picture of its outfit, worn by no one, standing in its
+# main scene; the samples and photos copy the clothes and the place from it instead of from words. Tested on real
+# photos before it was built (docs/prompts.md section 12): an empty-white product picture alone kept the bride most
+# alike; mannequins, or a fourth reference picture, made her face drift; the outfit put into the scene as one
+# picture kept the likeness and made a set look shot in one place. A new version makes every style's art again.
+STYLE_ART_VERSION = 2
+STYLE_ART_ASPECT_RATIO = '4:3'
+# V7.52 (2026-11-05, user: 还是恢复3：2的 服饰场景参考图，不过还是不要有单独区域图): the outfit put into the scene is
+# always 3:2, whatever the scene's shape (V7.49 made it the scene picture's, 16:9 for a room). The outfit on white and a
+# style's own scene stay STYLE_ART_ASPECT_RATIO.
+STYLE_ART_COMBINE_ASPECT_RATIO = '3:2'
+_ART_INVISIBLE = ('用「隐形人」拍法：每套服饰都按真人穿戴时的位置和立体形状摆放，但穿戴的人完全不存在，领口、袖口、裙腰和裤腿内部是空的，'
+                  '看不到任何人、人台、支架、头部、脸或身体；头纱、礼帽和头饰悬在头部应在的位置，下面是空的；捧花悬在腰前双手捧花的高度；'
+                  '新郎的鞋子摆在裤脚下双脚应在的位置。')
+# V7.60 (2026-11-05, user: 如果婚纱太长看不到鞋子，就不要生成鞋子了): the outfit pictures stood a pair of bride's shoes
+# in front of a floor-length skirt, where a body could not be. Only an outfit that says the bride's shoes (a dress that
+# shows them) draws them; any other skirt falls to the floor with no shoes.
+_ART_BRIDE_SHOES = '新娘的鞋子露在裙摆下双脚应在的位置。'
+_ART_NO_BRIDE_SHOES = '新娘的裙摆一直落到地面、盖住双脚，不画新娘的鞋子，裙摆前面和下面都没有鞋。'
+_ART_NO_PEOPLE = '画面中没有任何人、人台、假人、头模或人脸，没有文字和水印。'
+# V7.61 (2026-11-05, user: 生成服装的时候不应该生成耳饰…不仅有耳饰，还有项链): with no ear to hang on, earrings floated in
+# the air beside the empty head; the bride's earrings and necklace are worn on her look instead (JEWELRY).
+_ART_NO_JEWELRY = '不画耳环、耳坠等耳饰，也不画项链。'
+
+
+# V7.109 (2026-11-14, user: 把「纯白色背景」改成和化妆图一致的浅灰色纯色背景): tested on lawn_satin_mermaid, 3 shots each;
+# on white the sheer white gloves and veil merged into the background and shots drew long sheer sleeves (gloves 0/3);
+# on the looks' light gray their edges showed (gloves 2/3, bride likeness 0.797 vs 0.756 on average).
+_ART_GRAY_BACKGROUND = '干净均匀的浅灰色纯色背景。'
+# A checked outfit picture of the repository (still on white) is turned gray by this edit when an art first needs it,
+# so the clothes stay the ones that were checked.
+STYLE_ART_GRAY_PROMPT = ('这是一张电商服饰主图（隐形人拍法）。只把纯白色背景换成干净均匀的浅灰色纯色背景，颜色与 RGB(189,188,194) 一致，'
+                         '柔和均匀的影棚光，背景上没有明暗渐变、没有地面线。两套服饰的款式、面料、颜色、褶皱、拖尾、头纱、捧花、位置、大小和构图都完全不变，'
+                         '仍是隐形人效果：领口、袖口、裙腰和裤腿内部是空的。画面中没有任何人、人台、假人、头模或人脸，没有文字和水印。')
+
+
+def _worn(text: str) -> str:
+    """An outfit sentence without the instruction for a shot to keep the look's hair."""
+    return re.sub(r'[，；]?不改变造型照的发型|、露出整张脸', '', text)
+
+
+def style_art_product_prompt(outfit_id: str) -> str:
+    """Step 1: the outfit on light gray (V7.109; on white before), in the places a body would wear it."""
+    outfit = OUTFIT_BY_ID[outfit_id]
+    return ('横构图，电商服饰主图风格的写实摄影。' + _ART_GRAY_BACKGROUND + '柔和均匀的影棚光。画面中是两套并排站立的婚礼服饰，' + _ART_INVISIBLE +
+            (_ART_BRIDE_SHOES if '鞋' in outfit.bride else _ART_NO_BRIDE_SHOES) +
+            '两套服饰都是正面、全身完整入镜。左边是新娘的服饰：' + _worn(outfit.bride) + _worn(outfit.headwear) +
+            (_ART_HAT if has_hat(outfit_id) else '') +
+            '右边是新郎的服饰：' + _worn(outfit.groom) + _ART_NO_JEWELRY + '画面中没有任何其他物品。' + _ART_NO_PEOPLE)
+
+
+def style_art_scene_prompt(style_id: str) -> str:
+    """Step 2: the style's main scene, empty."""
+    style = STYLE_BY_ID[style_id]
+    return ('横构图，写实摄影，空无一人的场景。' + style['variants'][0][1] + style['look'] + _ART_NO_PEOPLE)
+
+
+STYLE_ART_COMBINE_PROMPT = (
+    '第一张图是两套婚礼服饰（隐形人拍法），第二张图是一个空的场景。把第一张图里的两套服饰原样放进第二张图的场景里，并排站在画面中央，'
+    '正面、全身完整入镜：服饰的款式、面料、颜色和配饰都与第一张图完全一致，仍是「隐形人」效果：按真人穿戴时的位置和立体形状摆放，'
+    '但穿戴的人完全不存在，领口、袖口、裙腰和裤腿内部是空的，看不到任何人、人台、支架、头部、脸或身体。'
+    '场景的陈设、地面、光线和色调都与第二张图一致，服饰的受光和阴影与场景的光线协调，脚下有自然的接触阴影。没有文字和水印。写实摄影。')
+
+# What a shot from the style art still says in words: the style's colour, light and mood without the things in its
+# scene (the style's 'look'), and the light of its main scene. Clothes and places come from the picture.
+STYLE_ART_TEXT = {
+    # V7.72: rewritten after 参考照/海岛海岸; the light comes from each set's area (app/rooms.py).
+    # V7.98: day and sunset written apart after 参考照/海岛海岸; sunsets there are soft peach-gold, not deep orange.
+    'seaside_sunset': ('海岸海岛婚纱照：开阔的海面和天空占据大片画面。白天是晴朗的强阳光，深浅有层次的蔚蓝海水上闪着大片波光，'
+                       '画面清楚利落；夕阳是明亮柔和的蜜桃金色逆光，有薄薄的暖色雾气，反差低，天空是淡淡的蜜桃粉和金色。'
+                       '面部受光清楚，不拍成剪影；肤色是通透的暖调自然肤色，不偏粉；白纱干净，保留纹理不过曝。',
+                       '晴朗白天的强阳光在海面上闪着大片细碎的波光。'),
+    'chinese_traditional': ('端庄喜庆的东方仪式感，朱红、金色与青灰色的配色，色温中性，明朗柔和的日光，画面干净；新娘的红色礼服是画面里主要的红色。',
+                            '阳光投下清晰的斜向光影。'),
+    'lawn_floral': ('高定户外婚礼的清爽氛围，白色与鲜嫩青绿色的配色，色温中性，明亮柔和的自然光，画面干净通透。',
+                    '柔和明亮的天光。'),
+    'french_estate': ('法式私人庄园的秩序与贵气，浅石色、深绿与白色的配色，明亮柔和的日光，色温中性，画面干净。',
+                      '上午明亮柔和的阳光。'),
+    'lakeside': ('清透开阔的湖畔氛围，蓝天、碧蓝与青灰色的配色，色温中性，明亮通透的自然光，画面干净。',
+                 '晴朗的上午，阳光从侧面照来，湖面闪着细碎的光。'),
+    'dark_studio': ('精准的影棚灯光塑造雕塑般的明暗：侧前方的主光把两人的面部照亮、照清楚，轮廓光只用来勾出头发、肩颈和婚纱裙摆的边缘；'
+                    '白色婚纱在黑色背景中轮廓清晰，色温中性，画面冷艳、沉稳；灯具本身不出现在画面里。',
+                    '一盏柔光从侧前方照亮两人的面部和身体，明暗过渡细腻，另一侧身体渐渐沉入暗部，身后一道轮廓光勾出头发和肩膀的亮边。'),
+    'european_heirloom': ('古典私人晚宴的暖暗色彩：深褐、旧金、香槟金与黑色，环境保留大片深褐暗部。烛火与暖色灯光是背景点光，'
+                          '画外暖色侧前柔光塑造人物，侧后亮边勾出衣料；明暗有明显方向，面部保留自然立体过渡。高光不过曝，肤色自然，'
+                          '不把全景提亮成白色酒店大堂，也不统一染成橙色；细微颗粒与亮点柔晕。',
+                          '画外暖色柔光从侧前方照入，远处较暗。'),
+    # As tested on 2026-11-04: only the walls and floor left the look.
+    # V7.34: the light belongs to each room's area now (app/rooms.py), so the look no longer names the side window.
+    # V7.99: warm side window light that falls off, after 参考照/法式复古 (median lightness 53, warmth +13).
+    'french_couture': ('复古法式室内肖像，暖米色、深木色、象牙白与黑色的配色，颜色温暖饱满。窗光从侧面照进来，人物最亮，'
+                       '房间往四周和墙角自然变暗，背景比人物暗；光线照出蕾丝、头纱与缎面的层次，背光一侧保留柔和的暖灰褐暗部。'
+                       '肤色是暖调的象牙色，不偏粉、不偏红；白纱是干净的象牙白，不发黄发脏。颗粒细微，轮廓清楚，不做褐色滤镜或朦胧磨皮。',
+                       '下午的窗光从左侧窗户斜斜照进来，带一点暖意，往右侧和墙角自然变暗。'),
+    # V7.53: the six backdrops (app/rooms.py) bring their own colour and light.
+    # V7.104: mid-value backdrop that falls off, the couple brighter, after 参考照/主纱 (lightness 64, ours 85).
+    'minimal_bridal': ('韩式影棚主纱照的干净质感：白纱、礼服和背景形成简洁的色块关系，色彩干净中性，不偏黄。背景是中等明度，四周自然变暗，人物比背景亮；'
+                       '人物受光清楚柔和，面部保留自然的明暗层次，皮肤保留真实质感，肤色是暖调的自然肤色，不偏粉；裙身的层次和头纱清楚，白纱不过曝，'
+                       '礼服保留驳领与衣身层次。画面细腻锐利，裙形和人物线条是视觉重点。',
+                       '中性大面积柔光从左侧前方照亮人物，背景四周自然压暗，地面有浅淡接触阴影。'),
+    'white_horse_ceremony': ('深绿林缘的安静仪式感，白色轻纱与白马形成柔和亮色，整体以墨绿、灰绿和深褐为主。阴天的开阔侧向天光照出白马肌肉、'
+                             '纱裙层次和草地起伏，背景深暗，薄雾只在远处低低铺开。色彩克制，白色保留中性与细节，反差柔和而有暗部，'
+                             '不把薄雾做成大片白烟，不加入梦幻光效。',
+                             '开阔天空从左前方提供柔和侧光。'),
+    'blue_hour_veil': ('日落后的蓝调暮色，天空是有云层细节的深灰蓝与钴蓝，环境沉入深暗。画外低处暖光照进白色薄纱并自然衰减，'
+                       '在近处面部与手上形成温暖的受光面，冷色天光保留轮廓；环境整体仍比人物暗。强冷暖关系来自真实光源，'
+                       '纱是透光织物而非自发光物体；不补成白天曝光，不加入霓虹或城市灯海，少量高光柔晕与细颗粒。',
+                       '画外左前方低处有一束暖色柔光，光向上自然衰减，与冷色天光形成分离，画面中没有灯具。'),
+    'forest_film': ('森林胶片婚纱照：深绿与墨绿为主，草地是自然的鲜绿，白纱是明确亮色。光线柔和，面部受光清楚，肩臂和衣褶有轻柔的明暗，树林深处'
+                    '保留暗部，人物比身后的树林亮，深绿浓郁饱满。肤色是暖调的自然肤色，不偏粉、不染绿，白纱保留纹理不过曝，细微的胶片颗粒，'
+                    '绿色不发黄、不发灰、不是荧光绿。',
+                    '阴天或林间的柔和散射光，没有强烈的直射阳光。'),
+    'retro_red_studio': ('复古婚礼肖像的砖红、纯白与黑色配色，红色沉稳饱满但不荧光。中性偏暖的侧前柔光照出白纱轮廓，背景一侧保留自然斜影，'
+                         '肤色不受红色背景染色；黑礼服层次清楚。影调有厚度，细微胶片颗粒，亮部柔和。',
+                         '中性偏暖柔光从左前方照来，另一侧有渐暗的红色与柔和斜影。'),
+    # V7.66: rewritten after 参考照/街拍; the light comes from each street's area (app/rooms.py).
+    # V7.100: the person lit, the street behind in shade, after 参考照/街拍 (median lightness 49, faces 65).
+    'city_story': ('城市街拍婚纱照：红砖、米白石墙、灰色路面和树冠的绿色，白纱和黑色、炭灰色礼服形成清楚的黑白色块。晴天的阳光照亮人物，'
+                   '身后的街道和墙面常落在深一些的阴影里，人物比背景亮，反差明显。面部受光清楚，保留正常的街道透视和远处建筑的细节，'
+                   '背景不全虚化。颜色饱满但不艳，白纱保留纹理不过曝，肤色是暖调的自然肤色，不偏粉；细微颗粒，不发黄，不做旧照片滤镜，'
+                   '不用夸张的超广角。',
+                   '晴朗白天的阳光照亮人物，身后的街道落在柔和的阴影里。'),
+    # V7.67: rewritten after 参考照/喜嫁; the light comes from each set's area (app/rooms.py). V7.69: bright clean red.
+    # V7.92 (2026-11-13, user: 风格选择的背景是暗红，为啥你的红墙光影要深红呢): "干净明亮…不发暗" gave a flat neon red
+    # (V≈80); the style example and 参考照/喜嫁 are a deep velvet red (V≈45–55) that darkens away from the couple.
+    # V7.97 (user: 喜嫁的打光太油了，应该是那种柔光…都改吧): the references' red is warm (hue ≈ +8°, ours was −4°), their
+    # light one big frontal soft box, their skin peach and less saturated than ours (S ≈ 33 vs 42).
+    'chinese_celebration': ('中式喜嫁婚纱照：正红是画面的主色，是饱满的暖调正红，像中国红，明度中等偏深，不是鲜亮刺眼的大红；'
+                            '影棚里人站的地方最亮，红色向画面四周自然变深；不偏橙、不发棕、不偏玫红、不发粉、不发黑。白纱、黑礼服和捧花的绿叶是红色里的对比色。'
+                            '影棚里是正面柔光，脸上几乎没有阴影，高光大而柔和；肤色是干净的暖调象牙白，偏蜜桃色，不偏红、不偏粉，红墙的反光不染到脸上；'
+                            '皮肤柔和细腻，保留细微纹理，没有油光；白纱保留纹理不过曝，黑礼服有层次。画面干净喜庆，细微颗粒，不发黄，不做旧照片滤镜。',
+                            '一盏很大的柔光箱在镜头正前方略高处，正面照亮两人，脸上几乎没有阴影。'),
+    # V7.70: 森系草坪, after 参考照/森系草坪; the light comes from each set's area (app/rooms.py).
+    # V7.103: deep green grass (V7.105: the face no longer pushed brighter), after 参考照/森系草坪 (grass value 27, ours 36-50).
+    'garden_lawn': ('森系草坪婚纱照：开阔的户外，草坪是浓郁偏深的绿，远处的树林更深，白纱、白西装和浅粉、浅蓝的纱裙是画面里的亮色。'
+                    '面部受光柔和清楚，人物从深绿的背景里自然分出来，背景略微虚化。色彩清新干净，绿色浓郁自然，不是嫩黄绿，不发黄、不发灰；'
+                    '肤色是暖调的自然肤色，不偏粉、不染绿，白纱保留纹理不过曝。',
+                    '柔和的天光。'),
+    # V7.71: 花房, after 参考照/花房; the light comes from each set's area (app/rooms.py).
+    # V7.101: light per sub-theme after 参考照/花房 (the 法式 one is warm low-key, not bright and even).
+    'flower_house': ('室内花房婚纱照：满室的鲜花和绿植是画面的主角，白、粉、浅紫、奶油和嫩绿是主要的颜色，白纱和浅色服饰与花草融在一起。'
+                     '光线跟着场景：明亮柔和的光、带薄雾的斜射窗光，或暖褐色暗调里的柔光和烛光。面部受光柔和清楚，花草柔和虚化、有层次。'
+                     '不发黄、不发灰，暗部干净；肤色是暖调的自然肤色，不偏粉；白纱保留纹理不过曝。',
+                     '明亮柔和的窗光透过纱帘照进来。'),
+}
+_ART_ROLE = ('图是服饰和场景参考：两人穿戴的礼服、头饰、配饰和捧花以图中的服饰为准，参考款式、面料与颜色；拍摄地点和陈设以图中的场景为准。'
+             '图中的服饰是无人穿戴的展示，不参考其构图和摆放。')
+_ART_ROLE_MARKER = '图是服饰和场景参考'
+
+
+def has_style_art(style_id: str) -> bool:
+    """Whether new shots of this style may be made from its style art: live styles only."""
+    return style_id in STYLE_ART_TEXT and style_id not in RETIRED_STYLE_IDS
+
+
+def uses_style_art(prompt: str) -> bool:
+    """Whether a stored shot prompt copies the clothes and the place from the style art (V7.33)."""
+    paragraphs = prompt.split('\n\n')
+    return len(paragraphs) > 1 and _ART_ROLE_MARKER in paragraphs[1]
 
 
 def _clothes(style: dict) -> str:
@@ -1096,94 +1408,349 @@ def _clothes(style: dict) -> str:
 
 
 def compose_look_prompt(role: str, hairstyle_id: str, level: str, *, style_id: str | None = None,
-                        facing: str | None = None) -> str:
+                        facing: str | None = None, jewelry_id: str | None = None,
+                        retouch_settings: RetouchSettings | None = None, model_id: str | None = None) -> str:
     """Edit prompt that turns one person's uploaded photo into a look: their styled photo (V5.0).
 
-    level: the person's makeup level. style_id: the style a bride look is made for (V7.0), which sets her makeup
-    colour family and finish; None for the groom, whose look every style shares.
-    facing: None for the front photo; 'left' / 'right' for a side photo, which is sent together with the
-    person's front look as the second image so both carry the same hairstyle and makeup.
+    level: the person's makeup level; it does not affect the hairstyle.
+    style_id: the style a bride look is made for (V7.0), which sets her makeup colour family and finish;
+    None for the groom, whose look every style shares.
+    jewelry_id: the earrings and necklace her front look wears (V7.61), which a side look wears too.
+    facing: None for the front photo; 'left' / 'right' for a side photo. Since V7.46 the side photo is sent alone and
+    the hairstyle and makeup come from the same words as the front look's: with the front look as a second image
+    the edit drew part of that (already edited) face into the side face.
     """
     if (role == 'bride') != (style_id is not None):
         raise ValueError('a bride look is made for one style; the groom look is shared by every style')
+    gentle = _gentle_makeup_family(model_id)
     name = _ROLE_NAMES[role]
     # The edit endpoint keeps whatever the photo shows unless told plainly that the hair is redone (V5.1): the
     # photo fixes the face, the hair follows the hairstyle. The face is kept as the edit draws it (V7.0).
     done = '化好妆、由造型师重新做好发型' if role == 'bride' else '由造型师重新做好发型、修整好皮肤'
-    if facing is None:
-        opening = (f'把这张照片修成{name}婚礼当天{done}后的造型照。原照片用来确定这个人的长相：' + _IDENTITY_INVARIANTS +
-                   '发际线的主体位置、整体走向和两侧转折与原照片一致，局部稀疏只按下文在原边界内补足；'
+    identity = _GENTLE_MAKEUP_IDENTITY if gentle else (_RETOUCH_IDENTITY if retouch_settings is not None else _IDENTITY_INVARIANTS)
+    if gentle == 'seedream':
+        angle = f'{name}{facing_phrase(facing)}，角度不变。' if facing is not None else ''
+        opening = (angle + '头发按下文整理，面部仅作下文列出的一点点局部修饰。'
+                   + _GENTLE_MAKEUP_IDENTITY + '发际线主体边界照原片。')
+    elif facing is None:
+        opening = (f'把这张照片修成{name}婚礼当天{done}后的造型照。原照片用来确定这个人的长相：' + identity +
+                   '发际线的主体位置、整体走向和两侧转折与原照片一致；'
                    '头部的角度和表情保持原照片的样子。头发按下面的发型重新造型。')
     else:
-        opening = (f'第一张图是要修的照片，{name}脸朝画面{_FACING_NAMES[facing]}侧；第二张图是同一个人已经做好的正面造型照。'
-                   '把第一张图修成和第二张图同一套造型：发型、发色、妆容和肤色都与第二张图一致，只是角度不同。第一张图用来确定这个人的长相：'
-                   + _IDENTITY_INVARIANTS + '发际线的主体位置、整体走向和两侧转折按第一张图里本人的样子；头部的角度和表情保持第一张图的样子。'
-                   '头发按第二张图的发型重新画，不照搬第一张图里的头发。')
-    hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}；{_HAIR_FINISH[role][level]}。' + _HAIR_RULES + _HAIR_DENSITY[role]
-    makeup = _bride_makeup(level, style_id) if role == 'bride' else _groom_retouch(level)
-    return '\n\n'.join((opening, hair, makeup, _LOOK_BACKGROUND, _STYLING_AVOID))
+        opening = (f'这张图是要修的照片，{name}{facing_phrase(facing)}。按下面的发型、妆容和精修把{name}修成婚礼当天{done}后的造型，'
+                   '头部角度不变。这张图用来确定这个人的长相：'
+                   + identity + '发际线的主体位置、整体走向和两侧转折按照片里本人的样子；头部的角度和表情保持照片里的样子。'
+                   '头发按下面的发型重新画，不照搬照片里的头发。')
+    hair = f'发型：{HAIRSTYLE_BY_KEY[(role, hairstyle_id)].text}。' + _HAIR_RULES
+    makeup = (_bride_makeup(level, style_id, retouch_settings, model_id=model_id) if role == 'bride'
+              else _groom_retouch(level, retouch_settings, model_id=model_id))
+    jewelry = (_jewelry_paragraph(jewelry_id),) if role == 'bride' and jewelry_id is not None else ()
+    avoid = (_FINE_STYLING_AVOID,) if retouch_settings is not None and not gentle else ()
+    background = _GENTLE_LOOK_BACKGROUND if gentle else _LOOK_BACKGROUND
+    return '\n\n'.join((opening, hair, makeup, *jewelry, background, *avoid))
 
 
-def _bride_makeup(level: str, style_id: str) -> str:
+# V7.92 (2026-11-13, user: 皮肤还反光油油的…改吧): a 喜嫁 bride came out with a shiny forehead and nose already on her
+# look, and the shot keeps the look's skin. The finishes say 通透、柔缎、微润, which the model draws as oil under the
+# look's even front light, and "没有大面积油光" did not stop it (the groom needed V7.89 for the same). New candidates
+# set the base: the finish keeps its soft sheen, the T-zone and cheeks do not shine.
+_BRIDE_SETTING = '定妆：额头、鼻子、下巴和两颊不反油光，妆面的光泽只是皮肤细腻的柔光，不是油亮的反光；保留真实的皮肤纹理，不显得扑了粉。'
+
+
+def _bride_makeup(level: str, style_id: str, retouch_settings: RetouchSettings | None = None,
+                  *, model_id: str | None = None) -> str:
+    family = _gentle_makeup_family(model_id)
+    if family:
+        return _gentle_makeup('bride', level, family, style_id, retouch_settings)
     color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style_id][0]]
-    return ('妆容和精修：' + _BRIDE_STYLING[level] + '。新娘妆色：' + color.text + '新娘妆面：' + STYLE_MAKEUP_FINISH[style_id] +
+    styling = (_BRIDE_STYLING[level] if retouch_settings is None
+               else _BRIDE_MAKEUP_INTRO[level] + '底妆轻薄服帖，显色与遮盖分别按妆感档位和精细调整执行；' + _BRIDE_COSMETICS[level])
+    limits = (_RETOUCH_LIMITS + _CONTOUR_EXCEPTION if retouch_settings is None
+              else _fine_retouch(retouch_settings, 'bride'))
+    setting = _BRIDE_SETTING if retouch_settings is not None else ''  # V7.92; older candidates keep their words
+    return ('妆容和精修：' + styling + '。新娘妆色：' + color.text + '新娘妆面：' + STYLE_MAKEUP_FINISH[style_id] + setting +
             # V7.6 (Codex): the bare upload must not cap the makeup, and the finish words describe texture, not strength.
             '按本档位在本人原有五官结构上完成新娘妆，上传照用于确定长相，不以原照的素颜或淡妆状态限制目标妆容。'
             '眼影、眼线、睫毛、腮红和唇色都有清楚的妆效；着色强度与覆盖程度按档位，色相按所选色系，光泽与晕染位置按妆面；'
             '柔雾、润泽和小范围均不表示降低显色。低饱和色系也应有清楚的着色覆盖与深浅区别，黑白风格以相应灰阶层次表现。'
-            '仅用妆色和深浅层次增强妆感，保留眼型、唇形和五官比例。' + _RETOUCH_LIMITS +
-            _CONTOUR_EXCEPTION)
+            '仅用妆色和深浅层次增强妆感，保留眼型、唇形和五官比例。' + limits)
 
 
 # V7.5: the bride's front look is made in two edits, makeup first, then hair on the made-up photo, so each change is
 # smaller and a drift away from the person shows at the step that caused it. The hair step keeps the face, makeup
 # and skin as they are: the makeup and whitening are never done twice. The groom's look stays one edit.
 _LOOK_BACKGROUND = '背景和光线：背景换成干净均匀的浅灰色纯色背景；柔和均匀的正面光，脸上没有明显的阴影；衣服保持原样。'
+_FINE_STYLING_AVOID = '避免：重塑五官或骨相、超出精细调整的轮廓改动、磨皮、文字和水印。'
 
 
-def compose_bride_makeup_prompt(level: str, style_id: str) -> str:
+# V7.113: Nano Banana and Seedream over-applied the emphatic default makeup instructions in user trials.
+# Compose a separate gentle prompt rather than appending a weak qualifier to the strong default text.
+_GENTLE_MAKEUP_IDENTITY = '保留本人的五官结构、脸型特征、眉形、年龄感和辨识特征；表情和头部角度保持原样。'
+_GENTLE_LOOK_BACKGROUND = '背景改为均匀浅灰色，光线柔和自然，衣服保持原样。'
+_GENTLE_MAKEUP_LEVELS = {
+    'gemini': {
+        'bride': {'light': '只添一点淡妆，妆色若有若无',
+                  'natural': '轻薄淡妆，眼影、腮红和唇色轻轻带过',
+                  'refined': '仍是淡妆，眉眼和唇色比自然档稍清楚，轻薄透肤'},
+        'groom': {'light': '只轻微整理皮肤，眉毛顺着原毛流梳顺',
+                  'natural': '极淡男士妆，原眉轮廓内轻补空缺，唇色自然',
+                  'refined': '轻薄男士淡妆，眉毛轻补空缺，气色略精神，保留自身唇色'},
+    },
+    'seedream': {
+        'bride': {'light': '妆色几乎不可见',
+                  'natural': '只添一丝妆色',
+                  'refined': '仅比自然档多一丝妆色'},
+        'groom': {'light': '仅压一点点油光',
+                  'natural': '仅压一点点油光，原眉照原样',
+                  'refined': '原眉空缺至多添一丝毛流，原有唇色不变'},
+    },
+}
+# The controls remain independent and distinct, within a deliberately small adjustment range.
+_GENTLE_ADJUSTMENT = {
+    'minimal': '近乎不变', 'subtle': '极轻', 'light': '很轻', 'mild': '很轻略多',
+    'balanced': '轻微偏少', 'standard': '轻微偏少', 'moderate': '轻微',
+    'enhanced': '轻微略多', 'strong': '轻微稍清楚', 'intense': '轻微较清楚',
+    'maximum': '轻微范围上限', 'full': '轻微范围上限',
+}
+# V7.114: Seedream still over-edited. Keep only requested active edits, in a smaller range than Nano Banana.
+_SEEDREAM_ADJUSTMENT = {
+    'minimal': '几乎不作改动', 'subtle': '仅一丝变化', 'light': '极少一点', 'mild': '略多一丝',
+    'balanced': '少许，仍难察觉', 'standard': '少许，仍难察觉', 'moderate': '少许，接近原照',
+    'enhanced': '少许，细看可见', 'strong': '少许，局部可见', 'intense': '仅比少许多一丝',
+    'maximum': '至多一点点', 'full': '至多一点点',
+}
+
+
+def _gentle_makeup_family(model_id: str | None) -> str | None:
+    if model_id is None:
+        return None  # Existing callers and saved default prompts keep their original wording.
+    family = require_model(model_id).family
+    return family if family in _GENTLE_MAKEUP_LEVELS else None
+
+
+def _gentle_fine_retouch(settings: RetouchSettings) -> str:
+    closed = {'brightening': '保持原肤色明度，不提白', 'concealing': '保留原有瑕疵',
+              'slimming': '关闭，不瘦脸', 'chin': '关闭，保留原有轮廓', 'nasolabial': '保留'}
+    labels = (('brightening', '肤色提亮'), ('concealing', '遮瑕程度'), ('slimming', '瘦脸程度'),
+              ('chin', '下巴轮廓整理'), ('nasolabial', '法令纹淡化'))
+    adjustments = '；'.join(label + '：' + (closed[field] if getattr(settings, field) == 'off'
+                                           else _GENTLE_ADJUSTMENT[getattr(settings, field)])
+                             for field, label in labels)
+    return ('精细调整：' + adjustments + '。各项独立，关闭项保持原样；提亮只作用于皮肤，保留肤色底调和皮肤纹理；'
+            '轮廓仅在开启项轻微整理对应软组织，保留骨相。')
+
+
+def _seedream_fine_retouch(settings: RetouchSettings) -> str:
+    labels = (('brightening', '提亮'), ('concealing', '遮瑕'), ('slimming', '下颌两侧软组织收整'),
+              ('chin', '下巴下方软组织收整'), ('nasolabial', '鼻唇沟淡化'))
+    adjustments = '；'.join(label + '：' + _SEEDREAM_ADJUSTMENT[getattr(settings, field)]
+                             for field, label in labels if getattr(settings, field) != 'off')
+    if not adjustments:
+        return '原有肤色、瑕疵和轮廓照原片，保留皮肤纹理。'
+    return '仅调整：' + adjustments + '。其余照原片，保留肤色底调和皮肤纹理。'
+
+
+def _gentle_makeup(role: str, level: str, family: str, style_id: str | None,
+                   settings: RetouchSettings | None) -> str:
+    makeup = _GENTLE_MAKEUP_LEVELS[family][role][level]
+    if family == 'seedream':
+        if role == 'bride':
+            color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style_id][0]]
+            makeup += '，只参考' + color.name + '的色相'
+        return ('局部修饰：' + makeup + '。' +
+                _seedream_fine_retouch(settings if settings is not None else retouch_preset(level)))
+    if role == 'bride':
+        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[style_id][0]]
+        makeup += '；妆色参考' + color.name + '，薄涂透肤；眼型和唇形保持原样，睫毛自然'
+    else:
+        makeup += '；仅稍减临时油光和胡茬痕迹'
+    return ('妆容和精修：' + makeup + '。' +
+            _gentle_fine_retouch(settings if settings is not None else retouch_preset(level)))
+
+
+def _compose_gentle_makeup_prompt(role: str, level: str, family: str, style_id: str | None,
+                                 settings: RetouchSettings | None) -> str:
+    if family == 'seedream':
+        opening = '以原照为准，保留五官结构、脸型特征、眉形、年龄感和辨识特征，表情与角度不变。头发和发色保持原样。'
+        return '\n\n'.join((opening, _gentle_makeup(role, level, family, style_id, settings), _GENTLE_LOOK_BACKGROUND))
+    name = '新娘' if role == 'bride' else '新郎'
+    skin_only = role == 'groom' and level == 'light'
+    action = '轻微皮肤整理' if skin_only else '轻微化妆和皮肤整理'
+    task = f'在这张照片上给{name}只做{action}。'
+    opening = task + _GENTLE_MAKEUP_IDENTITY + '头发和发色保持原样。'
+    return '\n\n'.join((opening, _gentle_makeup(role, level, family, style_id, settings), _GENTLE_LOOK_BACKGROUND))
+
+
+def compose_bride_makeup_prompt(level: str, style_id: str, retouch_settings: RetouchSettings | None = None,
+                                *, model_id: str | None = None) -> str:
     """First edit of a bride look (V7.5): makeup, skin and background on the uploaded photo, hair unchanged."""
+    family = _gentle_makeup_family(model_id)
+    if family:
+        return _compose_gentle_makeup_prompt('bride', level, family, style_id, retouch_settings)
+    identity = _RETOUCH_IDENTITY if retouch_settings is not None else _IDENTITY_INVARIANTS
     opening = ('把这张照片修成新娘婚礼当天化好妆后的样子：这一步只化妆、修整皮肤和换背景，头发保持原照片的样子。'
-               '原照片用来确定这个人的长相：' + _IDENTITY_INVARIANTS + '头部的角度和表情保持原照片的样子。')
-    avoid = '避免：改变发型和发色、改变脸和五官、浓重的舞台妆、磨皮、文字和水印。'
-    return '\n\n'.join((opening, _bride_makeup(level, style_id), _LOOK_BACKGROUND, avoid))
+               '原照片用来确定这个人的长相：' + identity + '头部的角度和表情保持原照片的样子。')
+    avoid = ('避免：改变发型和发色、改变脸和五官、浓重的舞台妆、磨皮、文字和水印。' if retouch_settings is None else
+             '避免：改变发型和发色、重塑五官或骨相、超出精细调整的轮廓改动、浓重的舞台妆、磨皮、文字和水印。')
+    return '\n\n'.join((opening, _bride_makeup(level, style_id, retouch_settings), _LOOK_BACKGROUND, avoid))
 
 
-def compose_bride_hair_prompt(hairstyle_id: str, level: str) -> str:
-    """Second edit of a bride look (V7.5): only the hair, on the made-up photo of the first edit."""
-    opening = ('这张照片是新娘婚礼当天化好妆的样子。把她的头发改成下面的发型，这一步只改头发：'
+def compose_bride_hair_prompt(hairstyle_id: str, jewelry_id: str | None = None) -> str:
+    """Second edit of a bride look (V7.5): only the hair, on the made-up photo of the first edit. V7.61: and the
+    earrings and necklace picked for the look (JEWELRY), if any."""
+    jewelry = jewelry_id is not None
+    task = '把她的头发改成下面的发型，并戴上下面写的首饰，这一步只改头发和戴首饰：' if jewelry else '把她的头发改成下面的发型，这一步只改头发：'
+    opening = ('这张照片是新娘婚礼当天化好妆的样子。' + task +
                '脸、五官、表情、头部角度、妆容、肤色、皮肤状态、背景、光线和衣服都保持这张照片的样子，不再上妆、不再提白、不再修皮肤；'
                '已完成的眉妆、眼影深浅层次、眼线、睫毛和假睫毛、腮红显色和唇色覆盖程度都保持这张照片的样子，不淡化妆色。'
                '发际线的主体边界以这张照片为准。'
                + _IDENTITY_INVARIANTS)
-    hair = f'发型：{HAIRSTYLE_BY_KEY[("bride", hairstyle_id)].text}；{_HAIR_FINISH["bride"][level]}。' + _HAIR_RULES + _HAIR_DENSITY['bride']
-    return '\n\n'.join((opening, hair, _STYLING_AVOID))
+    hair = f'发型：{HAIRSTYLE_BY_KEY[("bride", hairstyle_id)].text}。' + _HAIR_RULES
+    return '\n\n'.join((opening, hair, *((_jewelry_paragraph(jewelry_id),) if jewelry else ())))
+
+
+# V7.61 (2026-11-05, user: 耳饰是否改放在其他地方生成？比如发型那一步…那还是放在发型那一步吧；首饰不是可选的吗？…有的服饰
+# 根本不需要首饰 → A): the bride's earrings and necklace are put on in her hair edit, so every shot copies them from her
+# look. They are a choice of each look, none by default; a style only suggests one. Tested on a real look
+# (docs/prompts.md V7.61): drawn right in three of three, likeness unchanged; in the shots the look's earrings stayed the
+# same, where words in the shot drew a stud in one and a drop in the other. The outfits no longer name earrings or
+# necklaces; an outfit that wants none is shot from a look without them.
+class Jewelry(NamedTuple):
+    id: str
+    name: str
+    text: str
+
+
+JEWELRY = (
+    Jewelry('pearl_studs', '珍珠耳钉', '两只耳垂上各戴一颗小白色珍珠耳钉。'),
+    Jewelry('pearl_drops', '双颗珍珠耳坠', '两只耳垂上各戴一只双颗珍珠耳坠，上面一颗小白色珍珠贴着耳垂，下面垂一颗稍大的白色珍珠。'),
+    Jewelry('pearl_drops_necklace', '珍珠耳坠和三串项链',
+            '两只耳垂上各戴一只双颗珍珠耳坠，上面一颗小白色珍珠贴着耳垂，下面垂一颗稍大的白色珍珠；'
+            '脖子上戴三串长短叠戴的白色珍珠项链，最短的一串贴近颈根，另外两串依次垂到锁骨下方，自然搭在衣服领口外面。'),
+    Jewelry('diamond_drops', '钻石耳坠', '两只耳垂上各戴一只小巧的钻石耳坠，一颗小钻贴着耳垂，下面垂一颗水滴形小钻。'),
+    Jewelry('diamond_studs', '钻石耳钉', '两只耳垂上各戴一颗小巧的圆形透明钻石耳钉，细白金包边，贴着耳垂。'),
+    Jewelry('pearl_pendant_set', '珍珠耳钉和单珠项链',
+            '两只耳垂上各戴一颗小白色珍珠耳钉；脖子上戴一条细白金项链，链条沿颈根自然垂下，'
+            '中央只有一颗小白色珍珠吊坠，落在锁骨中间。'),
+    Jewelry('pearl_flower_studs', '珍珠花朵耳钉',
+            '两只耳垂上各戴一只小巧的花朵耳钉，五片白色贝母花瓣围着一颗小白色珍珠花心，贴着耳垂。'),
+    Jewelry('gold_leaf_drops', '金叶耳坠',
+            '两只耳垂上各戴一只小巧的哑光浅金色耳坠，细短耳钩下垂一片细长叶片，叶脉清晰，整体长度约两厘米。'),
+    Jewelry('red_agate_drops', '红玛瑙耳坠',
+            '两只耳垂上各戴一只小巧的浅金色耳坠，上端是一颗贴着耳垂的小金珠，下方垂一颗椭圆形深红色玛瑙，细金边包镶。'),
+    Jewelry('shell_pearl_drops', '贝壳珍珠耳坠',
+            '两只耳垂上各戴一只小巧的贝壳珍珠耳坠，上端是一片贴着耳垂的白色扇形贝母，下方垂一颗白色水滴形珍珠。'),
+    Jewelry('pearl_choker_set', '珍珠耳钉和单串珍珠短项链',
+            '两只耳垂上各戴一颗小白色珍珠耳钉；脖子上戴一条单串白色珍珠短项链，'
+            '由大小均匀、直径约五毫米的小圆珍珠串成，沿颈根自然围成一圈，落在锁骨上方。'),
+    Jewelry('diamond_necklace_set', '钻石耳钉和细排钻项链',
+            '两只耳垂上各戴一颗小巧的圆形透明钻石耳钉；脖子上戴一条细白金排钻项链，'
+            '一排大小均匀的小圆形透明钻石连续排列，沿锁骨自然垂成浅弧形。'),
+    Jewelry('jade_drops', '绿色翡翠耳坠',
+            '两只耳垂上各戴一只小巧的浅金色耳坠，上端是一颗贴着耳垂的小金珠，'
+            '下方垂一颗椭圆形绿色翡翠，细金边包镶，翡翠半透明，有温润柔和的光泽，整体长度约两厘米。'),
+    Jewelry('diamond_tassel_drops', '细链流苏钻石耳坠',
+            '两只耳垂上各戴一只细链流苏钻石耳坠，一颗小圆钻贴着耳垂，'
+            '下面垂三条纤细白金链，每条链末端各有一颗小圆钻，三条链长短错落，最长约三厘米。'),
+    Jewelry('pearl_diamond_clusters', '珍珠钻石簇花耳饰',
+            '两只耳垂上各戴一只贴耳的小巧簇花耳饰，中央是一颗小白色珍珠，'
+            '外圈由五颗椭圆形透明小钻组成花瓣，白金底托，整朵花直径约一厘米。'),
+)
+JEWELRY_BY_ID = {item.id: item for item in JEWELRY}
+# Each active style suggests one selectable item; jewelry is never put on unasked.
+STYLE_JEWELRY_SUGGESTION = {
+    'french_couture': 'pearl_drops_necklace',
+    'minimal_bridal': 'diamond_drops',
+    'forest_film': 'gold_leaf_drops',
+    'city_story': 'diamond_studs',
+    'chinese_celebration': 'red_agate_drops',
+    'garden_lawn': 'pearl_flower_studs',
+    'flower_house': 'pearl_studs',
+    'seaside_sunset': 'shell_pearl_drops',
+}
+
+
+def _jewelry_paragraph(jewelry_id: str) -> str:
+    return '首饰：' + JEWELRY_BY_ID[jewelry_id].text
 
 
 # V7.22: the groom's front look is two edits as well, in the bride's order: retouching (and, at the refined level,
 # his light makeup) with the background first, hair unchanged; then only the hair on the retouched photo. His
 # retouched photo has no style colours, so one serves every style, like his looks.
-def _groom_retouch(level: str) -> str:
-    return '皮肤和精修：' + _GROOM_STYLING[level] + '。' + _RETOUCH_LIMITS + _CONTOUR_EXCEPTION
+# V7.87 (2026-11-12, the user: 化妆阶段应该整体美化点，调参数没法到那个程度，新娘还好，新郎不行): the five controls were made
+# for the bride, whose makeup does most of the work; on the groom, maxed out, they only whiten and narrow the face (and
+# cost likeness, 0.947 -> 0.788) while the stubble, the tired puffy eyes and a dull complexion stay. These are passing
+# states like spots and oil, not his looks, so natural and refined clean them; the eye's shape, size and lids stay.
+# "唇色自然红润" made his lips look painted. Light stays a plain clean-up. Older candidates (no retouch_settings)
+# keep their own words.
+_GROOM_GROOMING = ('胡茬刮干净：上唇、下巴和两腮像当天刚刮过，青色的胡茬痕迹淡化；'
+                   '眼部有精神：减轻眼袋、眼皮浮肿和疲态，眼睛清亮有神，不改变眼型、眼睛大小和双眼皮；'
+                   '气色健康、有精神；唇色健康自然，不显得涂了口红；')
+# V7.89 (2026-11-12, the user: 哑光定妆也加上): "没有大面积油光" still let a shiny forehead and nose through, which
+# reads as greasy on a man; natural and refined set his skin matte, without the powdery look or flattened texture.
+_GROOM_MATTE = '哑光定妆：额头、鼻子和两颊不反油光，皮肤干净清爽，保留真实的皮肤纹理，不显得扑了粉；'
+# V7.88 (2026-11-12, the user: 需要画眉): tidying alone left sparse brows sparse, and a groom without defined brows
+# looks tired however clean his skin is. Natural and refined fill the gaps inside his own brow outline, like the
+# bride's brows; where the brow sits, its thickness, arch and angle stay his, so the fill adds definition, not a new brow.
+# V7.90 (2026-11-12, the user: 没见你画眉，而且化妆程度大一点): the V7.88 brow asked for the same colour as the
+# brow and "not drawn-looking", so the model left it as it was (likeness 0.949, the result barely changed); and
+# "淡淡的男士妆" / "只修整皮肤" kept the whole look timid. The brow is now visibly filled and a shade deeper, still
+# inside his own outline with its position, arch and angle; both levels open with a visible groom's makeup and a base.
+# V7.91 (2026-11-12, the user: 基本没见画眉，反而眉毛感觉更稀少了): three V7.90 results came out with lighter, thinner
+# brows. The opening still said "这一步只修整皮肤", so makeup read as out of scope; the whitening lifted the brow hair
+# with the skin; and clearing strays and trimming tips took hair off a brow that was already sparse. The brow now only
+# gets combed, is filled, keeps its colour out of the whitening, and is checked against the photo: denser and deeper.
+_GROOM_BROWS_DRAWN = ('画眉：眉毛沿原有生长方向梳顺，不清理、不修剪眉毛；用比本人眉色略深一点的颜色，'
+                      '在原眉主体轮廓内把稀疏和空缺处顺着毛流补实，画完的眉毛和原照片相比明显更浓密、颜色更深、轮廓更清楚，'
+                      '仍有一根根的毛流感，不是一整块实色；提亮和美白只作用于皮肤，眉毛不跟着变浅、变淡；'
+                      '保留眉头、眉峰、眉尾的位置、弧度、倾斜角度和左右眉差异')
+_GROOM_MAKEUP_OPENING = {
+    'natural': '新郎化婚纱照男士妆，妆感清楚可见，但不显浓；',
+    'refined': '新郎化婚纱照男士精致妆，妆感比自然档更明显，但不显浓；',
+}
+_GROOM_BASE = '底妆：轻薄底妆统一肤色，遮住泛红、暗沉和肤色不均，肤色干净透亮；'
 
 
-def compose_groom_retouch_prompt(level: str) -> str:
+def _groom_retouch(level: str, retouch_settings: RetouchSettings | None = None, *, model_id: str | None = None) -> str:
+    family = _gentle_makeup_family(model_id)
+    if family:
+        return _gentle_makeup('groom', level, family, None, retouch_settings)
+    if retouch_settings is None:
+        return '皮肤和精修：' + _GROOM_STYLING[level] + '。' + _RETOUCH_LIMITS + _CONTOUR_EXCEPTION
+    if level == 'light':
+        return '皮肤和精修：新郎不化妆，只修整皮肤；' + _GROOM_BROWS + '。' + _fine_retouch(retouch_settings, 'groom')
+    return ('皮肤和精修：' + _GROOM_MAKEUP_OPENING[level] + _GROOM_BASE + _GROOM_GROOMING + _GROOM_MATTE
+            + _GROOM_BROWS_DRAWN + '。'
+            + _fine_retouch(retouch_settings, 'groom'))
+
+
+def compose_groom_retouch_prompt(level: str, retouch_settings: RetouchSettings | None = None,
+                                 *, model_id: str | None = None) -> str:
     """First edit of a groom look (V7.22): retouching, skin and background on the uploaded photo, hair unchanged."""
-    opening = ('把这张照片修成新郎婚礼当天修整好皮肤后的样子：这一步只修整皮肤、按下面的档位精修和换背景，头发保持原照片的样子。'
-               '原照片用来确定这个人的长相：' + _IDENTITY_INVARIANTS + '头部的角度和表情保持原照片的样子。')
-    avoid = '避免：改变发型和发色、改变脸和五官、浓妆、磨皮、文字和水印。'
-    return '\n\n'.join((opening, _groom_retouch(level), _LOOK_BACKGROUND, avoid))
+    family = _gentle_makeup_family(model_id)
+    if family:
+        return _compose_gentle_makeup_prompt('groom', level, family, None, retouch_settings)
+    identity = _RETOUCH_IDENTITY if retouch_settings is not None else _IDENTITY_INVARIANTS
+    # V7.91: with makeup (natural, refined, fine settings) "只修整皮肤" made the brow and makeup look out of scope.
+    step = ('修整好皮肤、化好男士妆后的样子：这一步只修整皮肤、化妆和画眉、按下面的档位精修和换背景'
+            if retouch_settings is not None and level != 'light' else
+            '修整好皮肤后的样子：这一步只修整皮肤、按下面的档位精修和换背景')
+    opening = ('把这张照片修成新郎婚礼当天' + step + '，头发保持原照片的样子。'
+               '原照片用来确定这个人的长相：' + identity + '头部的角度和表情保持原照片的样子。')
+    avoid = ('避免：改变发型和发色、改变脸和五官、浓妆、磨皮、文字和水印。' if retouch_settings is None else
+             '避免：改变发型和发色、重塑五官或骨相、超出精细调整的轮廓改动、浓妆、磨皮、文字和水印。')
+    return '\n\n'.join((opening, _groom_retouch(level, retouch_settings), _LOOK_BACKGROUND, avoid))
 
 
-def compose_groom_hair_prompt(hairstyle_id: str, level: str) -> str:
+def compose_groom_hair_prompt(hairstyle_id: str) -> str:
     """Second edit of a groom look (V7.22): only the hair, on the retouched photo of the first edit."""
     opening = ('这张照片是新郎婚礼当天修整好皮肤的样子。把他的头发改成下面的发型，这一步只改头发：'
                '脸、五官、表情、头部角度、肤色、皮肤状态、背景、光线和衣服都保持这张照片的样子，不再提白、不再修皮肤；'
                '已经修整好的眉毛、皮肤的干净程度和（有的话）淡妆都保持这张照片的样子。'
                '发际线的主体边界以这张照片为准。'
                + _IDENTITY_INVARIANTS)
-    hair = f'发型：{HAIRSTYLE_BY_KEY[("groom", hairstyle_id)].text}；{_HAIR_FINISH["groom"][level]}。' + _HAIR_RULES + _HAIR_DENSITY['groom']
-    return '\n\n'.join((opening, hair, _STYLING_AVOID))
+    hair = f'发型：{HAIRSTYLE_BY_KEY[("groom", hairstyle_id)].text}。' + _HAIR_RULES
+    return '\n\n'.join((opening, hair))
 
 
 # Every styled shot prompt carries one of these sentences; it tells such prompts apart from older ones.
@@ -1193,33 +1760,83 @@ _STYLED_MARKER = '造型照就是两人婚礼当天化好妆、做好发型后�
 _BARE_STYLED_MARKER = '造型照是两人做好发型后的样子'
 
 
-_LOOK_CLOTHES_IGNORED = '造型照里的纯色背景和衣服不参考。'
+# V7.61: the bride's earrings and necklace are on her look (JEWELRY), over her own top, which is not drawn.
+# V7.64 (2026-11-06, user: 为啥他们都会自动加上首饰呢？明明我们造型图没加首饰？…改吧): the two sentences went into every
+# shot, and shots from looks without jewelry came out with drop earrings (the words named them, and a bride is expected
+# to wear some). They now go only into shots whose bride look wears jewelry; the others say she wears none, as her look.
+_LOOK_CLOTHES_IGNORED = '造型照里的纯色背景和衣服不参考，新娘的耳饰和项链参考。'
+_LOOK_CLOTHES_IGNORED_NO_JEWELRY = '造型照里的纯色背景和衣服不参考。'
+_JEWELRY_FROM_LOOK = '新娘的耳饰和项链以造型照里的为准，戴法和款式一致；'
+_NO_JEWELRY = '新娘不戴耳饰和项链，和造型照一致；'
 
 
-def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None) -> str:
+def _styled_identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None,
+                               art: str | None = None, jewelry: bool = False) -> str:
+    """art: the ordinal of the style art among the references (V7.33), which comes last; None without one.
+    jewelry: the bride's look wears jewelry (V7.64)."""
     labels = ['第一张图是新娘的造型照', '第二张图是新郎的造型照']
     for role, facing in side_references or ():
-        labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}脸朝画面{_FACING_NAMES[facing]}侧时的造型照')
+        labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}{facing_phrase(facing)}时的造型照')
     roles = '，'.join(labels) + '。'
     if with_preview:
         roles += _PREVIEW_REFERENCE_INSERTION.replace('第三张', _IMAGE_ORDINALS[len(labels)], 1)
+    if art is not None:
+        roles += art + _ART_ROLE
+    if side_references:
+        # V7.43 (tested 2026-11-05): without it the side looks' bare heads replaced the outfit's crown and veil.
+        roles += _SIDE_LOOK_HEADWEAR + (f'{art}图的服饰为准。' if art is not None else '「服装与风格」的描写为准。')
     # V7.0: the makeup is copied from the look, which was made for this style; the style paragraph repeats its
     # colours and finish as a reminder. "Stronger than daily makeup" made people larger in wide shots (V6.4).
     # V7.3 (with Codex): the looks fix identity, hair and makeup, but not the expression; "only clothes, pose, scene
     # and light may change" kept the looks' neutral faces, and "stand tall" stiffened every pose.
     return ('图片角色：' + roles + _STYLED_MARKER + '。'
             '造型照用于确定两人的长相、发型和妆容：' + _IDENTITY_INVARIANTS +
-            '肤色、发际线位置，以及发型、发色、妆容和皮肤状态都与造型照一致；不额外美颜或磨皮。'
+            '基础肤色及其冷暖底调、发际线位置，以及发型、发色、妆容和皮肤状态都与造型照一致；不额外美颜或磨皮。'
             '表情、视线、头部角度、姿态和动作按「镜头」描写，不照搬造型照中的表情和视线；'
             '微笑或大笑时，允许面部出现与表情相符的自然变化，同时保持可辨认的本人特征。'
-            '服装、场景和光线按本提示词表现，头发随姿态自然垂落。'
+            + ('服装、场景和光线按本提示词表现' if art is None else f'服装和场景按{art}图、光线按本提示词表现') +
+            '，头发随姿态自然垂落。造型照的均匀照明不作为拍摄布光，面部受光、阴影和局部高光按当前场景重新表现，'
+            '明暗变化不改变造型照确定的肤色底色与妆色。'
             # V7.6 (Codex): keep the look's makeup strength; wide shots show it as colour blocks, never by enlarging people.
             '新娘沿用造型照已经完成的妆容，保持同一色系、着色覆盖程度、眼影深浅关系、眼线和睫毛妆效、腮红显色和唇面质感，'
             '与「服装与风格」中的新娘妆色和新娘妆面一致。场景光线只改变合理的受光明暗与反光，不将已有婚礼妆淡化为素颜或日常淡妆。'
             '构图、景别和人物占画面比例均按「镜头」要求，不为展示妆容移动机位、放大人物或改变眼型、唇形；'
             '远景按人物实际尺寸表现妆容的综合色块与明暗关系，不要求显示近景级别的睫毛或眼影细节。'
-            + _LOOK_CLOTHES_IGNORED + '两人体态自然舒展，不改变真实的身体比例。'
+            + (_LOOK_CLOTHES_IGNORED if jewelry else _LOOK_CLOTHES_IGNORED_NO_JEWELRY) + '两人体态自然舒展，不改变真实的身体比例。'
             '风格要求与长相冲突时，以长相为准。')
+
+
+# V7.41 (2026-11-05, user: 样片和成片都换成拼成一张的图): the two looks go to the model as one picture, the bride on the left
+# and the groom on the right (tested 2026-11-05: as good or better than two pictures, docs/prompts.md). The task still
+# records both looks; the picture is put together when the request is sent (app/styling.py side_by_side).
+PAIRED_LOOKS_ROLE = '第一张图是两人的造型照：左边是新娘，右边是新郎'
+_SEPARATE_LOOKS_ROLE = '第一张图是新娘的造型照，第二张图是新郎的造型照'
+_SIDE_LOOK_HEADWEAR = '侧脸造型照只用来参考侧脸时的五官和脸型，头饰、头纱和花冠以'
+_SIDE_LOOK_LABEL = re.compile('，第[一二三四五六七]张图是(新娘|新郎)(脸朝画面[左右]侧(?:（正侧面）)?)时的造型照')
+_ORDINAL = re.compile('(第[一二三四五六七]张)图')
+
+
+def pair_looks(prompt: str) -> str:
+    """A styled shot's prompt for the looks sent as one picture: the first picture is both looks.
+    V7.43 (tested 2026-11-05, docs/prompts.md): two or more side looks also go as one picture, the second, in the
+    order of the references, left to right (app/styling.py side_by_side). Every later picture moves forward."""
+    if prompt.count(_SEPARATE_LOOKS_ROLE) != 1:
+        raise ValueError('only a styled shot prompt with both looks can pair them')
+    sides = _SIDE_LOOK_LABEL.findall(prompt)
+    shift = len(sides) if len(sides) >= 2 else 1
+    prompt = _SIDE_LOOK_LABEL.sub('', prompt)
+    prompt = _ORDINAL.sub(lambda match: _IMAGE_ORDINALS[_IMAGE_ORDINALS.index(match[1]) - shift] + '图'
+                          if _IMAGE_ORDINALS.index(match[1]) >= 2 else match[0], prompt)
+    if len(sides) == 1:
+        labels = f'，第二张图是{sides[0][0]}{sides[0][1]}时的造型照'
+    elif sides:
+        whose = '两人' if len({who for who, _ in sides}) == 2 else sides[0][0]
+        views = [f'{who}{facing}时' for who, facing in sides]
+        placed = (f'左边是{views[0]}，右边是{views[1]}' if len(views) == 2 else '从左到右依次是' + '、'.join(views))
+        labels = f'，第二张图是{whose}的侧脸造型照：{placed}'
+    else:
+        labels = ''
+    return prompt.replace(_SEPARATE_LOOKS_ROLE, PAIRED_LOOKS_ROLE + labels, 1)
 
 
 _PREVIEW_REFERENCE_INSERTION = '第三张图是风格参考，只参考它的场景、服装、光线和色调，不参考其中的人脸、长相和构图。'
@@ -1241,7 +1858,6 @@ def _aspect_paragraph(aspect_ratio: str) -> str:
 
 _IMAGE_ORDINALS = ('第一张', '第二张', '第三张', '第四张', '第五张', '第六张', '第七张')
 _ROLE_NAMES = {'bride': '新娘', 'groom': '新郎'}
-_FACING_NAMES = {'left': '左', 'right': '右'}
 
 
 def _identity_paragraph(with_preview: bool, side_references: list[tuple[str, str]] | None = None,
@@ -1265,7 +1881,7 @@ def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] |
         return _IDENTITY_PARAGRAPH.replace(marker, marker + _PREVIEW_REFERENCE_INSERTION, 1)
     labels = ['第一张图是新娘的身份参考', '第二张图是新郎的身份参考']
     for role, facing in side_references:
-        labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}脸朝画面{_FACING_NAMES[facing]}侧时的样子')
+        labels.append(f'{_IMAGE_ORDINALS[len(labels)]}图是{_ROLE_NAMES[role]}{facing_phrase(facing)}时的样子')
     role_text = '，'.join(labels) + '。'
     if with_preview:
         # The preview always comes last, right after the side photos; keep it in the image-role list.
@@ -1277,18 +1893,38 @@ def _identity_roles(with_preview: bool, side_references: list[tuple[str, str]] |
 
 
 def _style_paragraph(style: dict, *, scene: int | None, hair: Hair | None = None, styled: bool = False,
-                     outfit: str | None = None, makeup_style: str | None = None) -> str:
+                     outfit: str | None = None, makeup_style: str | None = None, art: str | None = None,
+                     room: str | None = None, jewelry: bool = False) -> str:
     """scene is the 1-based variant; None leaves the scene to the shot text (director shots before V3.34).
     hair: None (prompts before V3.45) names no hairstyle. styled: hair and makeup come from the looks (V4.0, V7.0),
     so the clothes, the bride's makeup colour family (V6.0) and finish (V6.4) as a reminder of the look's makeup,
     the headwear of the updo styles (V5.0) and the visual language are written.
     outfit: the fixed outfit of the shot (V7.17), which says the clothes and headwear; None for shots before it.
     makeup_style: the style whose makeup the bride's look wears (V7.21: a look reused from another style keeps that
-    style's colour family and finish, and the reminder must match the picture); None is the shot's own style."""
+    style's colour family and finish, and the reminder must match the picture); None is the shot's own style.
+    room: the room the shot is in (V7.34, app/rooms.py); scene is then the number of its area.
+    jewelry: the bride's look wears jewelry (V7.64): the shot copies it, or she wears none."""
     makeup_style = makeup_style or style['id']
+    area = room_area(style['id'], room, scene) if room is not None else None
+    if art is not None:
+        # V7.33: the clothes and the place are the style art's; words keep the makeup, the colour and the light.
+        # V7.34: in a room, the words name the area and keep the area's own light. V7.50: the art shows the whole room
+        # (its main picture); a shot in another area walks to that part of the picture, framed as its text says.
+        look, light = STYLE_ART_TEXT[style['id']]
+        place = '图中的场景；'
+        if area is not None:
+            place, light = f'图中的场景，这一张拍在{get_room(style["id"], room).name}的{area.name}；', area.light
+            if scene != 1:
+                place += (f'参考图拍的是整个房间，这一张走到图中{area.name}那里拍，机位、角度和取景按镜头描述，不照搬参考图的取景；'
+                          '陈设只用图里有的。')
+        color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[makeup_style][0]]
+        hair = '不改变造型照的发型（帽子遮住的部分除外）。' + HAT_RULE + HAT_ART_NOTE if has_hat(outfit) else '不改变造型照的发型。'
+        return ('服装与风格：两人穿' + art + '图中的服饰；' + (_JEWELRY_FROM_LOOK if jewelry else _NO_JEWELRY) + hair + OUTFIT_RULE + '新娘妆色：' + color.text +
+                '新娘妆面：' + STYLE_MAKEUP_FINISH[makeup_style] + look + '场景：' + art + place + light)
     if outfit is not None:
         color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[makeup_style][0]]
-        paragraph = ('服装与风格：' + outfit_text(outfit) + OUTFIT_RULE + '新娘妆色：' + color.text + '新娘妆面：' +
+        paragraph = ('服装与风格：' + outfit_text(outfit) + (_JEWELRY_FROM_LOOK if jewelry else _NO_JEWELRY) + (HAT_RULE if has_hat(outfit) else '') + OUTFIT_RULE +
+                     '新娘妆色：' + color.text + '新娘妆面：' +
                      STYLE_MAKEUP_FINISH[makeup_style] + style['look'])
     elif styled:
         color = MAKEUP_COLOR_BY_ID[STYLE_MAKEUP_COLORS[makeup_style][0]]
@@ -1300,7 +1936,7 @@ def _style_paragraph(style: dict, *, scene: int | None, hair: Hair | None = None
         paragraph = '服装与风格：' + style['costume'] + _hair_sentence(style, hair) + style['look']
     if scene is None:
         return paragraph
-    return paragraph + '场景：' + style['variants'][scene - 1][1]
+    return paragraph + '场景：' + (area.text + area.light if area is not None else style['variants'][scene - 1][1])
 
 
 def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
@@ -1313,15 +1949,25 @@ def _avoid_paragraph(style: dict, *, faces_clear: bool) -> str:
 def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_preview: bool = False,
                     scene: int | None = 1, faces_clear: bool = True, makeup: Makeup | None = None,
                     hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                    styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
+                    styled: bool = False, outfit: str | None = None, makeup_style: str | None = None,
+                    art: bool = False, room: str | None = None, jewelry: bool = False) -> str:
+    """art: the style art is the last reference (V7.33); outside a room the scene number is then ignored (one scene
+    per style). room: the room the shot is in (V7.34); scene is the number of its area, and with art the art is that
+    area's."""
     style = STYLE_BY_ID[style_id]
     if styled and makeup is not None:
         raise ValueError('a shot from looks takes no makeup levels: the looks wear the makeup (V7.0)')
+    if art and (not styled or outfit is None or with_preview or not has_style_art(style_id)):
+        raise ValueError('the style art goes with looks and an outfit of a live style, and replaces the sample reference')
+    if room is not None and (get_room(style_id, room) is None or scene is None):
+        raise ValueError(f'a shot in a room needs a room of its style and an area number: {style_id}/{room}/{scene}')
+    ordinal = _IMAGE_ORDINALS[2 + len(side_references or ())] if art else None
     return '\n\n'.join((
         _aspect_paragraph(aspect_ratio),
-        _styled_identity_paragraph(with_preview, side_references) if styled else
+        _styled_identity_paragraph(with_preview, side_references, ordinal, jewelry) if styled else
         _identity_paragraph(with_preview, side_references, makeup),
-        _style_paragraph(style, scene=scene, hair=hair, styled=styled, outfit=outfit, makeup_style=makeup_style),
+        _style_paragraph(style, scene=scene, hair=hair, styled=styled, outfit=outfit, makeup_style=makeup_style, art=ordinal,
+                         room=room, jewelry=jewelry),
         action,
         QUALITY_PARAGRAPH if faces_clear else ATMOSPHERE_QUALITY_PARAGRAPH,
         _avoid_paragraph(style, faces_clear=faces_clear),
@@ -1329,15 +1975,19 @@ def _compose_prompt(style_id: str, action: str, aspect_ratio: str, *, with_previ
 
 
 def compose_preview_prompt(style_id: str, aspect_ratio: str, *, makeup: Makeup | None = None, hair: Hair | None = None,
-                           styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
+                           styled: bool = False, outfit: str | None = None, makeup_style: str | None = None,
+                           art: bool = False, room: str | None = None, jewelry: bool = False) -> str:
+    """A prewritten front-facing director shot, in the room's first area; no director request is made."""
     action = PREVIEW_MOMENT if style_id in RETIRED_STYLE_IDS else STYLE_BY_ID[style_id]['preview']
-    return _compose_prompt(style_id, action, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit,
-                           makeup_style=makeup_style)
+    return compose_moment_prompt(style_id, action.removeprefix(SHOT_LABEL), aspect_ratio, scene=1, makeup=makeup,
+                                 hair=hair, styled=styled, outfit=outfit, makeup_style=makeup_style, art=art,
+                                 room=room, jewelry=jewelry)
 
 
 def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with_preview: bool = False,
                          makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                         styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
+                         styled: bool = False, outfit: str | None = None, makeup_style: str | None = None,
+                         art: bool = False, room: str | None = None, scene: int = 1, jewelry: bool = False) -> str:
     return _compose_prompt(
         style_id,
         POSE_BY_ID[pose_id]['prompt_template'],
@@ -1349,6 +1999,10 @@ def compose_photo_prompt(style_id: str, pose_id: str, aspect_ratio: str, *, with
         styled=styled,
         outfit=outfit,
         makeup_style=makeup_style,
+        art=art,
+        room=room,
+        scene=scene,
+        jewelry=jewelry,
     )
 
 
@@ -1363,15 +2017,25 @@ def is_styled(prompt: str) -> bool:
     return _STYLED_MARKER in identity or _BARE_STYLED_MARKER in identity
 
 
-def director_scene_text(style_id: str, *, single_variant: bool, outfit: str | None = None) -> str:
-    """Scene block for the director: every variant, or only the preview's variant (docs/prompts.md 7.2)."""
+def director_scene_text(style_id: str, *, single_variant: bool, outfit: str | None = None, room: str | None = None) -> str:
+    """Scene block for the director: every variant, or only the preview's variant (docs/prompts.md 7.2).
+    room: the set's room (V7.34); its areas are the variants, and single_variant keeps the first (the sample's)."""
     style = STYLE_BY_ID[style_id]
     # The costume lets the director plan veil, skirt and train moments only where they exist (V3.36).
     costume = outfit_text(outfit) if outfit is not None else style['costume']
     lines = ['服装（摄影团队已确定）：' + costume, '视觉语言（摄影团队已确定）：' + style['look']]
     if style_id not in RETIRED_STYLE_IDS:
         lines.append('拍摄方向（摄影团队已确定）：' + style['shooting'])
-    if single_variant:
+    the_room = get_room(style_id, room)
+    # V7.53: a backdrop (a room of one area) is described like a single scene.
+    if the_room is not None and (single_variant or len(the_room.areas) == 1):
+        lines.append('场景（所有镜头都在这个场景里，scene 填 1）：' + the_room.areas[0].text + the_room.areas[0].light)
+    elif the_room is not None:
+        lines.append(f'场景：整组照片都在「{the_room.name}」这一个房间里拍，下面是房间里的几个区域。每个镜头选其中一个，把编号填在 scene；'
+                     '几个区域都要用到，让整组在同一个房间里有变化，光色和空间关系连贯：')
+        lines.extend(f'{index}. {area.name}：{area.text}{area.light}' + (f'可以做的互动：{area.play}' if area.play else '')
+                     for index, area in enumerate(the_room.areas, 1))
+    elif single_variant:
         lines.append('场景（所有镜头都在这个场景里，scene 填 1）：' + style['variants'][0][1])
     else:
         lines.append('场景变体（每个镜头选其中一个，把编号填在 scene；以一个主场景为主，少量相邻场景补充，光色和空间关系连贯）：')
@@ -1379,20 +2043,51 @@ def director_scene_text(style_id: str, *, single_variant: bool, outfit: str | No
     return '\n'.join(lines)
 
 
-def director_scene_count(style_id: str, *, single_variant: bool) -> int:
+def director_scene_count(style_id: str, *, single_variant: bool, room: str | None = None) -> int:
     """How many scenes director_scene_text offers, i.e. the valid range of a moment's scene number."""
-    return 1 if single_variant else len(STYLE_BY_ID[style_id]['variants'])
+    if single_variant:
+        return 1
+    return len(get_room(style_id, room).areas) if room is not None else len(STYLE_BY_ID[style_id]['variants'])
+
+
+# V7.40 (2026-11-05, user: 为啥样片相似度高，成片相似度有的非常低 … 是提示词的问题吧？): a sample and a set photo send the
+# same pictures and the same identity paragraph; only the shot differs. The director's shots turn the faces, tilt the
+# heads and widen the smiles, and the long action text pushes the one identity paragraph far away, so the model
+# draws its own pretty face (a front-facing set photo scored 0.146 against the bride's look, its sample 0.754). Such a
+# shot now ends with a reminder next to the action. The poses themselves are not limited.
+LIKENESS_LABEL = '长相：'
+_HARD_FACE_WORDS = ('低头', '抬眼', '抬头', '仰头', '回头', '侧脸', '侧过脸', '转头', '俯身', '大笑', '笑开', '开怀', '露齿')
+
+
+def likeness_note(moment_text: str, faces_clear: bool = True) -> str:
+    """The reminder a shot with turned or moving faces ends with; '' for an easy shot or an atmosphere shot."""
+    if not faces_clear:
+        return ''
+    turned = [who for who in ('新娘', '新郎') if f'{who}的脸朝画面左侧' in moment_text or f'{who}的脸朝画面右侧' in moment_text]
+    moving = any(word in moment_text for word in _HARD_FACE_WORDS)
+    if not turned and not moving:
+        return ''
+    who = '两人' if moving or len(turned) == 2 else turned[0]
+    whose = '各自的' if who == '两人' else ''
+    note = (f'{LIKENESS_LABEL}{who}的头部角度和表情按镜头变化，五官比例、眼型、眉形、脸型和发际线仍与{whose}造型照一致，'
+            '只改变角度和表情，不画成另一张脸。')
+    if turned:
+        note += '、'.join(turned) + '侧过脸时，按造型照推断同一个人的侧面轮廓。'
+    return note
 
 
 def compose_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
                           faces_clear: bool = True, with_preview: bool = False, makeup: Makeup | None = None,
                           hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                          styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
+                          styled: bool = False, outfit: str | None = None, makeup_style: str | None = None,
+                          art: bool = False, room: str | None = None, jewelry: bool = False) -> str:
     if not isinstance(moment_text, str) or not moment_text.endswith('。'):
         raise ValueError('moment text must end with exactly one Chinese full stop')
-    return _compose_prompt(style_id, SHOT_LABEL + moment_text, aspect_ratio, with_preview=with_preview,
+    # V7.40: styled shots (from the looks) end with the likeness reminder when their faces are hard to draw.
+    note = likeness_note(moment_text, faces_clear) if styled else ''
+    return _compose_prompt(style_id, SHOT_LABEL + moment_text + note, aspect_ratio, with_preview=with_preview,
                            scene=scene, faces_clear=faces_clear, makeup=makeup, hair=hair, side_references=side_references,
-                           styled=styled, outfit=outfit, makeup_style=makeup_style)
+                           styled=styled, outfit=outfit, makeup_style=makeup_style, art=art, room=room, jewelry=jewelry)
 
 
 def scene_from_prompt(style_id: str, prompt: str) -> int | None:
@@ -1407,6 +2102,8 @@ def scene_from_prompt(style_id: str, prompt: str) -> int | None:
 def shot_text_from_prompt(prompt: str) -> str:
     """Return the shot paragraph of a stored prompt without its V2 or V3 label."""
     paragraph = prompt.split('\n\n')[3]
+    # V7.40: the likeness reminder is not part of the director's text; a redo adds it again from the text.
+    paragraph = paragraph.split(LIKENESS_LABEL)[0] if LIKENESS_LABEL in paragraph else paragraph
     for label in (SHOT_LABEL, _LEGACY_SHOT_LABEL):
         if paragraph.startswith(label):
             return paragraph.removeprefix(label)
@@ -1424,7 +2121,7 @@ def _apply_identity_boost(prompt: str) -> str:
     """Apply the four identity-boost changes from docs/prompts.md section 6."""
     paragraphs = prompt.split('\n\n')
     paragraphs[1] += '本次是加强长相的重新生成：两人的长相比风格和动作更重要，宁可画面朴素，也要像本人。'
-    paragraphs[2] += '光线均匀柔和，降低风格化。'
+    paragraphs[2] += '保持所选场景的主光方向与明暗关系，减少夸张光效，不把面部补成均匀平光。'
     paragraphs[3] = paragraphs[3][:-1] + '，两人面部正对或接近正对镜头，面部完整、清晰、占画面较大比例。'
     paragraphs[-1] = paragraphs[-1][:-1] + '、侧脸、低头、头发遮挡眼睛。'
     return '\n\n'.join(paragraphs)
@@ -1432,21 +2129,25 @@ def _apply_identity_boost(prompt: str) -> str:
 
 def compose_identity_boost_prompt(style_id: str, pose_id: str | None, aspect_ratio: str, *, with_preview: bool = False,
                                   makeup: Makeup | None = None, hair: Hair | None = None, side_references: list[tuple[str, str]] | None = None,
-                                  styled: bool = False, outfit: str | None = None, makeup_style: str | None = None) -> str:
+                                  styled: bool = False, outfit: str | None = None, makeup_style: str | None = None,
+                                  art: bool = False, room: str | None = None, scene: int = 1, jewelry: bool = False) -> str:
     prompt = (compose_preview_prompt(style_id, aspect_ratio, makeup=makeup, hair=hair, styled=styled, outfit=outfit,
-                                     makeup_style=makeup_style) if pose_id is None else
+                                     makeup_style=makeup_style, art=art, room=room, jewelry=jewelry) if pose_id is None else
               compose_photo_prompt(style_id, pose_id, aspect_ratio, with_preview=with_preview, makeup=makeup, hair=hair,
-                                   side_references=side_references, styled=styled, outfit=outfit, makeup_style=makeup_style))
+                                   side_references=side_references, styled=styled, outfit=outfit, makeup_style=makeup_style,
+                                   art=art, room=room, scene=scene, jewelry=jewelry))
     return _apply_identity_boost(prompt)
 
 
 def compose_identity_boost_moment_prompt(style_id: str, moment_text: str, aspect_ratio: str, *, scene: int | None = None,
                                          with_preview: bool = False, makeup: Makeup | None = None, hair: Hair | None = None,
                                          side_references: list[tuple[str, str]] | None = None, styled: bool = False,
-                                         outfit: str | None = None, makeup_style: str | None = None) -> str:
+                                         outfit: str | None = None, makeup_style: str | None = None,
+                                         art: bool = False, room: str | None = None, jewelry: bool = False) -> str:
     return _apply_identity_boost(compose_moment_prompt(style_id, moment_text, aspect_ratio, scene=scene, with_preview=with_preview,
                                                        makeup=makeup, hair=hair, side_references=side_references, styled=styled,
-                                                       outfit=outfit, makeup_style=makeup_style))
+                                                       outfit=outfit, makeup_style=makeup_style, art=art, room=room,
+                                                       jewelry=jewelry))
 
 
 # AI face fix (V7.1, app/face_fix.py; the whole picture since V7.2). V7.4: the references are the couple's looks,
@@ -1506,6 +2207,104 @@ FACE_FIX_BRIDE_MAKEUP_PROMPT = '\n\n'.join((
     '第一张图中已经符合参考图的妆容和肤色保持不动；与参考图不符的地方按参考图：新娘的妆色、妆面和提白程度与第二张图相同，'
     '她的脸、脖子和手臂的肤色衔接自然，是同一种肤色。' + _BRIDE_ONLY_STRUCTURE,
     *_BRIDE_ONLY_REST,
+))
+# Hand fix (V7.25): one edit of the finished picture alone, correcting only the hands. No looks are sent: they show
+# faces, and a face reference invites the edit to redraw the faces too. A fix that makes either face less alike is
+# not kept, as with the face fix.
+HAND_FIX_PROMPT = '\n\n'.join((
+    '这是一张已经拍好的婚纱照。只修正画面里两个人的手和手指，其余部分全部保持原样：两人的脸、五官、表情、视线、发型、妆容和肤色，'
+    '服饰、头纱、捧花和饰品，构图、两人的位置和大小、姿态、动作和头部角度，以及场景、光线和色调都不改变。',
+    '手的修正：每只手按正常的人体结构画，五根手指，手指的长短、粗细和关节比例自然，指甲完整；手的大小与身体相称，和手腕、手臂连接自然。'
+    '手的位置、朝向和动作保持原图的样子：原图里握着、牵着、搭着或拿着什么，修正后仍是同样的动作；两人的手接触时，能分清各自的手和手指。'
+    '被衣袖、捧花、头纱或身体遮住的部分保持遮挡。',
+    '避免：多出或缺少手指、手指扭曲或粘连、多出来的手、改变脸和五官、改变动作和构图、文字和水印。',
+))
+
+# Wash (V7.26): one 4K edit of the finished picture alone that redraws it cleaner and sharper. Written from the user's
+# wording; the illustration terms that would flatten skin and lace (smooth, no high-frequency texture, no dense small
+# decorations) are kept for the background and noise only, so the skin keeps the texture of V7.20.
+WASH_PROMPT = '\n\n'.join((
+    '请将这张婚纱照重绘并清晰化，让画面细节更丰富，同时去掉原图中杂乱、不必要的细节，不要改变画面风格。'
+    '整体画面干净、统一，强调大色块与整体轮廓；没有细碎噪点和脏污颗粒，背景和地面里没有杂物和密集的小装饰；'
+    '边缘清晰利落，画面呼吸感强，一目了然。',
+    '保留原画面的人物身份、构图和风格：两人的脸、五官、表情、视线、发型、妆容和肤色，服饰的款式、颜色和面料，'
+    '婚纱的蕾丝和刺绣，两人的位置、大小、姿态和动作，场景、光线和色调都与原图一致。'
+    '皮肤保留真实细腻的纹理，是柔和的哑光质感；头发保留发丝。',
+    '避免：改变脸和五官、改变妆容和发型、磨皮的塑料皮肤、皮肤油亮反光、改变构图和动作、增加原图没有的东西、文字和水印。',
+))
+
+# V7.79 (2026-11-12, the user: 洗图把光影、光线、摄像参数都写一下，物体都不变，变的是光影和调色；还要去 AI 感): the wash is a
+# photographic finish of the same picture. The light keeps its source and direction (the user: 方向不变); only its
+# quality, the grade and the camera rendering change. The cleanup of V7.26 stays, because gpt-image pictures come back
+# noisy (the user), but the illustration words (大色块, 强调整体轮廓) are gone: they made the AI look. No added grain for
+# the same reason. The face is kept by passive wording only ("not made symmetric"), never asked to change, so the
+# likeness is not touched. "人物" instead of "两人" covers one-person pictures too.
+# V7.80 (the user: 现在的提示词人脸换了太多; the same picture washed: bride 0.798 -> 0.561, V7.26's words 0.613): the
+# skin paragraph (不完全均匀的纹理, 皮肤褶皱和细小阴影, 不额外修成对称, 眼白和眼神光) and "人物有立体感" asked for work on the
+# faces, so the model redrew them. The faces now get noise removal and sharpening only; light and texture go to clothes,
+# hair and setting; the grade changes no face.
+# V7.81 (the user: 白平衡不准，整体发红): '不整体发黄' and '画面发黄' only pushed one way, and the edit swung to pink: the
+# grey studio wall went from beige to pink, a second wash pinker still (G-B on the wall 9 -> 5 -> 2). The balance is now
+# anchored on the whites (neutral, neither pink, red nor yellow), and no red is added to the lips and cheeks.
+# V7.85 (2026-11-12, the user: 这两个合起来): the user's two texts, a commercial-grade repair (clean the AI smudges,
+# grey dirt, colour blocks, noise, soft edges, uneven backgrounds, dirty materials and broken light) and a light
+# photographic-realism pass, as one fixed text for every picture; the style grade and the lens of V7.79/V7.84 are gone.
+# Where the two disagree: "clean the noise" and "moderate grain" become fine natural grain that is not dirty noise;
+# "commercial-grade repair" and "not an AI-beautified commercial portrait" become a commercial-grade repair that is not
+# an AI-beautified portrait. V7.79's words are kept in docs/prompts.md section 11.3.
+# V7.86 (the user: 删掉吧): '眼睛过亮、面部过度对称' left the list of things to reduce: it asked the model to change the faces.
+WASH_REPAIR_PROMPT = '\n\n'.join((
+    '请以这张图片为唯一主体参考，对照片进行商业摄影级的图像修复和轻度摄影写实化处理，而不是重新生成，不要重新设计画面。',
+    '严格保持原始构图不变。保留人物的面部结构、五官比例、发型、年龄感、表情、姿势、服装和画面构图；保留现有背景、物体位置、镜头视角和画幅比例。',
+    '清理画面中的 AI 涂抹感、脏灰痕迹、色块、噪点、糊边、背景不均匀、材质发脏和光影断层问题，让画面更干净、更通透、更高级。',
+    '改善摄影真实感：让皮肤呈现自然、细微且不完全均匀的纹理，保留正常皮肤褶皱、细小阴影和真实光线变化；'
+    '降低过度磨皮、塑料感及不自然的局部锐化；让衣服褶皱、发丝、物体接触阴影更加符合真实摄影。'
+    '保留真实摄影的自然纹理，不要过度磨皮，不要油画感，不要塑料感。',
+    # V7.95 (2026-11-13, user: 加一句光影，只作用衣服和背景): V7.79's light paragraph asked for 人物有立体感 and the faces
+    # were redrawn (bride 0.798 -> 0.561); this one lifts the light on the clothes and the setting only, keeps the light's
+    # source and direction, and leaves the faces' light as it is.
+    # V7.96 (2026-11-13, user: 避免过度电影化、夸张轮廓光和过度 HDR 这句去掉): the next paragraph no longer rules them out.
+    '光影：光源的位置、方向和色温不变，加强服装和背景的光影层次：衣料的受光面到背光面过渡更清楚，褶皱更有立体感，'
+    '背景随原有光线有自然的明暗变化；人物的脸和皮肤保持原图的明暗，不重新打光。',
+    '整体呈现真实相机拍摄的自然色彩、合理动态范围和细腻的自然颗粒（不是脏噪点）。',
+    '禁止改变人物身份、脸型、肢体、服装款式、背景结构，不新增或删除任何物体。输出一张干净、自然、可信的照片，而不是经过明显 AI 美化的人像。',
+))
+
+# V7.32: the AI face fix also fixes the hands and washes the picture, in the same 4K edit (the user: 修脸、修手和洗图
+#放在一个步骤，提示词放一起). The two paragraphs go before the face fix's closing paragraph (same frame, no text);
+# its "the rest stays as it is" covers what the picture shows, not the hands' structure and the sharpness.
+# V7.78 (the user: AI修脸改成只修脸): new face fixes no longer add these; only tasks recorded with 'retouch' do.
+FIX_HANDS_AND_WASH = (
+    '上面要求保持原样的部分，内容、位置和动作都不变；两人手的结构和整张照片的清晰度按下面两段修正。'
+    '两人的手：每只手按正常的人体结构画，五根手指，手指的长短、粗细和关节比例自然，指甲完整；手的大小与身体相称，和手腕、手臂连接自然。'
+    '手的位置、朝向和动作保持原图的样子：原图里握着、牵着、搭着或拿着什么，修正后仍是同样的动作；两人的手接触时，能分清各自的手和手指。'
+    '被衣袖、捧花、头纱或身体遮住的部分保持遮挡。',
+    '整张照片重绘并清晰化，不改变画面风格：细节更丰富，同时去掉原图中杂乱、不必要的细节；画面干净、统一，没有细碎噪点和脏污颗粒，'
+    '背景和地面里没有杂物和密集的小装饰；边缘清晰利落。皮肤保留真实细腻的纹理，是柔和的哑光质感；头发保留发丝；'
+    '服饰的款式、颜色和面料，婚纱的蕾丝和刺绣都与原图一致。'
+    '避免：多出或缺少手指、手指扭曲或粘连、多出来的手、磨皮的塑料皮肤、皮肤油亮反光、增加原图没有的东西。',
+)
+
+
+def with_hands_and_wash(prompt: str) -> str:
+    """A face fix prompt that also fixes the hands and washes the picture (V7.32)."""
+    parts = prompt.split('\n\n')
+    return '\n\n'.join((*parts[:-1], *FIX_HANDS_AND_WASH, parts[-1]))
+
+
+# V7.29: the AI face fix of the groom alone (the bride by FaceFusion, or left as she is). Two images: the picture and
+# the groom's look. He has no makeup: his look is retouched skin and his hair.
+FACE_FIX_GROOM_PROMPT = '\n\n'.join((
+    '第一张图是需要修正的婚纱照。第二张图是新郎的造型照：他婚礼当天修整好皮肤、做好发型后的样子，用于确定新郎的长相。',
+    '请只校正照片里新郎的长相，使他与第二张图中的本人一致，同时保留第一张图的拍摄状态。新娘不在这次修正范围内，保持第一张图的样子。',
+    '长相依据造型照：' + _IDENTITY_INVARIANTS + _EXPRESSION_ALLOWANCE +
+    '保留第一张图的笑容、嘴部开合和眼睛开合状态，不转成造型照的正面姿态和表情。',
+    '第一张图中已经符合造型照的发型和肤色保持不动；与造型照不符的地方按造型照：新郎的发型、发色和皮肤的白皙程度和造型照相同，'
+    '他的脸、脖子和手的肤色衔接自然，是同一种肤色。只校正偏离本人的结构；不替换整颗头，不重新设计发型，不追加提白。'
+    '光线只改变肤色在照片里的明暗和反光。',
+    '除了新郎的长相，第一张图的其余部分都保持原样：新娘的脸、妆容、发型、肤色、表情和全身，构图、两人的位置和大小、姿态、动作、手势、'
+    '头部角度、表情和视线，光照方向、曝光、色温、明暗关系和原有彩色或黑白效果，头饰、服装、场景、背景及遮挡关系。',
+    '输出与第一张图相同的画面比例和构图。不要重新取景、补全被遮挡的五官、混入其他人的特征，或输出拼图、文字和水印。',
 ))
 FACE_FIX_BRIDE_PROMPT = '\n\n'.join((
     '第一张图是需要修正的婚纱照。第二张图是新娘的造型照：她婚礼当天化好妆、做好发型后的样子，用于确定新娘的长相。',

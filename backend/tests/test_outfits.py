@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from conftest import create_director_photo_batch, create_project, preview_batch, wait_batch
-from app.prompts import (OUTFIT_BY_ID, OUTFIT_RULE, OUTFITS, RETIRED_STYLE_IDS, STYLE_BY_ID, STYLE_OUTFITS, compose_moment_prompt,
+from app.prompts import (OUTFIT_BY_ID, OUTFIT_RULE, OUTFITS, RETIRED_OUTFIT_IDS, RETIRED_STYLE_IDS, STYLE_BY_ID, STYLE_OUTFITS, compose_moment_prompt,
                          director_scene_text, outfit_text)
 from test_styling import batch_tasks, detail, make_looks
 
@@ -13,7 +13,9 @@ DOC = (Path(__file__).resolve().parents[2] / 'docs' / 'prompts.md').read_text()
 def test_every_active_style_has_outfits_and_the_doc_has_their_text():
     # Styles retired after they got outfits (V7.23) keep them, so their existing samples refresh in the same outfit.
     assert set(STYLE_OUTFITS) >= set(STYLE_BY_ID) - RETIRED_STYLE_IDS
-    assert {outfit for outfits in STYLE_OUTFITS.values() for outfit in outfits} == set(OUTFIT_BY_ID)
+    offered = {outfit for outfits in STYLE_OUTFITS.values() for outfit in outfits}
+    # V7.51: the retired hat outfits are offered by no style but kept for the pictures shot in them.
+    assert offered | RETIRED_OUTFIT_IDS == set(OUTFIT_BY_ID) and not offered & RETIRED_OUTFIT_IDS
     assert len(OUTFITS) == len(OUTFIT_BY_ID)
     assert OUTFIT_RULE in DOC
     for outfit in OUTFITS:
@@ -30,11 +32,14 @@ def test_a_shot_and_the_director_read_the_outfit_not_the_old_costume():
     assert '长袍马褂' in compose_moment_prompt('chinese_traditional', '50mm 镜头。', '3:4', scene=1, styled=True)
 
 
-def test_a_sample_wears_the_chosen_outfit_and_its_set_keeps_it_after_the_choice_changes(client_app):
+def test_a_sample_wears_the_chosen_outfit_and_its_set_keeps_it_after_the_choice_changes(client_app, monkeypatch):
+    # V7.73: the sample moved to new_chinese is made without a set, as that style's samples were.
+    from app import rooms
+    monkeypatch.setitem(rooms.STYLE_ROOMS, 'city_story', ())
     client, app = client_app
     project = create_project(client)
     # new_chinese is the one style with two outfits, retired in V7.23: give the project a sample made before that.
-    wait_batch(client, preview_batch(client, project['id'], request_id='before', style_ids=['chinese_traditional'])['id'])
+    wait_batch(client, preview_batch(client, project['id'], request_id='before', style_ids=['city_story'])['id'])
     with app.state.db.connect(write=True) as conn:
         conn.execute("UPDATE photo_slots SET style_id='new_chinese' WHERE project_id=? AND kind='preview'", (project['id'],))
         conn.execute("UPDATE generation_tasks SET style_id='new_chinese' WHERE project_id=?", (project['id'],))
@@ -60,3 +65,16 @@ def test_a_sample_wears_the_chosen_outfit_and_its_set_keeps_it_after_the_choice_
     # The next sample wears the new choice.
     again = preview_batch(client, project['id'], request_id='gown', style_ids=['new_chinese'])
     assert OUTFIT_BY_ID['new_chinese_gown'].bride in batch_tasks(client, again['id'])[0]['prompt']
+
+
+def test_a_retired_outfit_cannot_be_picked_and_an_old_choice_falls_back_to_the_first(app_factory):
+    """V7.51: the French hat outfits are no longer offered (V7.60: nor the three after them)."""
+    from conftest import create_project
+    with app_factory() as (client, app):
+        project = create_project(client)
+        response = client.put(f"/api/projects/{project['id']}/style-outfits/french_couture", json={'outfit_id': 'french_flower_hat'})
+        assert response.status_code == 422
+        with app.state.db.connect(write=True) as conn:  # a choice made before V7.51
+            conn.execute('INSERT INTO project_outfits (project_id,style_id,outfit_id) VALUES (?,?,?)',
+                         (project['id'], 'french_couture', 'french_rose_taffeta'))
+        assert client.get(f"/api/projects/{project['id']}").json()['style_outfits']['french_couture'] == 'french_lace_offshoulder'

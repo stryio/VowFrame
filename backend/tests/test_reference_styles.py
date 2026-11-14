@@ -6,7 +6,7 @@ import pytest
 
 from app.director import _shot_requirement
 from app.generator import GeneratorError, OutcomeKind
-from app.prompts import (OUTFIT_BY_ID, STYLE_BY_ID, STYLE_OUTFITS, compose_preview_prompt,
+from app.prompts import (OUTFIT_BY_ID, RETIRED_STYLE_IDS, STYLE_BY_ID, STYLE_OUTFITS, compose_preview_prompt,
                          director_scene_text, outfit_text)
 from app.reference_styles import REFERENCE_STYLE_IDS, REFERENCE_STYLES
 from conftest import PNG, create_director_photo_batch, create_project, preview_batch, wait_batch
@@ -14,14 +14,15 @@ from scripts.review_reference_styles import load_plan, plan_context, render_pict
 from test_styling import batch_tasks, detail
 
 
-@pytest.mark.parametrize('style_id', REFERENCE_STYLE_IDS)
+# V7.67: 复古红棚 is retired; its red backdrop is a 喜嫁 set now.
+@pytest.mark.parametrize('style_id', [style_id for style_id in REFERENCE_STYLE_IDS if style_id not in RETIRED_STYLE_IDS])
 def test_each_reference_theme_can_make_looks_sample_and_set(client_app, style_id):
     client, app = client_app
     styles = {style['id']: style for style in client.get('/api/styles').json()}
     assert style_id in styles and not styles[style_id]['retired']
     options = client.get('/api/look-options').json()
     outfit = STYLE_OUTFITS[style_id][0]
-    assert options['style_outfits'][style_id] == [outfit]
+    assert options['style_outfits'][style_id] == list(STYLE_OUTFITS[style_id]) and options['style_outfits'][style_id][0] == outfit
     assert any(item['id'] == outfit for item in options['outfits'])
     project = create_project(client)
     preview = preview_batch(client, project['id'], style_ids=[style_id])
@@ -53,8 +54,8 @@ def test_each_reference_theme_can_make_looks_sample_and_set(client_app, style_id
         assert '这组不安排氛围镜头' in recorder.requirement
 
 
-def test_nine_themes_are_distinct_and_keep_the_original_catalogue():
-    assert len(REFERENCE_STYLE_IDS) == len(set(REFERENCE_STYLE_IDS)) == 9
+def test_eleven_themes_are_distinct_and_keep_the_original_catalogue():
+    assert len(REFERENCE_STYLE_IDS) == len(set(REFERENCE_STYLE_IDS)) == 11
     for old in ('korean_minimal', 'forest_natural', 'french_vintage', 'luxury_interior', 'chinese_traditional'):
         assert old in STYLE_BY_ID and old not in REFERENCE_STYLE_IDS
     assert '香槟金' in OUTFIT_BY_ID['champagne_couture'].bride
@@ -64,6 +65,8 @@ def test_nine_themes_are_distinct_and_keep_the_original_catalogue():
         sid = style['id']
         assert style['look'] in compose_preview_prompt(sid, '3:4', styled=True, outfit=style['outfits'][0])
         for single in (True, False):
+            if sid in RETIRED_STYLE_IDS:  # a retired style's director text has no shooting direction
+                continue
             assert style['shooting'] in director_scene_text(sid, single_variant=single, outfit=style['outfits'][0])
 
 

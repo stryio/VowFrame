@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   api,
   assetUrl,
@@ -13,6 +14,7 @@ import { CompareView } from "./CompareView";
 import { FaceScore } from "./FaceScore";
 import { useConfirm, useToast } from "./feedback";
 import { useGenerateDialog } from "./GenerateDialog";
+import { RegionalEditDialog } from "./RegionalEditDialog";
 
 const ACTION_HINT: Record<SlotAction, string> = {
   same: "沿用原来的参考照片、动作和提示词，再生成一次。",
@@ -30,6 +32,7 @@ export function useSlotActions(onChanged: () => Promise<void> | void) {
   const { ask, dialog: generateDialog } = useGenerateDialog();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [busy, setBusy] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<{ slot: Slot; purpose?: "hands" } | null>(null);
 
   const run = async (slots: Slot[], action: SlotAction) => {
     if (slots.length === 0) return false;
@@ -77,15 +80,15 @@ export function useSlotActions(onChanged: () => Promise<void> | void) {
     }
   };
 
-  // One paid edit of the whole picture (V7.2); the original stays in history.
+  // One paid 4K edit of the whole picture (V7.2) that also fixes the hands and washes it (V7.32); the original stays in history.
   const faceFix = async (slots: Slot[]) => {
     if (slots.length === 0) return false;
     const choice = await ask({
       title: slots.length === 1 ? "AI 修脸" : `AI 修脸 ${slots.length} 张`,
-      message: "用两人的造型照把脸修得更像本人，发型、妆容和美白与造型照一致，构图和光线保持不变。每张照片修一次，原图保留在历史版本中。",
+      message: "一次修图同时做三件事：用两人的造型照把脸修得更像本人（发型、妆容和美白与造型照一致），修正手和手指，再把整张图洗干净、输出 4K。构图和光线保持不变。每张照片修一次，按 4K 计费，原图保留在历史版本中。",
       taskCount: slots.length,
       confirmText: "开始修脸",
-      faceFix: true,
+      stage: "face",
     });
     if (!choice) return false;
     setBusy(true);
@@ -100,6 +103,54 @@ export function useSlotActions(onChanged: () => Promise<void> | void) {
       return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  // One paid 4K photographic finish of the picture (V7.79); it stays current, compared and restored by the user.
+  const wash = async (slots: Slot[]) => {
+    if (slots.length === 0) return false;
+    const choice = await ask({
+      title: slots.length === 1 ? "洗图（4K）" : `洗图（4K）${slots.length} 张`,
+      message:
+        "商业摄影级修复：清理 AI 涂抹感、脏痕、色块、噪点、糊边和光影断层，画面更干净通透，保留真实的摄影纹理；人物、物体和构图保持不变，按 4K 输出。每张洗一次，按模型计费，4K 比平时贵。洗完直接显示洗后的照片和相似度，点照片上的「洗图 · 对比」和洗之前对比，不满意可以恢复。洗完再修脸或修手会回到原来的尺寸，所以建议最后再洗。",
+      taskCount: slots.length,
+      confirmText: "开始洗图",
+      stage: "wash",
+    });
+    if (!choice) return false;
+    return sendEach(slots, (slot) => api.wash(slot.id, choice.model), "洗图");
+  };
+
+  // Failed pictures generated again with their own task's settings; each retry is one paid generation.
+  const retryFailed = async (slots: Slot[]) => {
+    const failed = slots.filter((slot) => slot.latest_task && ["failed", "interrupted"].includes(slot.latest_task.status));
+    if (failed.length === 0) return false;
+    const ok = await confirm({
+      title: `重试 ${failed.length} 张失败的作品？`,
+      message: `按原来的设置重新生成，共 ${failed.length} 次生成，会产生相应费用。`,
+      confirmText: "重试",
+    });
+    if (!ok) return false;
+    return sendEach(failed, (slot) => api.retryTask(slot.latest_task!.id), "重试");
+  };
+
+  const sendEach = async (slots: Slot[], send: (slot: Slot) => Promise<unknown>, what: string) => {
+    setBusy(true);
+    let sent = 0;
+    try {
+      for (const slot of slots) {
+        await send(slot);
+        sent += 1;
+      }
+      toast.info(`已开始${what} ${sent} 张${what === "重试" ? "" : "，原图保留在历史版本中"}`);
+      return true;
+    } catch (err) {
+      if (sent > 0) toast.info(`已开始${what} ${sent} 张，其余没有提交`);
+      toast.error(err);
+      return false;
+    } finally {
+      setBusy(false);
+      await onChanged();
     }
   };
 
@@ -133,10 +184,15 @@ export function useSlotActions(onChanged: () => Promise<void> | void) {
     }
   };
 
-  return { run, faceSwap, faceFix, remove, busy, dialogs: (
+  // V7.79: 修手 is a crop edit of the marked hands (whole-picture hand fixes left the small hands as they were).
+  const regionalEdit = (slot: Slot, purpose?: "hands") => setEditingSlot({ slot, purpose });
+  const handFix = (slot: Slot) => regionalEdit(slot, "hands");
+  return { run, faceSwap, faceFix, handFix, wash, regionalEdit, retryFailed, remove, busy, dialogs: (
     <>
       {generateDialog}
       {confirmDialog}
+      {editingSlot && <RegionalEditDialog slot={editingSlot.slot} purpose={editingSlot.purpose}
+        onClose={() => setEditingSlot(null)} onChanged={onChanged} />}
     </>
   ) };
 }
@@ -173,52 +229,99 @@ export interface MenuItem {
   disabled?: boolean;
   /** Tooltip, e.g. why the item is disabled. */
   title?: string;
+  /** Starts a new group: a line is drawn above it. */
+  divider?: boolean;
 }
 
-export function SlotMenu({ items }: { items: MenuItem[] }) {
+const MENU_GAP = 6;
+const MENU_MARGIN = 12;
+
+/** label: a text button (e.g. on the album's selection bar) instead of the "⋯" trigger; disabled greys it out.
+ * The list is drawn on top of the page (a portal with fixed position), so a card that clips its content cannot cut it
+ * off; it opens on the side of the button with more room and scrolls when even that is too short. */
+export function SlotMenu({ items, label, disabled }: { items: MenuItem[]; label?: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<{ top?: number; bottom?: number; right: number; maxHeight: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const box = triggerRef.current.getBoundingClientRect();
+    const below = window.innerHeight - box.bottom - MENU_GAP - MENU_MARGIN;
+    const above = box.top - MENU_GAP - MENU_MARGIN;
+    const right = Math.max(window.innerWidth - box.right, MENU_MARGIN);
+    const wanted = listRef.current?.scrollHeight ?? 0;
+    // Below when it fits there or there is more room below; above otherwise.
+    setPlace(
+      wanted <= below || below >= above
+        ? { top: box.bottom + MENU_GAP, right, maxHeight: below }
+        : { bottom: window.innerHeight - box.top + MENU_GAP, right, maxHeight: above },
+    );
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!triggerRef.current?.contains(target) && !listRef.current?.contains(target)) setOpen(false);
+    };
+    // A fixed list would drift away from its button on scroll or resize; close it instead.
+    const dismiss = (e: Event) => {
+      if (!(e.target instanceof Node) || !listRef.current?.contains(e.target)) setOpen(false);
     };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+    };
   }, [open]);
 
   return (
-    <div className="menu" ref={ref}>
+    <div className="menu">
       <button
-        className="menu-trigger"
-        aria-label="更多操作"
+        ref={triggerRef}
+        className={label ? "btn btn-sm" : "menu-trigger"}
+        aria-label={label ?? "更多操作"}
+        disabled={disabled}
         onClick={(e) => {
           e.stopPropagation();
+          setPlace(null);
           setOpen((v) => !v);
         }}
       >
-        ⋯
+        {label ? `${label} ▴` : "⋯"}
       </button>
-      {open && (
-        <div className="menu-list card">
-          {items.map((item) => (
-            <button
-              key={item.label}
-              className={`menu-item ${item.danger ? "menu-item-danger" : ""}`}
-              disabled={item.disabled}
-              title={item.title}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(false);
-                item.onSelect();
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={listRef}
+            className="menu-list menu-floating card"
+            // Measured first (hidden), then placed.
+            style={place ? { ...place, visibility: "visible" } : { top: 0, right: 0, visibility: "hidden" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {items.map((item) => (
+              <button
+                key={item.label}
+                className={`menu-item ${item.danger ? "menu-item-danger" : ""} ${item.divider ? "menu-item-divider" : ""}`}
+                disabled={item.disabled}
+                title={item.title}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  item.onSelect();
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

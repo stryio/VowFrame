@@ -20,6 +20,7 @@ from PIL import Image
 from .config import Config
 from .generator import GeneratorError, ImageGenerator, OutcomeKind
 from .models import get_model
+from .regional_edit import MARKUP_MODELS, RegionalEdit, annotated_reference, oriented_size, validate_annotation
 from .storage import outgoing_image
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,12 @@ OPENAI_SIZES = {
     '2:1': {'1K': '1408x704', '2K': '2880x1440', '4K': '3840x1920'},
     '1:2': {'1K': '704x1408', '2K': '1440x2880', '4K': '1920x3840'},
 }
+# Asked by the user on 2026-11-03 (was 'high'). 88API's own docs list xhigh only for its az-gpt-image-2.5 models;
+# a service that refuses it answers 4xx and the task fails as rejected.
+OPENAI_QUALITY = 'xhigh'
+# 2026-11-05, user: 改成max吧. PPTOKEN takes 'max' (used for the room pictures on 2026-11-04); 88API keeps 'xhigh',
+# since its docs list the higher levels only for its az models.
+PROVIDER_QUALITY = {'PPTOKEN': 'max'}
 GEMINI_RATIOS = {'1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'}
 SUPPORTED_RATIOS = set(OPENAI_SIZES) & GEMINI_RATIOS
 
@@ -51,9 +58,10 @@ QUOTA_PATTERN = re.compile(r'quota|balance|insufficient|余额|配额|额度|欠
 
 def size_problem(content: bytes, model_id: str, aspect_ratio: str, resolution: str) -> str | None:
     """Whether a picture has the pixels an OpenAI-style request asked for; a service can return another size and
-    still charge for the request. Gemini takes a size class rather than exact pixels, so it is not compared."""
+    still charge for the request. Gemini takes a size class rather than exact pixels, so it is not compared; Seedream
+    (app/ark.py) is asked for the same pixels as the GPT models."""
     model = get_model(model_id)
-    if model is None or model.family != 'openai' or aspect_ratio not in OPENAI_SIZES:
+    if model is None or model.family not in ('openai', 'seedream') or aspect_ratio not in OPENAI_SIZES:
         return None
     wanted = OPENAI_SIZES[aspect_ratio][resolution]
     try:
@@ -184,14 +192,32 @@ class Api88Generator(ImageGenerator):
             raise GeneratorError(OutcomeKind.REJECTED, message)
         return response
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+    @property
+    def _quality(self) -> str:
+        """The GPT image quality this service is asked for."""
+        return PROVIDER_QUALITY.get(self.provider, OPENAI_QUALITY)
+
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str,
+                       resolution: str | None = None, edit: RegionalEdit | None = None) -> bytes:
+        """An edit of the given images; with no images, a picture from the prompt alone (V7.33, the style art)."""
         if aspect_ratio not in SUPPORTED_RATIOS:
             raise ValueError(f'unsupported aspect_ratio {aspect_ratio}')
+        resolution = resolution or self._config.resolution
+        if resolution not in ('1K', '2K', '4K'):
+            raise ValueError(f'unsupported resolution {resolution}')
         model_id = model
         model_definition = get_model(model_id)
         if model_definition is None:
             raise ValueError('暂不支持此模型，请使用模型列表中的模型')
         family = model_definition.family
+        annotation = None
+        if edit is not None:
+            if model_id not in MARKUP_MODELS or not images:
+                raise GeneratorError(OutcomeKind.REJECTED, '此模型不支持局部标记编辑，请选择 GPT Image 2.5 或 2.6')
+            try:
+                annotation = validate_annotation(edit.annotation.read_bytes(), oriented_size(images[0]), edit.kind)
+            except (OSError, ValueError, Image.DecompressionBombError) as exc:
+                raise GeneratorError(OutcomeKind.REJECTED, str(exc), error_code='invalid_annotation') from None
         # Read every input before opening a connection, preserving bride-first
         # ordering supplied by the task's immutable reference-image snapshot.
         # Photos leave without their metadata (GPS, capture time, device).
@@ -199,8 +225,12 @@ class Api88Generator(ImageGenerator):
             references = [outgoing_image(path) for path in images]
         except (OSError, ValueError, Image.DecompressionBombError):
             raise GeneratorError(OutcomeKind.NOT_SENT, '无法读取参考照片，请检查文件后重试') from None
-        if not references:
-            raise GeneratorError(OutcomeKind.REJECTED, '请先上传参考照片')
+        if edit is not None and edit.kind == 'reference':
+            try:
+                references.insert(1, annotated_reference(images[0], annotation))
+            except (OSError, ValueError, Image.DecompressionBombError):
+                raise GeneratorError(OutcomeKind.REJECTED, '无法创建带圈参考图，请检查原图和标记后重试',
+                                     error_code='invalid_annotation') from None
 
         # A call owns its client, so concurrent worker threads share no client
         # lifecycle and shutdown needs no additional resource-management hooks.
@@ -208,14 +238,33 @@ class Api88Generator(ImageGenerator):
                           trust_env=False, event_hooks={'request': [self._check_request_url]}) as client:
             headers = {'Authorization': f'Bearer {self._config.api_key}', 'User-Agent': 'vowframe-image-gen/1.0'}
             base_url = self._config.base_url.rstrip('/')
-            if family == 'openai':
+            if family == 'openai' and not references:
                 response = self._request(
-                    client, 'POST', base_url + '/v1/images/edits', headers=headers,
-                    model=model_id,
-                    data={'model': model_id, 'prompt': prompt,
-                          'size': OPENAI_SIZES[aspect_ratio][self._config.resolution], 'quality': 'high', 'n': '1'},
-                    files=[('image[]', reference) for reference in references],
+                    client, 'POST', base_url + '/v1/images/generations', headers=headers, model=model_id,
+                    json={'model': model_id, 'prompt': prompt, 'size': OPENAI_SIZES[aspect_ratio][resolution],
+                          'quality': self._quality, 'n': 1},
                 )
+            elif family == 'openai':
+                data = {'model': model_id, 'prompt': prompt,
+                        'size': OPENAI_SIZES[aspect_ratio][resolution], 'quality': self._quality, 'n': '1'}
+                image_field = 'image' if edit is not None and len(references) == 1 else 'image[]'
+                files = [(image_field, reference) for reference in references]
+                if edit is not None:
+                    data.update(size='auto', quality='medium', output_format='png')
+                    if edit.kind != 'reference':
+                        files.append((edit.kind, (edit.kind + '.png', annotation, 'image/png')))
+                try:
+                    response = self._request(
+                        client, 'POST', base_url + '/v1/images/edits', headers=headers,
+                        model=model_id, data=data, files=files,
+                    )
+                except GeneratorError as exc:
+                    if edit is not None and exc.kind == OutcomeKind.REJECTED:
+                        message = ('标记参考编辑请求被拒绝，原图已保留' if edit.kind == 'reference' else
+                                   '局部编辑请求被拒绝，请确认所选服务和模型支持标记或蒙版编辑；原图已保留')
+                        raise GeneratorError(exc.kind, message,
+                                             error_code='regional_edit_rejected') from None
+                    raise
             else:
                 content = [{'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{base64.b64encode(data).decode()}'}}
                            for _, data, mime in references]
@@ -225,7 +274,7 @@ class Api88Generator(ImageGenerator):
                           model=model_id,
                           json={'model': model_id, 'messages': [{'role': 'user', 'content': content}],
                           'extra_body': {'google': {'image_config': {
-                              'aspect_ratio': aspect_ratio, 'image_size': self._config.resolution}}}},
+                              'aspect_ratio': aspect_ratio, 'image_size': resolution}}}},
                 )
 
             try:

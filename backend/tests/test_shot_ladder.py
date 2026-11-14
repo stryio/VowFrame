@@ -9,7 +9,7 @@ from test_face_swap import ScriptedFaceSwapper
 def shoot_mock_set(client, *, request_id='ladder'):
     """Mock director order: 全身 landscape, 七分身, 半身, 近景."""
     project = create_project(client)
-    batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+    batch = preview_batch(client, project['id'], style_ids=['city_story'])
     wait_batch(client, batch['id'])
     preview = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
     draft = client.post(f"/api/projects/{project['id']}/moment-drafts", json={'preview_slot_id': preview['id'], 'count': 4}).json()
@@ -56,7 +56,7 @@ def test_change_shot_accepts_wide_and_the_studio_framings_only(app_factory):
 def test_unshot_drafts_keep_wide_and_move_retired_sizes_to_current_framings(app_factory):
     with app_factory(concurrency=1) as (client, app):
         project = create_project(client)
-        batch = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, batch['id'])
         preview = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts", json={'preview_slot_id': preview['id'], 'count': 4}).json()
@@ -87,7 +87,7 @@ def test_change_shot_keeps_the_looks_of_the_picture(app_factory):
     with app_factory(generator=ScriptedGenerator(), concurrency=1) as (client, app):
         project = create_project(client)
         client.patch(f"/api/projects/{project['id']}", json={'makeup_level': 'refined'})
-        preview_slot = preview_batch(client, project['id'], style_ids=['dark_studio'])
+        preview_slot = preview_batch(client, project['id'], style_ids=['city_story'])
         wait_batch(client, preview_slot['id'])
         preview = client.get(f"/api/projects/{project['id']}").json()['previews'][0]
         draft = client.post(f"/api/projects/{project['id']}/moment-drafts", json={'preview_slot_id': preview['id'], 'count': 4}).json()
@@ -102,6 +102,6 @@ def test_change_shot_keeps_the_looks_of_the_picture(app_factory):
         # Four edits made the two looks (each is makeup then hair: the bride's V7.5, the groom's V7.22); none were added.
         assert len(app.state.stylist.calls) == 4
         task = client.get('/api/tasks', params={'batch_id': changed.json()['id']}).json()[0]
-        assert task['prompt'].split('\n\n')[1].startswith('图片角色：第一张图是新娘的造型照')
+        assert task['prompt'].split('\n\n')[1].startswith('图片角色：第一张图是两人的造型照')
         changed_slot = next(photo for photo in client.get(f"/api/projects/{project['id']}").json()['photos'] if photo['id'] == target['id'])
         assert changed_slot['look_ids'] == target['look_ids'] == preview['look_ids']

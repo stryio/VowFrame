@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { ApiError } from "../api";
+import { ZoomableImage } from "./ZoomableImage";
 
 // ---------- Toast ----------
 
@@ -161,7 +162,7 @@ export function Lightbox({
         ×
       </button>
       <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-        <img src={src} alt={caption ?? ""} />
+        <ZoomableImage src={src} alt={caption ?? ""} />
         {caption && <div className="lightbox-caption">{caption}</div>}
       </div>
     </div>

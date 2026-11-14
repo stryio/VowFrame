@@ -58,6 +58,32 @@ def asset_path(config: Config, stored_path: str) -> Path:
 def save_image(config: Config, project_id: str, asset_id: str, content: bytes, *, original: bool = False) -> str:
     extension, _ = image_format(content)
     relative = Path('projects') / project_id / ('originals' if original else 'images') / f'{asset_id}{extension}'
+    return _write(config, relative, content)
+
+
+def save_style_art_image(config: Config, art_id: str, name: str, content: bytes) -> str:
+    """A file of a style art (V7.33), shared by every project: style_art/<art id>/<name><extension>."""
+    extension, _ = image_format(content)
+    return _write(config, Path('style_art') / art_id / f'{name}{extension}', content)
+
+
+def save_room_area_image(config: Config, area_id: str, content: bytes) -> str:
+    """A room area's picture (V7.38), shared by every project: room_area/<id>/area<extension>."""
+    extension, _ = image_format(content)
+    return _write(config, Path('room_area') / area_id / f'area{extension}', content)
+
+
+def reference_copy(content: bytes, longest: int = 1024) -> bytes:
+    """A smaller JPEG of a picture that is only sent as a reference (V7.33: what the style art was tested with)."""
+    with Image.open(io.BytesIO(content)) as source:
+        image = source.convert('RGB')
+    image.thumbnail((longest, longest))
+    output = io.BytesIO()
+    image.save(output, 'JPEG', quality=92)
+    return output.getvalue()
+
+
+def _write(config: Config, relative: Path, content: bytes) -> str:
     destination = asset_path(config, str(relative))
     destination.parent.mkdir(parents=True, exist_ok=True)
     config.temp_dir.mkdir(parents=True, exist_ok=True)

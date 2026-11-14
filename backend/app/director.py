@@ -14,7 +14,8 @@ import httpx
 from .api88 import AUTH_MESSAGE
 from .aspect import ORIENTATION_NAMES, ORIENTATIONS
 from .config import Config
-from .prompts import DETAIL_SHOT
+from .facings import DIRECTION_WORDS, FACINGS, SIDE_FACINGS, direction, is_full
+from .prompts import DETAIL_SHOT, LIGHTING_RULES
 
 logger = logging.getLogger(__name__)
 
@@ -27,27 +28,30 @@ SHOT_MEANINGS = 'wide 远景，full 全身，three_quarter 七分身，half 半�
 FORBIDDEN_WORDS = (
     '眼睛', '眼型', '眼神清澈', '双眼皮', '单眼皮', '丹凤', '杏眼', '桃花眼', '睫毛', '眉毛', '眉形',
     '鼻子', '鼻梁', '鼻型', '嘴唇', '唇形', '红唇', '脸型', '瓜子脸', '鹅蛋脸', '圆脸', '尖下巴',
-    '下颌', '颧骨', '酒窝', '雀斑', '皮肤', '肤色', '五官', '长相', '墨镜', '口罩',
+    '下颌', '颧骨', '酒窝', '雀斑', '皮肤', '肤色', '五官', '长相', '口罩',
 )
 MAX_TEXT_LENGTH = 220
+# V7.55 (2026-11-05, user: ai导演最好减少十指相扣握手的姿势，因为很容易画错手): rule 4 asks for fewer interlaced-hand
+# poses; plain hand holding stays.
 SYSTEM_PROMPT = '''你是一位资深的婚纱摄影师兼导演，为一对新人设计照片。服装、视觉语言和可用的场景已由摄影团队确定，你要决定的是：每张照片在哪里拍、怎么拍。
 这是交付给新人的婚纱照：两人的脸和婚纱是主角。大片感来自人和环境的比例、留白、层次和光影，不靠遮脸、极端机位或远处的小脸。
 
 每张照片写成一段「镜头」，依次交代下面几项；机位、构图和光各用一两句话写清，把更多篇幅留给瞬间：
-1. 机位与焦段：机位的高低和角度，用什么焦段（例如 35mm 交代环境，85mm 压缩背景、浅景深）。
+1. 机位与焦段：机位的高低和角度，用什么焦段（例如 35mm 交代环境，85mm 压缩背景、浅景深）。机位高度随动作变化：坐着的两人可以平视或略俯拍，站姿可以略低机位；可以隔着门框、拱门、纱帘或花枝拍，让它们成为前景。
 2. 构图：竖版还是横版，两人在画面里的位置和大小，留白在哪里，有没有前景。以竖版为主；交代环境的远景、需要横向延展的画面（例如海平面、天际线、长廊）适合横版。
-3. 人与场景：使用哪个场景（有多个场景变体时选一个），把它的编号填在 scene。所选场景的文字会原样放进最终的提示词，镜头里不用重复描写场景，只写两人所在的位置和与哪个场景元素发生关系。
-4. 光：时段、色调、方向和明暗按所选场景与视觉语言决定；室外不擅自改成日落或夜景，影棚按布光方案表现。写清主光从哪里照来、哪些人物和环境部分受光、哪里保留暗部；可以有符合场景的环境反射光和必要的补光，各光源的方向、色温和阴影关系合理，保持既定反差，不把侧光或逆光补成均匀平光；摄影器材不入画，吊灯、烛台等场景装饰可以入画。
+3. 人与场景：使用哪个场景（有多个场景变体时选一个），把它的编号填在 scene。所选场景的文字会原样放进最终的提示词，镜头里不用重复描写场景，只写两人所在的位置和与哪个场景元素发生关系。多用场景里已有的家具和陈设发生互动：坐在椅子、长凳或琴凳上，倚着钢琴、栏杆、柜子或门框，在茶桌边端起茶杯，翻开一本书，扶着窗框；只用场景文字里有的东西。附有场景实景图时，图按编号对应场景，用来看清陈设的位置、空间大小和光线方向，让动作落在图里真实存在的家具和空地上；没有附图的场景按文字理解。
+4. 光：''' + LIGHTING_RULES + '''时段和光影风格按所选场景决定，室外不擅自改成日落或夜景，影棚按既定布光表现。写清主光从哪里照来、光质的软硬、哪些人物和环境部分受光、哪里保留暗部，以及现有环境如何提供少量反射光；不把侧光或逆光补成均匀平光。摄影器材不入画，吊灯、烛台等场景装饰可以入画。
 5. 瞬间：围绕一个简单互动，写清当前这一刻可见的动作、身体接触、两人各自的表情和视线落点；需要时，用半句交代引发表情的小事，再写两人当下的反应。抓拍要写出动作进行到哪一刻，而不只写「抓拍感」。每张围绕一个主要动作，不把多个连续动作挤在一起。动作可以是并肩站立或坐下、对视、拥抱和依偎、牵手行走、额头相贴、亲吻、转圈或奔跑、抱起，也可以是提起裙摆、拖尾铺开、头纱被风吹起这类和婚纱的互动（只用服装里有的）。标准照也要写清放松的姿态和具体表情。
-6. 分别写新娘和新郎的面部朝向 facing：front、left 或 right。方向按画面所见判断，left 表示脸朝画面左侧，right 表示脸朝画面右侧。facing 不是 front 的人，镜头文字里要原样写出「新娘的脸朝画面左侧」「新郎的脸朝画面右侧」这样的一句，方向与 facing 一致；facing 是 front 的人不写这句。例如“两人面对面站，新娘在画面左边，新娘的脸朝画面右侧”，这时 bride_facing 是 right。
+6. 分别写新娘和新郎的面部朝向 facing，方向按画面所见判断：front 是脸基本朝向镜头（转过不到 20 度）；left、right 是半侧脸，脸朝画面左侧或右侧转过约 45 度，两只眼睛都还看得见；left_full、right_full 是正侧面，脸朝画面左侧或右侧转过约 90 度，只看得见一只眼睛。facing 是 left 或 right 的人，镜头文字里要原样写出「新娘的脸朝画面左侧」「新郎的脸朝画面右侧」这样的一句；facing 是 left_full 或 right_full 的人写「新娘的脸朝画面左侧，正侧面」这样的一句；方向与 facing 一致；facing 是 front 的人不写这句。例如“两人面对面站，新娘在画面左边，新娘的脸朝画面右侧”，这时 bride_facing 是 right。
+   每个人能用的朝向见「可用的面部朝向」：那是有参考照片的角度，参考照片里没有的角度画出来不像本人。面部清晰可见的镜头（faces_clear 为 true，且不是 wide 远景），每个人的 facing 只能从自己可用的朝向里选；背影、剪影、faces_clear 为 false 的氛围镜头和 wide 远景不受这个限制。
 
 必须遵守：
 1. 不描述任何五官的固有形态或长相（例如眼型、脸型、鼻型、唇形、肤色），长相由参考照片决定。可以描写笑容、视线、头部朝向和表情变化，但不添加本人未必具有的外貌特征。
 2. 以两人面部清晰可见的镜头为主；需要氛围时，也可以拍背影、剪影、两人在画面中很小的远景，或让前景的花枝、头纱半遮住两人，这时要在镜头里明确写出「背影」「剪影」「两人在画面中很小」或怎样遮挡，并把 faces_clear 填为 false；其他镜头 faces_clear 填 true。
 3. 不描写服装的款式和颜色，服装由摄影团队决定；动作可以和服装里有的头纱、裙摆、拖尾互动；主光与所选场景一致，补光只帮助自然融合，不额外改变场景时段和光影风格。
-4. 动作自然、真实可拍，避免多人、复杂道具和夸张特技。
+4. 动作自然、真实可拍，避免多人、场景里没有的道具和夸张特技；场景里已有的家具陈设，以及服装里有的捧花、手套、礼帽、头纱和墨镜，都可以拿来互动；墨镜这类配饰只在服装里写了时才用。十指相扣、两人双手交握、手握着手放在画面中心这类手指交缠的动作容易把手画错，少安排；需要牵手时写成简单的牵着或搭着，手不作为画面的重点。
 5. 情绪以「拍摄方向」为准，没有单独说明时以亲密、放松和喜悦为主。主纱可以从容微笑，森系与街拍可以自然露齿笑，沉静光影可以保留安静的视线；不统一安排露齿笑或大笑的比例。用当下可见的动作、交谈后的反应和身体接触带出表情，两人的反应可以不同；只在适合主题的瞬间写「开怀大笑」。肩颈、手臂和重心随动作自然放松。
-6. 各个镜头在人物前后、高低、身体朝向、视线或动作阶段上有具体区别，也不要与「已拍过的镜头」重复；不靠换标题或不断换场景凑变化。整组围绕一个主题，以一个主场景为主，变化来自人物关系、景别、机位和光影。
+6. 各个镜头在人物前后、高低、身体朝向、视线或动作阶段上有具体区别，也不要与「已拍过的镜头」重复；不靠换标题或不断换场景凑变化。整组围绕一个主题，以一个主场景为主，变化来自人物关系、景别、机位和光影。整组的姿态要有变化：站着的镜头不超过一半，其余是坐、倚、走动、共舞、蹲跪整理裙摆或和陈设互动的瞬间，不要每张都是两人并排站着看镜头。
 7. 只写具体的拍摄决定，不要堆砌「高级感」「电影感」「唯美」这类空洞的形容词；面部清晰、曝光和遮挡由摄影团队另行把关，镜头里不用复述这些要求（例如「不遮脸」「亮部保留纹理」「不拍剪影」）。
 8. 只输出 JSON，不要输出任何其他文字。
 
@@ -85,10 +89,10 @@ class DirectorInvalidOutput(DirectorError):
 
 class Director(Protocol):
     def write_moments(self, style: str, scene_text: str, count: int, shot_requirement: str,
-                      avoid_titles: list[str], *, scene_count: int) -> list[Moment]: ...
+                      avoid_titles: list[str], *, scene_count: int, facings: dict | None = None) -> list[Moment]: ...
 
     def rewrite_shot(self, style: str, scene_text: str, original_text: str, target_shot: str,
-                     orientation: str) -> Moment: ...
+                     orientation: str, facings: dict | None = None) -> Moment: ...
 
 
 def _cjk_or_basic_length(value: str) -> int:
@@ -96,7 +100,14 @@ def _cjk_or_basic_length(value: str) -> int:
 
 
 _FACING_ROLES = (('bride_facing', '新娘'), ('groom_facing', '新郎'))
-_FACING_WORDS = {'left': '左', 'right': '右'}
+_FACING_WORDS = DIRECTION_WORDS
+_FULL_SIDE_WORDS = '，正侧面'
+FACING_MEANINGS = {'front': '正面', 'left': '朝左半侧脸', 'right': '朝右半侧脸', 'left_full': '朝左正侧面', 'right_full': '朝右正侧面'}
+
+
+def facing_sentence(name: str, facing: str) -> str:
+    """The sentence a shot's text carries for a turned face, e.g. 「新娘的脸朝画面左侧，正侧面」."""
+    return f'{name}的脸朝画面{_FACING_WORDS[direction(facing)]}侧' + (_FULL_SIDE_WORDS if is_full(facing) else '')
 
 
 def _facing_text_problems(text: str, facings: dict[str, str]) -> list[str]:
@@ -104,20 +115,44 @@ def _facing_text_problems(text: str, facings: dict[str, str]) -> list[str]:
     problems = []
     for key, name in _FACING_ROLES:
         written = set(re.findall(name + r'的?脸朝画面([左右])', text))
+        full_written = re.search(name + r'的?脸朝画面[左右]侧' + _FULL_SIDE_WORDS, text) is not None
         facing = facings.get(key)
-        if facing in _FACING_WORDS:
-            if written != {_FACING_WORDS[facing]}:
-                problems.append(f'{key} 是 {facing}，text 里必须写「{name}的脸朝画面{_FACING_WORDS[facing]}侧」，且不能写别的方向')
+        if facing in SIDE_FACINGS:
+            if written != {_FACING_WORDS[direction(facing)]} or full_written != is_full(facing):
+                problems.append(f'{key} 是 {facing}，text 里必须写「{facing_sentence(name, facing)}」，且不能写别的方向或角度')
         elif facing == 'front' and written:
             problems.append(f'{key} 是 front，text 里不能写「{name}的脸朝画面左侧/右侧」')
     return problems
 
 
+def facings_text(facings: dict[str, tuple[str, ...]] | None) -> str:
+    """The user-prompt line telling the director which facings each person has a photo of (V7.48)."""
+    if not facings:
+        return ''
+    parts = [f'{name}：' + '、'.join(f'{facing}（{FACING_MEANINGS[facing]}）' for facing in facings[role])
+             for role, name in (('bride', '新娘'), ('groom', '新郎'))]
+    return '可用的面部朝向（面部清晰的镜头只能用这些）：' + '；'.join(parts) + '\n'
+
+
+def _facing_limit_problems(facings: dict[str, str], shot_size, faces_clear, allowed) -> list[str]:
+    """A clearly visible face may only turn to an angle its person has a photo of (V7.48); back views, silhouettes,
+    other faceless shots and wide shots, where the face is small, may turn freely."""
+    if not allowed or faces_clear is False or shot_size == 'wide':
+        return []
+    problems = []
+    for key, name in _FACING_ROLES:
+        role = key.removesuffix('_facing')
+        facing = facings.get(key)
+        if facing in FACINGS and facing not in allowed[role]:
+            problems.append(f'{key} 是 {facing}，但{name}没有这个角度的照片；面部清晰的镜头只能用 ' + '、'.join(allowed[role]))
+    return problems
+
+
 def validate_moment(moment: Moment | dict, *, avoid_titles: list[str] = (), target_shot: str | None = None,
                     target_orientation: str | None = None, check_facing_text: bool = False,
-                    scene_count: int | None = None) -> list[str]:
-    """check_facing_text and scene_count apply to director output only: a user may change facing by hand,
-    and drafts written before V3.34 have no scene."""
+                    scene_count: int | None = None, allowed_facings: dict[str, tuple[str, ...]] | None = None) -> list[str]:
+    """check_facing_text, scene_count and allowed_facings apply to director output only: a user may change facing
+    by hand, and drafts written before V3.34 have no scene. allowed_facings: each role's facings with a photo."""
     if isinstance(moment, dict):
         title, shot_size, text = moment.get('title'), moment.get('shot_size'), moment.get('text')
         orientation = moment.get('orientation')
@@ -134,14 +169,16 @@ def validate_moment(moment: Moment | dict, *, avoid_titles: list[str] = (), targ
         problems.append('shot_size 必须是 ' + '、'.join(SHOT_SIZES) + ' 之一')
     if orientation not in ORIENTATIONS:
         problems.append('orientation 必须是 portrait 或 landscape')
-    if bride_facing not in ('front', 'left', 'right'):
-        problems.append('bride_facing 必须是 front、left 或 right')
-    if groom_facing not in ('front', 'left', 'right'):
-        problems.append('groom_facing 必须是 front、left 或 right')
+    if bride_facing not in FACINGS:
+        problems.append('bride_facing 必须是 ' + '、'.join(FACINGS) + ' 之一')
+    if groom_facing not in FACINGS:
+        problems.append('groom_facing 必须是 ' + '、'.join(FACINGS) + ' 之一')
     if not isinstance(text, str) or len(text) > MAX_TEXT_LENGTH or not text.endswith('。'):
         problems.append(f'text 必须不超过 {MAX_TEXT_LENGTH} 个字符并以“。”结尾')
     if check_facing_text and isinstance(text, str):
         problems.extend(_facing_text_problems(text, {'bride_facing': bride_facing, 'groom_facing': groom_facing}))
+    problems.extend(_facing_limit_problems({'bride_facing': bride_facing, 'groom_facing': groom_facing}, shot_size,
+                                           faces_clear, allowed_facings))
     if scene_count is not None and (not isinstance(scene, int) or isinstance(scene, bool) or not 1 <= scene <= scene_count):
         problems.append(f'scene 必须是 1～{scene_count} 之间的场景编号')
     if not isinstance(faces_clear, bool):
@@ -160,14 +197,15 @@ def validate_moment(moment: Moment | dict, *, avoid_titles: list[str] = (), targ
 
 
 def validate_moments(moments: list[Moment], *, count: int | None = None, avoid_titles: list[str] = (),
-                     scene_count: int | None = None) -> list[str]:
+                     scene_count: int | None = None, allowed_facings: dict[str, tuple[str, ...]] | None = None) -> list[str]:
     """Validate a set the director wrote; facing must agree with the text."""
     problems: list[str] = []
     if count is not None and len(moments) != count:
         problems.append(f'需要 {count} 个瞬间，实际为 {len(moments)} 个')
     titles: set[str] = set()
     for index, moment in enumerate(moments, 1):
-        item_problems = validate_moment(moment, avoid_titles=avoid_titles, check_facing_text=True, scene_count=scene_count)
+        item_problems = validate_moment(moment, avoid_titles=avoid_titles, check_facing_text=True, scene_count=scene_count,
+                                        allowed_facings=allowed_facings)
         if moment.title in titles:
             item_problems.append('title 与本组其他瞬间重复')
         titles.add(moment.title)
@@ -225,12 +263,41 @@ def _shot_requirement(count: int, *, atmospheric: bool = False) -> str:
                  f'前景最多 {foreground_limit} 张且不遮脸，明显的高处俯拍最多 1 张；各类镜头的先后顺序自然安排。')
     return ''.join(parts)
 
-def _user_prompt(style: str, scene_text: str, count: int, shot_requirement: str, avoid_titles: list[str]) -> str:
+_FACING_CHOICES = ' | '.join(FACINGS)
+_FACING_FORMAT = ('facing 按画面所见判断，left/right 是脸朝画面左侧/右侧的半侧脸，left_full/right_full 是正侧面；'
+                  'left/right 时 text 里写「新娘的脸朝画面左侧」这样的一句，left_full/right_full 时写「新娘的脸朝画面左侧，正侧面」，方向与 facing 一致。')
+
+
+def _user_prompt(style: str, scene_text: str, count: int, shot_requirement: str, avoid_titles: list[str],
+                 facings: dict[str, tuple[str, ...]] | None = None) -> str:
     return (f'风格：{style}\n{scene_text}\n需要的镜头数量：{count}\n'
-            f'景别要求：{shot_requirement}\n已拍过的镜头（不要重复）：{"、".join(avoid_titles) if avoid_titles else "无"}\n\n'
-            f'请输出 JSON：{{"moments": [{{"title": "2～12 个汉字的标题", "scene": 所选场景的编号, "faces_clear": true | false, "shot_size": "{" | ".join(SHOT_SIZES)}", "orientation": "portrait | landscape", "bride_facing": "front | left | right", "groom_facing": "front | left | right", "text": "镜头描述，最多 {MAX_TEXT_LENGTH} 个字，以句号结尾"}}]}}\n'
+            f'景别要求：{shot_requirement}\n已拍过的镜头（不要重复）：{"、".join(avoid_titles) if avoid_titles else "无"}\n'
+            f'{facings_text(facings)}\n'
+            f'请输出 JSON：{{"moments": [{{"title": "2～12 个汉字的标题", "scene": 所选场景的编号, "faces_clear": true | false, "shot_size": "{" | ".join(SHOT_SIZES)}", "orientation": "portrait | landscape", "bride_facing": "{_FACING_CHOICES}", "groom_facing": "{_FACING_CHOICES}", "text": "镜头描述，最多 {MAX_TEXT_LENGTH} 个字，以句号结尾"}}]}}\n'
             f'scene 是数字，只有一个场景时填 1。faces_clear：两人面部清晰可见时为 true，背影、剪影、人物很小或被遮挡的氛围镜头为 false。shot_size 含义：{SHOT_MEANINGS}。orientation 含义：portrait 竖版，landscape 横版。'
-            f'facing 按画面所见判断，left 是脸朝画面左侧，right 是脸朝画面右侧；不是 front 时，text 里要写出「新娘的脸朝画面左侧」这样的一句，方向与 facing 一致。')
+            + _FACING_FORMAT)
+
+
+def _user_content(user: str, images=()):
+    """The director's user message: plain text, or (V7.42) each scene picture after its label, then the text. Pictures
+    are sent as 768-pixel JPEGs: enough to see the furniture, a few hundred tokens each."""
+    if not images:
+        return user
+    import base64
+    import io
+
+    from PIL import Image
+    parts = []
+    for label, path in images:
+        with Image.open(path) as source:
+            picture = source.convert('RGB')
+        picture.thumbnail((768, 768))
+        buffer = io.BytesIO()
+        picture.save(buffer, 'JPEG', quality=85)
+        parts.append({'type': 'text', 'text': label})
+        parts.append({'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode()}})
+    parts.append({'type': 'text', 'text': user})
+    return parts
 
 
 class MockDirector:
@@ -244,7 +311,7 @@ class MockDirector:
     def __init__(self):
         self.counter = 0
 
-    def write_moments(self, style, scene_text, count, shot_requirement, avoid_titles, *, scene_count):
+    def write_moments(self, style, scene_text, count, shot_requirement, avoid_titles, *, scene_count, images=(), facings=None):
         result = []
         used = set(avoid_titles)
         for index in range(count):
@@ -256,21 +323,29 @@ class MockDirector:
                 suffix += 1
             used.add(candidate)
             scene = (self.counter + index) % scene_count + 1
+            # Like the real director, turn a face only to an angle the person has a photo of.
+            if facings and bride_facing not in facings['bride']:
+                text, bride_facing = text.replace(facing_sentence('新娘', bride_facing) + '，', ''), 'front'
+            if facings and groom_facing not in facings['groom']:
+                text, groom_facing = text.replace(facing_sentence('新郎', groom_facing) + '，', ''), 'front'
             result.append(Moment(candidate, shot, text, orientation, bride_facing, groom_facing, scene))
         self.counter += count
-        problems = validate_moments(result, count=count, avoid_titles=avoid_titles, scene_count=scene_count)
+        problems = validate_moments(result, count=count, avoid_titles=avoid_titles, scene_count=scene_count,
+                                    allowed_facings=facings)
         if problems:
             raise DirectorInvalidOutput(problems)
         return result
 
-    def rewrite_shot(self, style, scene_text, original_text, target_shot, orientation):
+    def rewrite_shot(self, style, scene_text, original_text, target_shot, orientation, images=(), facings=None):
         title = SHOT_NAMES[target_shot] + '瞬间'
         text = original_text if original_text.endswith('。') else original_text + '。'
         # Keep the facing the original text states, so the rewrite stays consistent.
-        facings = {key: next((facing for facing, word in _FACING_WORDS.items() if f'{name}的脸朝画面{word}' in text), 'front')
-                   for key, name in _FACING_ROLES}
-        moment = Moment(title, target_shot, text, orientation, facings['bride_facing'], facings['groom_facing'])
-        problems = validate_moment(moment, target_shot=target_shot, target_orientation=orientation, check_facing_text=True)
+        # Full sides first: their sentence contains the half side's.
+        kept = {key: next((facing for facing in ('left_full', 'right_full', 'left', 'right') if facing_sentence(name, facing) in text),
+                          'front') for key, name in _FACING_ROLES}
+        moment = Moment(title, target_shot, text, orientation, kept['bride_facing'], kept['groom_facing'])
+        problems = validate_moment(moment, target_shot=target_shot, target_orientation=orientation, check_facing_text=True,
+                                   allowed_facings=facings)
         if problems:
             raise DirectorInvalidOutput(problems)
         return moment
@@ -303,7 +378,8 @@ class Api88Director:
     def _base_url(self) -> str:
         return self.config.pptoken_base_url if self.provider == 'pptoken' else self.config.base_url
 
-    def _call(self, user: str) -> list[Moment]:
+    def _call(self, user: str, images=()) -> list[Moment]:
+        """images: (label, path) pairs of scene pictures (V7.42), sent before the text so the director sees the room."""
         if not self.model:
             raise DirectorFailed('请先在设置中填写 AI 导演使用的文字模型')
         problem = director_key_problem(self.config, self.provider)
@@ -315,7 +391,8 @@ class Api88Director:
         try:
             with httpx.Client(transport=self.transport, timeout=60, trust_env=False) as client:
                 response = client.post(url, headers=headers, json={'model': self.model, 'messages': [
-                    {'role': 'system', 'content': SYSTEM_PROMPT}, {'role': 'user', 'content': user}], 'temperature': 0.9})
+                    {'role': 'system', 'content': SYSTEM_PROMPT}, {'role': 'user', 'content': _user_content(user, images)}],
+                    'temperature': 0.9})
         except Exception as exc:
             logger.warning('director transport failure provider=%s model=%s error=%s', self.provider, self.model, str(exc).replace(api_key, '[REDACTED]'))
             raise DirectorFailed('模型服务连接失败，请稍后重试') from None
@@ -332,40 +409,45 @@ class Api88Director:
         except Exception:
             raise ValueError('invalid director JSON') from None
 
-    def write_moments(self, style, scene_text, count, shot_requirement, avoid_titles, *, scene_count):
-        user = _user_prompt(style, scene_text, count, shot_requirement, avoid_titles)
+    def write_moments(self, style, scene_text, count, shot_requirement, avoid_titles, *, scene_count, images=(), facings=None):
+        user = _user_prompt(style, scene_text, count, shot_requirement, avoid_titles, facings)
         try:
-            moments = self._call(user)
+            moments = self._call(user, images)
         except ValueError:
             moments = []
-        problems = validate_moments(moments, count=count, avoid_titles=avoid_titles, scene_count=scene_count)
+        problems = validate_moments(moments, count=count, avoid_titles=avoid_titles, scene_count=scene_count,
+                                    allowed_facings=facings)
         if problems:
             feedback = '上面的输出不符合要求：' + '；'.join(problems) + '。请修正后重新输出完整 JSON。'
             try:
-                moments = self._call(user + '\n\n' + feedback)
+                moments = self._call(user + '\n\n' + feedback, images)
             except ValueError:
                 raise DirectorInvalidOutput(problems) from None
-            problems = validate_moments(moments, count=count, avoid_titles=avoid_titles, scene_count=scene_count)
+            problems = validate_moments(moments, count=count, avoid_titles=avoid_titles, scene_count=scene_count,
+                                        allowed_facings=facings)
         if problems:
             raise DirectorInvalidOutput(problems)
         return moments
 
-    def rewrite_shot(self, style, scene_text, original_text, target_shot, orientation):
-        user = (f'风格：{style}\n{scene_text}\n原来的镜头：{original_text}\n'
+    def rewrite_shot(self, style, scene_text, original_text, target_shot, orientation, images=(), facings=None):
+        user = (f'风格：{style}\n{scene_text}\n{facings_text(facings)}原来的镜头：{original_text}\n'
                 f'请保持这个镜头里的瞬间（动作、互动、视线）和人物在场景中的位置不变，只把景别改为{SHOT_NAMES[target_shot]}，并相应调整机位、焦段和构图（例如远景用广角靠近两人拍、身后是大片的环境、两人仍能看清神情，全身需要交代脚下、站姿和周围环境，近景只保留上半身和面部朝向，背景更虚化）。画幅保持{ORIENTATION_NAMES[orientation]}。标题可以保留或微调。\n'
-                f'只输出 JSON：{{"moments": [{{"title": "…", "shot_size": "{target_shot}", "orientation": "{orientation}", "faces_clear": true | false, "bride_facing": "front | left | right", "groom_facing": "front | left | right", "text": "…"}}]}}。facing 按画面所见；不是 front 时，text 里要写出「新娘的脸朝画面左侧」这样的一句，方向与 facing 一致。')
+                f'只输出 JSON：{{"moments": [{{"title": "…", "shot_size": "{target_shot}", "orientation": "{orientation}", "faces_clear": true | false, "bride_facing": "{_FACING_CHOICES}", "groom_facing": "{_FACING_CHOICES}", "text": "…"}}]}}。' + _FACING_FORMAT +
+                ('改景别后脸变清晰时，facing 只能用可用的面部朝向。' if facings else ''))
         try:
-            moments = self._call(user)
+            moments = self._call(user, images)
         except ValueError:
             moments = []
-        problems = ['需要返回一个瞬间'] if len(moments) != 1 else validate_moment(moments[0], target_shot=target_shot, target_orientation=orientation, check_facing_text=True)
+        problems = ['需要返回一个瞬间'] if len(moments) != 1 else validate_moment(moments[0], target_shot=target_shot, target_orientation=orientation, check_facing_text=True,
+                                                                                   allowed_facings=facings)
         if problems:
             feedback = '上面的输出不符合要求：' + '；'.join(problems) + '。请修正后重新输出完整 JSON。'
             try:
-                moments = self._call(user + '\n\n' + feedback)
+                moments = self._call(user + '\n\n' + feedback, images)
             except ValueError:
                 raise DirectorInvalidOutput(problems) from None
-            problems = ['需要返回一个瞬间'] if len(moments) != 1 else validate_moment(moments[0], target_shot=target_shot, target_orientation=orientation, check_facing_text=True)
+            problems = ['需要返回一个瞬间'] if len(moments) != 1 else validate_moment(moments[0], target_shot=target_shot, target_orientation=orientation, check_facing_text=True,
+                                                                                   allowed_facings=facings)
         if problems:
             raise DirectorInvalidOutput(problems)
         return moments[0]

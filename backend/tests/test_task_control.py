@@ -3,7 +3,7 @@ request is already out (its result is discarded, since the provider cannot be to
 
 from conftest import BlockingGenerator, create_project, preview_batch, wait_batch, wait_until
 
-STYLES = ['dark_studio', 'lakeside']
+STYLES = ['city_story', 'forest_film']
 
 
 def tasks(client, batch_id):

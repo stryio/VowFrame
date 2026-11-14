@@ -24,7 +24,7 @@ class SizedGenerator(ScriptedGenerator):
         super().__init__()
         self.size = size
 
-    def generate_image(self, images, prompt, model, aspect_ratio):
+    def generate_image(self, images, prompt, model, aspect_ratio, **_):
         super().generate_image(images, prompt, model, aspect_ratio)
         return png(*self.size)
 
@@ -49,9 +49,9 @@ def test_a_wrong_size_is_kept_shown_and_passed_on_to_a_face_swap(tmp_path):
     with TestClient(sample_version(tmp_path, (1086, 1448))) as client:
         client.patch('/api/settings', json={'auto_face_fix': 'off'})
         project = create_project(client)
-        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='dark_studio')
+        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='city_story')
         make_looks(client, project['id'], 'b', [{'hairstyle_id': 'keep'}])
-        batch = preview_batch(client, project['id'], request_id='s', style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], request_id='s', style_ids=['city_story'])
         wait_batch(client, batch['id'])
         slot = detail(client, project['id'])['previews'][0]
         assert slot['current_version']['size_warning'] == '要求 1536×2048，实际 1086×1448'
@@ -68,8 +68,8 @@ def test_the_right_size_has_no_warning(tmp_path):
     with TestClient(sample_version(tmp_path, (1536, 2048))) as client:
         client.patch('/api/settings', json={'auto_face_fix': 'off'})
         project = create_project(client)
-        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='dark_studio')
+        make_looks(client, project['id'], 'a', [{'hairstyle_id': 'low_bun'}], style_id='city_story')
         make_looks(client, project['id'], 'b', [{'hairstyle_id': 'keep'}])
-        batch = preview_batch(client, project['id'], request_id='s', style_ids=['dark_studio'])
+        batch = preview_batch(client, project['id'], request_id='s', style_ids=['city_story'])
         wait_batch(client, batch['id'])
         assert detail(client, project['id'])['previews'][0]['current_version']['size_warning'] is None

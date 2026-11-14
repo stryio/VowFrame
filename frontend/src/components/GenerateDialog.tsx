@@ -9,9 +9,12 @@ interface GenerateRequest {
   confirmText?: string;
   /** Ask for a target shot size; `current` (if any) cannot be chosen. */
   shotChoice?: { current: StoredShotSize | null };
-  /** An AI face fix: preselect the face-fix model from Settings instead of the default model. */
-  faceFix?: boolean;
+  /** An edit with its own service and model in Settings (hand fix "face_fix", AI face fix "face", wash "wash"):
+   * list that service's models and preselect that model instead of the default model. */
+  stage?: "face_fix" | "face" | "wash";
 }
+
+const STAGE_SETTING = { face_fix: "「修手模型」", face: "「AI 修脸模型」", wash: "「洗图模型」" } as const;
 
 export interface GenerateChoice {
   model: string;
@@ -65,13 +68,23 @@ function GenerateDialog({
   );
   const [models, setModels] = useState<Model[] | null>(null);
   const [model, setModel] = useState("");
+  const [service, setService] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.models(), api.settings()])
-      .then(([list, settings]) => {
+    api
+      .settings()
+      .then(async (settings) => {
+        // V7.27: a face fix, hand fix or wash goes to its own service when Settings picks one; list that service's models.
+        const stage = request.stage;
+        const provider = (stage && settings[`${stage}_provider`]) || settings.image_provider;
+        const list = await api.models(provider);
+        const preferred = (stage && settings[`${stage}_model`]) || settings.default_model;
         setModels(list);
-        setModel((request.faceFix && settings.face_fix_model) || settings.default_model);
+        setModel(list.some((m) => m.id === preferred) ? preferred : (list[0]?.id ?? ""));
+        if (stage) {
+          setService(settings.image_providers.find((item) => item.id === provider)?.name ?? provider);
+        }
       })
       .catch(() => setFailed(true));
   }, []);
@@ -80,7 +93,10 @@ function GenerateDialog({
 
   return (
     <div className="backdrop" onClick={onCancel}>
-      <div className="card modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="card modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h2>{request.title}</h2>
         <p>{request.message}</p>
 
@@ -123,7 +139,7 @@ function GenerateDialog({
         )}
 
         <label className="field">
-          <span className="field-label">本次使用的模型</span>
+          <span className="field-label">本次使用的模型{service ? `（${service}）` : ""}</span>
           {failed ? (
             <span className="error-text">无法读取模型列表，请确认后端已启动</span>
           ) : (
@@ -144,7 +160,8 @@ function GenerateDialog({
         </label>
 
         <p className="field-hint">
-          共创建 {count} 个{request.faceFix ? "修图" : "生成"}任务，会产生相应费用。{request.faceFix ? "修脸模型" : "默认模型"}可在「设置」中修改。
+          共创建 {count} 个{request.stage ? "修图" : "生成"}任务，会产生相应费用。
+          {request.stage ? STAGE_SETTING[request.stage] : "默认模型"}可在「设置」中修改。
         </p>
 
         <div className="modal-actions">
@@ -153,7 +170,13 @@ function GenerateDialog({
           </button>
           <button
             className="btn btn-primary"
-            onClick={() => onConfirm({ model, count, shot })}
+            onClick={() =>
+              onConfirm({
+                model,
+                count,
+                shot,
+              })
+            }
             disabled={!model || (request.shotChoice !== undefined && !shot)}
             autoFocus
           >

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from .facings import upload_column, uploaded_side
 from .config import Config
 
 FACE_SWAP_MESSAGES = {
@@ -22,15 +23,9 @@ FACE_NOT_FOUND_MESSAGES = {
 }
 HELPER_PATH = Path(__file__).resolve().parents[1] / 'facefusion_helper' / 'swap.py'
 # 0.5 blends the reference face into the generated one: closer to the couple than no swap, while keeping
-# more of the generated expression and lighting than a full 1.0 replacement.
+# more of the generated expression and lighting than a full 1.0 replacement. Samples use it too since 2026-11-03
+# (they used 1.0 from 2026-10-28); a task keeps the weight recorded in its snapshot.
 FACE_SWAP_WEIGHT = 0.5
-# Samples are sent to the image model as the third reference, so their faces should be as close to the couple
-# as possible; the neutral expression a full swap brings does not matter there (docs/PRD.md 4.5).
-PREVIEW_FACE_SWAP_WEIGHT = 1.0
-
-
-def face_swap_weight(slot_kind: str) -> float:
-    return PREVIEW_FACE_SWAP_WEIGHT if slot_kind == 'preview' else FACE_SWAP_WEIGHT
 
 
 # Chosen by the user on 2026-10-28: a face in the generated image that looks at the camera is swapped with
@@ -87,10 +82,11 @@ def face_scores(value) -> dict | None:
 def face_swap_reference_ids(project) -> list[str | None]:
     """Face-swap task references: [bride front, groom front, bride left, bride right, groom left, groom right].
 
-    The fronts stay first like every other task; a missing side photo is null so each slot keeps its meaning.
+    The fronts stay first like every other task; a missing side photo is null so each slot keeps its meaning. The
+    swap borrows one side photo per direction: the half side one (V7.48), else the full side one.
     """
-    a = (project['person_a_image_id'], project['person_a_left_image_id'], project['person_a_right_image_id'])
-    b = (project['person_b_image_id'], project['person_b_left_image_id'], project['person_b_right_image_id'])
+    a, b = ((project[upload_column(person, 'front')], uploaded_side(project, person, 'left')[0],
+             uploaded_side(project, person, 'right')[0]) for person in 'ab')
     bride, groom = (a, b) if project['person_a_role'] == 'bride' else (b, a)
     return [bride[0], groom[0], bride[1], bride[2], groom[1], groom[2]]
 

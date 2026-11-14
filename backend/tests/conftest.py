@@ -43,17 +43,20 @@ class ScriptedGenerator:
         self.calls = []
         self.models = []
         self.aspect_ratios = []
+        self.providers = []
         self.lock = threading.Lock()
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str,
+                       resolution: str | None = None, provider: str | None = None) -> bytes:
         with self.lock:
             self.calls.append((list(images), prompt, time.monotonic()))
             self.models.append(model)
+            self.providers.append(provider)
             self.aspect_ratios.append(aspect_ratio)
             outcome = self.outcomes.pop(0) if self.outcomes else None
         if isinstance(outcome, Exception):
             raise outcome
-        return images[0].read_bytes()
+        return images[0].read_bytes() if images else PNG  # no images: a picture from words (the style art)
 
 
 class BlockingGenerator(ScriptedGenerator):
@@ -63,7 +66,7 @@ class BlockingGenerator(ScriptedGenerator):
         self.release = threading.Event()
         self.models = []
 
-    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str) -> bytes:
+    def generate_image(self, images: list[Path], prompt: str, model: str, aspect_ratio: str, **_) -> bytes:
         with self.lock:
             self.calls.append((list(images), prompt, time.monotonic()))
             self.models.append(model)
@@ -77,7 +80,8 @@ class BlockingGenerator(ScriptedGenerator):
 @pytest.fixture
 def app_factory(tmp_path):
     @contextmanager
-    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_fix='off', stylist=None):
+    def factory(*, generator=None, face_swapper=None, concurrency=2, data_dir=None, auto_face_fix='off', stylist=None,
+                style_art='off'):
         config = Config(data_dir or tmp_path / 'data', concurrency, 'mock', 0)
         # Test photos are tiny placeholders without faces; photo preparation has its own tests.
         # Styled photos (V4.0) are edited by their own scripted model, so tests counting shot requests are not
@@ -90,6 +94,8 @@ def app_factory(tmp_path):
         with TestClient(app, backend_options={'use_uvloop': True}) as client:
             # Most tests count tasks of one kind; automatic face fixes are opted into where they are the subject.
             app.state.db.set_auto_face_fix(auto_face_fix)
+            # The style art (V7.33) adds a reference and three edits to every new shot; its own tests opt in.
+            app.state.db.set_style_art_mode(style_art)
             try:
                 yield client, app
             finally:
@@ -119,7 +125,7 @@ def create_project(client, *, upload=True, role='bride'):
 
 
 # Batch-mechanics tests count tasks; pin them to six styles so adding styles does not change their numbers.
-DEFAULT_TEST_STYLE_IDS = ['seaside_sunset', 'chinese_traditional', 'dark_studio', 'lakeside', 'lawn_floral', 'french_estate']
+DEFAULT_TEST_STYLE_IDS = ['seaside_sunset', 'flower_house', 'city_story', 'forest_film', 'garden_lawn', 'chinese_celebration']
 
 
 def ensure_makeup(client, project_id, style_id):

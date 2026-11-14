@@ -48,11 +48,14 @@ def test_each_model_goes_to_the_service_that_offers_it(tmp_path):
     router, hosts = routed(tmp_path, lambda: choice[0])
     router.generate_image([image], 'p', 'gpt-image-2', '3:4')        # both offer it: the selected one
     router.generate_image([image], 'p', 'gpt-image-2.5', '3:4')      # only PPTOKEN
-    router.generate_image([image], 'p', 'gpt-image-2.5-sunburst', '3:4')  # only 88API, e.g. an older task's replay
     choice[0] = '88api'
     router.generate_image([image], 'p', 'gpt-image-2', '3:4')
     assert hosts == [('api.pptoken.cc', f'Bearer {KEY_PP}'), ('api.pptoken.cc', f'Bearer {KEY_PP}'),
-                     ('api.88api.ai', f'Bearer {KEY_88}'), ('api.88api.ai', f'Bearer {KEY_88}')]
+                     ('api.88api.ai', f'Bearer {KEY_88}')]
+    # A model only 88API offers goes there even with PPTOKEN selected (e.g. an older task's replay).
+    from app.models import get_model, provider_for
+    assert provider_for(get_model('gemini-nano-banana-2.1'), 'pptoken') == '88api'
+    assert provider_for(get_model('gpt-image-2.6-sunburst'), 'pptoken') == 'pptoken'
 
 
 def test_a_service_without_a_key_is_never_sent_anything(tmp_path):
@@ -93,20 +96,20 @@ def test_settings_switch_the_service_and_keep_the_default_model_one_it_offers(ap
     with app_factory(generator=ScriptedGenerator()) as (client, _app):
         settings = client.get('/api/settings').json()
         assert settings['image_provider'] == '88api'
-        assert [(item['id'], item['available']) for item in settings['image_providers']] == [('88api', True), ('pptoken', True)]
-        assert client.patch('/api/settings', json={'default_model': 'gpt-image-2.5-sunburst'}).status_code == 200
+        assert [(item['id'], item['available']) for item in settings['image_providers']] == [('88api', True), ('pptoken', True), ('ark', True)]
+        assert client.patch('/api/settings', json={'default_model': 'gemini-nano-banana-2.1'}).status_code == 200
         assert client.patch('/api/settings', json={'default_model': 'gpt-image-2.5'}).status_code == 422  # PPTOKEN only
-        # PPTOKEN has no Sunburst: the default becomes its first model.
+        # PPTOKEN has no Gemini Nano Banana: the default becomes its first model.
         saved = client.patch('/api/settings', json={'image_provider': 'pptoken'}).json()
         assert (saved['image_provider'], saved['default_model']) == ('pptoken', 'gpt-image-2')
-        assert [model['id'] for model in client.get('/api/models').json()] == ['gpt-image-2', 'gpt-image-2.5']
+        assert [model['id'] for model in client.get('/api/models').json()] == ['gpt-image-2', 'gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6', 'gpt-image-2.6-sunburst', 'gpt-image-2.6-flare']
         assert client.patch('/api/settings', json={'image_provider': '88api', 'default_model': 'gpt-image-2.5'}).status_code == 422
         assert client.patch('/api/settings', json={'image_provider': 'elsewhere'}).status_code == 422
         # A request naming a model the service does not offer is refused.
         project = create_project(client)
-        ensure_looks(client, project['id'], ['dark_studio'])
+        ensure_looks(client, project['id'], ['city_story'])
         response = client.post(f"/api/projects/{project['id']}/previews", json={
-            'client_request_id': 'sunburst', 'style_ids': ['dark_studio'], 'model': 'gpt-image-2.5-sunburst'})
+            'client_request_id': 'sunburst', 'style_ids': ['city_story'], 'model': 'gemini-nano-banana-2.1'})
         assert response.status_code == 422 and response.json()['detail']['code'] == 'invalid_model'
 
 
@@ -119,3 +122,11 @@ def test_pptoken_cannot_be_selected_without_its_key(tmp_path):
         response = client.patch('/api/settings', json={'image_provider': 'pptoken'})
         assert response.status_code == 409 and response.json()['detail']['code'] == 'provider_unavailable'
         assert client.get('/api/settings').json()['image_provider'] == '88api'
+
+
+def test_gpt_quality_is_max_on_pptoken_and_xhigh_on_88api(tmp_path):
+    from app.api88 import Api88Generator
+    from app.config import Config
+    config = Config(tmp_path / 'data', 1, '88api', 0, api_key='k')
+    assert Api88Generator(config, provider='PPTOKEN')._quality == 'max'
+    assert Api88Generator(config)._quality == 'xhigh'
